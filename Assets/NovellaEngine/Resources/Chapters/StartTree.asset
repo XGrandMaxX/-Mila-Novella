@@ -1,0 +1,687 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7fd50bdf9114ce4498a7f22f486539a, type: 3}
+  m_Name: StartTree
+  m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
+  RootNodeID: Dialogue_93ab9
+  StartPosition: {x: -3248, y: -176}
+  Nodes:
+  - rid: 6664540656967614626
+  - rid: 6664540656967614629
+  - rid: 6664540656967614630
+  - rid: 6664540656967614631
+  - rid: 6664540656967614633
+  - rid: 6664540656967614636
+  - rid: 6664540656967614637
+  - rid: 6664540656967614635
+  - rid: 6664540656967614638
+  - rid: 6664540656967614632
+  - rid: 6664540656967614628
+  - rid: 6664540656967614634
+  - rid: 6664540656967614640
+  references:
+    version: 2
+    RefIds:
+    - rid: 6664540656967614626
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_469d8
+        NodeTitle: 
+        NodeType: 0
+        GraphPosition: {x: -5871, y: -290}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations:
+          - LanguageID: EN
+            Text: 
+          - LanguageID: RU
+            Text: 
+          - LanguageID: ES
+            Text: 
+          - LanguageID: FR
+            Text: 
+          - LanguageID: DE
+            Text: 
+          - LanguageID: ZH
+            Text: 
+          - LanguageID: JA
+            Text: 
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 24
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614628
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Condition_268d2
+        NodeTitle: Condition 1
+        NodeType: 7
+        GraphPosition: {x: -2608, y: -230}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_1dca1
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: True
+            - LanguageID: RU
+              Text: "\u0418\u0441\u0442\u0438\u043D\u0430"
+          NextNodeID: Variable_d15ee
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        - PortID: Choice_edc71
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: False
+            - LanguageID: RU
+              Text: "\u041B\u043E\u0436\u044C"
+          NextNodeID: End_a6618
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        UnlockChoiceLimit: 0
+        Conditions:
+        - Variable: Reputation
+          Operator: 4
+          Value: 10
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614629
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Variable_30484
+        NodeTitle: Variable 2
+        NodeType: 6
+        GraphPosition: {x: -2355, y: 49}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Condition_04253
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables:
+        - VariableName: MyVariable
+          VarOperation: 0
+          VarValue: 1
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614630
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: End_269b2
+        NodeTitle: End 2
+        NodeType: 3
+        GraphPosition: {x: -1972, y: 111}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614631
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_be221
+        NodeTitle: Dialogue 4
+        NodeType: 0
+        GraphPosition: {x: -2605, y: -38}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Variable_30484
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614632
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Branch_e953c
+        NodeTitle: Branch 1
+        NodeType: 1
+        GraphPosition: {x: -2778, y: -188}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_d55d5
+          LocalizedText:
+            Translations: []
+          NextNodeID: Condition_268d2
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        - PortID: Choice_f785d
+          LocalizedText:
+            Translations: []
+          NextNodeID: Dialogue_be221
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614633
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Condition_04253
+        NodeTitle: Condition 2
+        NodeType: 7
+        GraphPosition: {x: -2146, y: 3}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_8972e
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: True
+            - LanguageID: RU
+              Text: "\u0418\u0441\u0442\u0438\u043D\u0430"
+          NextNodeID: Dialogue_0ad73
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        - PortID: Choice_171cf
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: False
+            - LanguageID: RU
+              Text: "\u041B\u043E\u0436\u044C"
+          NextNodeID: End_269b2
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        UnlockChoiceLimit: 0
+        Conditions:
+        - Variable: Reputation
+          Operator: 4
+          Value: 10
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614634
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_0ad73
+        NodeTitle: Dialogue 5
+        NodeType: 0
+        GraphPosition: {x: -1966, y: -68}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Branch_7e13c
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614635
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_93ab9
+        NodeTitle: Dialogue 2
+        NodeType: 0
+        GraphPosition: {x: -3035, y: -241}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 0
+              inSlope: 2
+              outSlope: 2
+              tangentMode: 34
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 2
+              inSlope: 2
+              outSlope: 2
+              tangentMode: 34
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Branch_e953c
+        AudioSyncNodeID: Audio_fe980
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614636
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Audio_fe980
+        NodeTitle: Audio 1
+        NodeType: 5
+        GraphPosition: {x: -2810, y: -328}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 1
+        AudioEvents:
+        - LineIndex: 0
+          TriggerType: 0
+          TimeDelay: 0
+          AudioAsset: {fileID: 0}
+          AudioAction: 0
+          AudioChannel: 1
+          Volume: 1
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614637
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Variable_d15ee
+        NodeTitle: Variable 1
+        NodeType: 6
+        GraphPosition: {x: -2432, y: -309}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables:
+        - VariableName: MyVariable
+          VarOperation: 0
+          VarValue: 1
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614638
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: End_a6618
+        NodeTitle: End 2
+        NodeType: 3
+        GraphPosition: {x: -2396, y: -185}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 2
+        NextChapter: {fileID: 0}
+        TargetSceneName: Game
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1
+    - rid: 6664540656967614640
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Branch_7e13c
+        NodeTitle: Branch 2
+        NodeType: 1
+        GraphPosition: {x: -1763, y: -33}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_a42c8
+          LocalizedText:
+            Translations: []
+          NextNodeID: 
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        - PortID: Choice_6d6ed
+          LocalizedText:
+            Translations: []
+          NextNodeID: 
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+        UnlockChoiceLimit: 0
+        Conditions: []
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        VariableName: MyVariable
+        VarOperation: 0
+        VarValue: 1

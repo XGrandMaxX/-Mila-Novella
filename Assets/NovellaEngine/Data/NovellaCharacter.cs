@@ -28,9 +28,9 @@ namespace NovellaEngine.Data
         [TextArea(3, 5)]
         public string InternalNotes;
 
-
-        private const int MAX_ID_LENGTH = 18;
-        private const int MAX_NAME_LENGTH = 25;
+        public const int MAX_ID_LENGTH = 20;
+        public const int MAX_NAME_LENGTH = 30;
+        public const int MAX_NOTES_LENGTH = 200;
 
         private void OnValidate()
         {
@@ -42,6 +42,9 @@ namespace NovellaEngine.Data
 
             if (!string.IsNullOrEmpty(DisplayName_RU) && DisplayName_RU.Length > MAX_NAME_LENGTH)
                 DisplayName_RU = DisplayName_RU[..MAX_NAME_LENGTH];
+
+            if (!string.IsNullOrEmpty(InternalNotes) && InternalNotes.Length > MAX_NOTES_LENGTH)
+                InternalNotes = InternalNotes[..MAX_NOTES_LENGTH];
         }
     }
 }

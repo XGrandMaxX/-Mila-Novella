@@ -17,6 +17,7 @@ namespace NovellaEngine.Editor
 
         private bool _isInspectorOpen = true;
         private NovellaNodeView _selectedNodeView;
+        private NovellaGroupView _selectedGroupView; // <-- Добавили поддержку выбора группы
         private bool _isStartNodeSelected = false;
         private bool _hasUnsavedChanges = false;
         private Button _saveButton;
@@ -108,8 +109,9 @@ namespace NovellaEngine.Editor
             mainContainer.Add(graphContainer);
             mainContainer.Add(_rightPanel);
 
-            _graphView.OnNodeSelected = (selectedNode) => { _isStartNodeSelected = false; _selectedNodeView = selectedNode; _inspectorUI.SetGraphView(_graphView); _inspectorContainer.MarkDirtyRepaint(); };
-            _graphView.OnStartNodeSelected = () => { _selectedNodeView = null; _isStartNodeSelected = true; _inspectorUI.SetGraphView(_graphView); _inspectorContainer.MarkDirtyRepaint(); };
+            _graphView.OnNodeSelected = (selectedNode) => { _isStartNodeSelected = false; _selectedNodeView = selectedNode; _selectedGroupView = null; _inspectorUI.SetGraphView(_graphView); _inspectorContainer.MarkDirtyRepaint(); };
+            _graphView.OnStartNodeSelected = () => { _selectedNodeView = null; _selectedGroupView = null; _isStartNodeSelected = true; _inspectorUI.SetGraphView(_graphView); _inspectorContainer.MarkDirtyRepaint(); };
+            _graphView.OnGroupSelected = (selectedGroup) => { _selectedNodeView = null; _isStartNodeSelected = false; _selectedGroupView = selectedGroup; _inspectorUI.SetGraphView(_graphView); _inspectorContainer.MarkDirtyRepaint(); };
 
             _graphView.LoadGraph();
             _hasUnsavedChanges = false;
@@ -155,19 +157,29 @@ namespace NovellaEngine.Editor
             var spacer = new VisualElement { style = { flexGrow = 1 } };
             toolbarContainer.Add(spacer);
 
+            var helpBtn = new Button(() => NovellaWelcomeWindow.ShowWindow()) { text = ToolLang.Get("🎓 Tutorial", "🎓 Обучение") };
             var exportBtn = new Button(() => NovellaCSVUtility.ExportCSV(_currentTree, _locSettings.Languages)) { text = ToolLang.Get("📤 Export CSV", "📤 Экспорт CSV") };
             var importBtn = new Button(() => { NovellaCSVUtility.ImportCSV(_currentTree, _locSettings.Languages); _inspectorContainer.MarkDirtyRepaint(); _graphView.LoadGraph(); }) { text = ToolLang.Get("📥 Import CSV", "📥 Импорт CSV") };
-            exportBtn.style.marginRight = 5; importBtn.style.marginRight = 15;
+            helpBtn.style.marginRight = 5; exportBtn.style.marginRight = 5; importBtn.style.marginRight = 15;
 
             var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 480 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
 
+            toolbarContainer.Add(helpBtn);
             toolbarContainer.Add(exportBtn);
             toolbarContainer.Add(importBtn);
             toolbarContainer.Add(toggleInspectorBtn);
             container.Add(toolbarContainer);
         }
 
-        private void DrawInspectorPanel() { if (_inspectorUI != null) _inspectorUI.DrawInspector(_selectedNodeView, _isStartNodeSelected); }
+        private void DrawInspectorPanel()
+        {
+            if (_inspectorUI != null)
+            {
+                if (_selectedGroupView != null) _inspectorUI.DrawGroupInspector(_selectedGroupView);
+                else _inspectorUI.DrawInspector(_selectedNodeView, _isStartNodeSelected);
+            }
+        }
+
         public void SaveGraph() { if (_graphView != null) { _graphView.SyncGraphToData(); EditorUtility.SetDirty(_currentTree); AssetDatabase.SaveAssets(); } _hasUnsavedChanges = false; UpdateButtonState(); }
         public void MarkUnsaved() { _hasUnsavedChanges = true; _lastChangeTime = EditorApplication.timeSinceStartup; UpdateButtonState(); if (_currentTree != null) EditorUtility.SetDirty(_currentTree); }
         private void UpdateButtonState() { if (_saveButton == null) return; _saveButton.SetEnabled(_hasUnsavedChanges); _saveButton.style.backgroundColor = _hasUnsavedChanges ? new StyleColor(new Color(0.2f, 0.6f, 0.2f)) : new StyleColor(new Color(0.3f, 0.3f, 0.3f)); }

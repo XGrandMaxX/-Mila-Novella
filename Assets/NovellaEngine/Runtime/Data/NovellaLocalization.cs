@@ -7,7 +7,19 @@ using UnityEditor;
 using UnityEngine;
 
 namespace NovellaEngine.Data
-{
+
+{    /// <summary>
+     /// Маленький помощник для перевода самого интерфейса редактора
+     /// </summary>
+    public static class ToolLang
+    {
+        public static bool IsRU => EditorPrefs.GetBool("NovellaGraph_IsRU", true);
+
+        public static void Toggle() => EditorPrefs.SetBool("NovellaGraph_IsRU", !IsRU);
+
+        public static string Get(string en, string ru) => IsRU ? ru : en;
+    }
+
     [Serializable]
     public class TranslationEntry
     {
@@ -40,6 +52,7 @@ namespace NovellaEngine.Data
         [Header("Available Languages")]
         public List<string> Languages = new List<string> { "EN", "RU", "ES", "FR", "DE", "ZH", "JA" };
 
+#if UNITY_EDITOR
         public static NovellaLocalizationSettings GetOrCreateSettings()
         {
             var guids = AssetDatabase.FindAssets("t:NovellaLocalizationSettings");
@@ -47,13 +60,19 @@ namespace NovellaEngine.Data
                 return AssetDatabase.LoadAssetAtPath<NovellaLocalizationSettings>(AssetDatabase.GUIDToAssetPath(guids[0]));
 
             var settings = ScriptableObject.CreateInstance<NovellaLocalizationSettings>();
-            if (!AssetDatabase.IsValidFolder("Assets/_Project/NovellaEngine/Runtime/Data"))
-                Directory.CreateDirectory(Application.dataPath + "/_Project/NovellaEngine/Runtime/Data");
 
-            AssetDatabase.CreateAsset(settings, "Assets/_Project/NovellaEngine/Runtime/Data/LocalizationSettings.asset");
+            string folderPath = "Assets/NovellaEngine/Runtime/Data";
+            if (!AssetDatabase.IsValidFolder(folderPath))
+            {
+                Directory.CreateDirectory(Application.dataPath + "/NovellaEngine/Runtime/Data");
+                AssetDatabase.Refresh();
+            }
+
+            AssetDatabase.CreateAsset(settings, folderPath + "/LocalizationSettings.asset");
             AssetDatabase.SaveAssets();
             return settings;
         }
+#endif
     }
 
 #if UNITY_EDITOR

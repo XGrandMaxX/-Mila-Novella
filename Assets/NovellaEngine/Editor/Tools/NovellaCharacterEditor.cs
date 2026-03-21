@@ -1,5 +1,4 @@
-﻿// Путь: _Project/NovellaEngine/Editor/Tools/NovellaCharacterEditor.cs
-using NovellaEngine.Data;
+﻿using NovellaEngine.Data;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
@@ -252,6 +251,17 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = Color.white;
         }
 
+        private void DrawLimitHeader(string title, int currentLength, int maxLength)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(title, EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            GUI.contentColor = currentLength >= maxLength ? new Color(1f, 0.4f, 0.4f) : Color.gray;
+            GUILayout.Label($"{currentLength} / {maxLength}", EditorStyles.miniLabel);
+            GUI.contentColor = Color.white;
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawCenterPanel()
         {
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(350), GUILayout.ExpandHeight(true));
@@ -275,12 +285,23 @@ namespace NovellaEngine.Editor
                 _serializedObject.Update();
                 EditorGUI.BeginChangeCheck();
 
-                EditorGUILayout.PropertyField(_serializedObject.FindProperty("CharacterID"), new GUIContent(ToolLang.Get("Character ID", "Внутренний ID")));
+                var idProp = _serializedObject.FindProperty("CharacterID");
+                DrawLimitHeader(ToolLang.Get("Character ID", "Внутренний ID"), idProp.stringValue.Length, NovellaCharacter.MAX_ID_LENGTH);
+                idProp.stringValue = EditorGUILayout.TextField(idProp.stringValue);
+                if (idProp.stringValue.Length > NovellaCharacter.MAX_ID_LENGTH) idProp.stringValue = idProp.stringValue.Substring(0, NovellaCharacter.MAX_ID_LENGTH);
                 GUILayout.Space(5);
 
-                EditorGUILayout.PropertyField(_serializedObject.FindProperty("DisplayName_EN"), new GUIContent(ToolLang.Get("Display Name (EN)", "Имя (EN)")));
-                EditorGUILayout.PropertyField(_serializedObject.FindProperty("DisplayName_RU"), new GUIContent(ToolLang.Get("Display Name (RU)", "Имя (RU)")));
-                EditorGUILayout.PropertyField(_serializedObject.FindProperty("ThemeColor"), new GUIContent(ToolLang.Get("Theme Color", "Цвет темы")));
+                var nameEnProp = _serializedObject.FindProperty("DisplayName_EN");
+                DrawLimitHeader(ToolLang.Get("Display Name (EN)", "Имя (EN)"), nameEnProp.stringValue.Length, NovellaCharacter.MAX_NAME_LENGTH);
+                nameEnProp.stringValue = EditorGUILayout.TextField(nameEnProp.stringValue);
+                if (nameEnProp.stringValue.Length > NovellaCharacter.MAX_NAME_LENGTH) nameEnProp.stringValue = nameEnProp.stringValue.Substring(0, NovellaCharacter.MAX_NAME_LENGTH);
+
+                var nameRuProp = _serializedObject.FindProperty("DisplayName_RU");
+                DrawLimitHeader(ToolLang.Get("Display Name (RU)", "Имя (RU)"), nameRuProp.stringValue.Length, NovellaCharacter.MAX_NAME_LENGTH);
+                nameRuProp.stringValue = EditorGUILayout.TextField(nameRuProp.stringValue);
+                if (nameRuProp.stringValue.Length > NovellaCharacter.MAX_NAME_LENGTH) nameRuProp.stringValue = nameRuProp.stringValue.Substring(0, NovellaCharacter.MAX_NAME_LENGTH);
+
+                EditorGUILayout.PropertyField(_serializedObject.FindProperty("ThemeColor"), new GUIContent(ToolLang.Get("Speaker Color", "Цвет спикера")));
 
                 GUILayout.Space(10);
                 GUILayout.Label(ToolLang.Get("Visuals", "Визуализация"), EditorStyles.boldLabel);
@@ -382,7 +403,12 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                EditorGUILayout.PropertyField(_serializedObject.FindProperty("InternalNotes"), new GUIContent(ToolLang.Get("Internal Notes", "Внутренние заметки")));
+
+                var notesProp = _serializedObject.FindProperty("InternalNotes");
+                DrawLimitHeader(ToolLang.Get("Internal Notes", "Внутренние заметки"), notesProp.stringValue.Length, NovellaCharacter.MAX_NOTES_LENGTH);
+                notesProp.stringValue = EditorGUILayout.TextArea(notesProp.stringValue, new GUIStyle(EditorStyles.textArea) { wordWrap = true }, GUILayout.Height(60));
+                if (notesProp.stringValue.Length > NovellaCharacter.MAX_NOTES_LENGTH) notesProp.stringValue = notesProp.stringValue.Substring(0, NovellaCharacter.MAX_NOTES_LENGTH);
+
 
                 if (EditorGUI.EndChangeCheck())
                 {

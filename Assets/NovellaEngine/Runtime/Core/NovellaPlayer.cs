@@ -1,10 +1,14 @@
-using System.Collections;
+Ôªøusing System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using NovellaEngine.Data;
 using System.Linq;
+
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace NovellaEngine.Runtime
 {
@@ -28,26 +32,38 @@ namespace NovellaEngine.Runtime
 
         public static Dictionary<string, int> Variables = new Dictionary<string, int>();
 
-        private AudioSource _bgmSource;
-        private AudioSource _sfxSource;
-
+        private NovellaPoolManager _poolManager;
         private NovellaNodeData _currentNode;
         private int _currentLineIndex = 0;
+
         private bool _isWaitingForClick = false;
+        private bool _isTyping = false;
+        private Coroutine _typewriterCoroutine;
 
         private void Start()
         {
-            _bgmSource = gameObject.AddComponent<AudioSource>(); _bgmSource.loop = true;
-            _sfxSource = gameObject.AddComponent<AudioSource>();
+            if (FindAnyObjectByType<AudioListener>() == null && Camera.main != null)
+                Camera.main.gameObject.AddComponent<AudioListener>();
 
-            if (StoryTree != null)
+            _poolManager = gameObject.GetComponent<NovellaPoolManager>();
+            if (_poolManager == null) _poolManager = gameObject.AddComponent<NovellaPoolManager>();
+            _poolManager.InitializePools();
+
+            string chapterName = PlayerPrefs.GetString("SelectedChapterPath", "");
+            if (!string.IsNullOrEmpty(chapterName))
             {
-                PlayTree(StoryTree);
+                PlayerPrefs.SetString("SelectedChapterPath", "");
+                NovellaTree externalTree = Resources.Load<NovellaTree>("Chapters/" + chapterName);
+                if (externalTree != null)
+                {
+                    PlayTree(externalTree);
+                    return;
+                }
+                else Debug.LogError($"[Novella Engine] Chapter '{chapterName}' not found in Resources/Chapters/ !");
             }
-            else
-            {
-                Debug.LogWarning("[NovellaPlayer] Story Tree is not assigned!");
-            }
+
+            if (StoryTree != null) PlayTree(StoryTree);
+            else Debug.LogWarning("[NovellaPlayer] Story Tree is not assigned!");
         }
 
         public void PlayTree(NovellaTree tree)
@@ -55,7 +71,6 @@ namespace NovellaEngine.Runtime
             StoryTree = tree;
             Variables.Clear();
             ClearCharacters();
-
             PlayNode(tree.RootNodeID);
         }
 
@@ -63,7 +78,6 @@ namespace NovellaEngine.Runtime
         {
             if (string.IsNullOrEmpty(nodeID))
             {
-                Debug.Log("[NovellaPlayer] Reached end of the line (No next node connected).");
                 DialoguePanel.SetActive(false);
                 return;
             }
@@ -78,32 +92,69 @@ namespace NovellaEngine.Runtime
                     _currentLineIndex = 0;
                     ProcessDialogueLine();
                     break;
-
                 case ENodeType.Branch:
                     ShowChoices();
                     break;
-
+                case ENodeType.Condition:
+                    ProcessConditionNode();
+                    break;
                 case ENodeType.Audio:
                     ProcessStandaloneAudio();
                     break;
-
                 case ENodeType.Variable:
                     ProcessVariables();
                     break;
-
                 case ENodeType.End:
                     ProcessEndNode();
                     break;
             }
         }
+        private void ProcessConditionNode()
+        {
+            bool isTrue = CheckConditions(_currentNode.Conditions);
 
+            if (isTrue && _currentNode.Choices.Count > 0)
+            {
+                PlayNode(_currentNode.Choices[0].NextNodeID);
+            }
+            else if (!isTrue && _currentNode.Choices.Count > 1)
+            {
+                PlayNode(_currentNode.Choices[1].NextNodeID);
+            }
+            else
+            {
+                PlayNode("");
+            }
+        }
         private void Update()
         {
-            if (_isWaitingForClick && (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space)))
+            bool advance = false;
+
+#if ENABLE_INPUT_SYSTEM
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) advance = true;
+            if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame) advance = true;
+            if (Touchscreen.current != null && Touchscreen.current.primaryTouch.press.wasPressedThisFrame) advance = true;
+#else
+            if (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)) advance = true;
+#endif
+
+            if (advance)
             {
-                _isWaitingForClick = false;
-                _currentLineIndex++;
-                ProcessDialogueLine();
+                if (_isTyping)
+                {
+                    if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
+
+                    DialogueBodyText.maxVisibleCharacters = int.MaxValue;
+                    _isTyping = false;
+                    _isWaitingForClick = true;
+                }
+                else if (_isWaitingForClick)
+                {
+                    _isWaitingForClick = false;
+                    ProcessSyncedAudio(EAudioTriggerType.OnEnd, _currentLineIndex);
+                    _currentLineIndex++;
+                    ProcessDialogueLine();
+                }
             }
         }
 
@@ -113,11 +164,15 @@ namespace NovellaEngine.Runtime
 
             if (_currentLineIndex >= _currentNode.DialogueLines.Count)
             {
+                ProcessSyncedAudio(EAudioTriggerType.OnDialogueEnd, -1);
                 PlayNode(_currentNode.NextNodeID);
                 return;
             }
 
             var line = _currentNode.DialogueLines[_currentLineIndex];
+
+            ProcessSyncedAudio(EAudioTriggerType.OnStart, _currentLineIndex);
+            ProcessSyncedAudio(EAudioTriggerType.TimeDelay, _currentLineIndex);
 
             if (line.DelayBefore > 0f)
             {
@@ -150,20 +205,106 @@ namespace NovellaEngine.Runtime
                 SpeakerNameText.gameObject.SetActive(false);
             }
 
-            DialogueBodyText.text = line.LocalizedPhrase.GetText(CurrentLanguage);
-            DialogueBodyText.fontSize = _currentNode.FontSize;
+            DialogueBodyText.fontSize = line.FontSize > 0 ? line.FontSize : 32;
+            string localizedText = line.LocalizedPhrase.GetText(CurrentLanguage);
 
+            if (line.UseTypewriter)
+            {
+                if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
+                _typewriterCoroutine = StartCoroutine(TypewriterRoutine(line, localizedText));
+            }
+            else
+            {
+                DialogueBodyText.text = localizedText;
+                DialogueBodyText.maxVisibleCharacters = 99999;
+                _isTyping = false;
+                _isWaitingForClick = true;
+            }
+        }
+
+        private IEnumerator TypewriterRoutine(DialogueLine line, string fullText)
+        {
+            _isTyping = true;
+            _isWaitingForClick = false;
+
+            DialogueBodyText.text = fullText;
+            DialogueBodyText.maxVisibleCharacters = 0;
+
+            DialogueBodyText.ForceMeshUpdate();
+            int totalVisibleChars = DialogueBodyText.textInfo.characterCount;
+
+            float timer = 0f;
+            int currentVisibleCount = 0;
+
+            while (currentVisibleCount < totalVisibleChars)
+            {
+                float currentSpeed = line.BaseSpeed;
+                if (line.UseCustomPacing && totalVisibleChars > 1)
+                {
+                    float progress = (float)currentVisibleCount / (totalVisibleChars - 1);
+                    float multiplier = line.PacingCurve.Evaluate(progress);
+                    currentSpeed *= Mathf.Max(0.1f, multiplier);
+                }
+
+                timer += Time.deltaTime;
+                float timePerChar = 1f / currentSpeed;
+
+                while (timer >= timePerChar && currentVisibleCount < totalVisibleChars)
+                {
+                    currentVisibleCount++;
+                    timer -= timePerChar;
+                }
+
+                DialogueBodyText.maxVisibleCharacters = currentVisibleCount;
+                yield return null;
+            }
+
+            DialogueBodyText.maxVisibleCharacters = int.MaxValue;
+            _isTyping = false;
             _isWaitingForClick = true;
+        }
+
+        private void ProcessSyncedAudio(EAudioTriggerType trigger, int lineIndex)
+        {
+            if (string.IsNullOrEmpty(_currentNode.AudioSyncNodeID)) return;
+            var audioNode = StoryTree.Nodes.FirstOrDefault(n => n.NodeID == _currentNode.AudioSyncNodeID);
+            if (audioNode == null || audioNode.NodeType != ENodeType.Audio) return;
+
+            foreach (var ev in audioNode.AudioEvents)
+            {
+                if (ev.TriggerType == trigger && (trigger == EAudioTriggerType.OnDialogueEnd || ev.LineIndex == lineIndex))
+                {
+                    if (trigger == EAudioTriggerType.TimeDelay) StartCoroutine(PlayAudioDelayed(ev));
+                    else
+                    {
+                        if (ev.AudioAction == EAudioAction.Play) _poolManager.PlayAudio(ev.AudioAsset, ev.Volume, ev.AudioChannel, ev.AudioChannel == EAudioChannel.BGM);
+                        else if (ev.AudioAction == EAudioAction.Stop) _poolManager.StopAudio(ev.AudioChannel);
+                    }
+                }
+            }
+        }
+
+        private IEnumerator PlayAudioDelayed(DialogueAudioEvent ev)
+        {
+            yield return new WaitForSeconds(ev.TimeDelay);
+            if (ev.AudioAction == EAudioAction.Play) _poolManager.PlayAudio(ev.AudioAsset, ev.Volume, ev.AudioChannel, ev.AudioChannel == EAudioChannel.BGM);
+            else if (ev.AudioAction == EAudioAction.Stop) _poolManager.StopAudio(ev.AudioChannel);
+        }
+
+        private void ProcessStandaloneAudio()
+        {
+            if (!_currentNode.SyncWithDialogue)
+            {
+                if (_currentNode.AudioAction == EAudioAction.Play && _currentNode.AudioAsset != null) _poolManager.PlayAudio(_currentNode.AudioAsset, _currentNode.AudioVolume, _currentNode.AudioChannel, _currentNode.AudioChannel == EAudioChannel.BGM);
+                else if (_currentNode.AudioAction == EAudioAction.Stop) _poolManager.StopAudio(_currentNode.AudioChannel);
+            }
+            PlayNode(_currentNode.NextNodeID);
         }
 
         private void ShowChoices()
         {
             DialoguePanel.SetActive(false);
-
-            foreach (Transform child in ChoiceContainer)
-            {
-                Destroy(child.gameObject);
-            }
+            foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
 
             foreach (var choice in _currentNode.Choices)
             {
@@ -171,27 +312,19 @@ namespace NovellaEngine.Runtime
 
                 GameObject btnGO = Instantiate(ChoiceButtonPrefab, ChoiceContainer);
                 var tmpText = btnGO.GetComponentInChildren<TMP_Text>();
-                if (tmpText != null)
-                {
-                    tmpText.text = choice.LocalizedText.GetText(CurrentLanguage);
-                }
+                if (tmpText != null) tmpText.text = choice.LocalizedText.GetText(CurrentLanguage);
 
                 var button = btnGO.GetComponent<Button>();
-                button.onClick.AddListener(() => {
-                    foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
-                    PlayNode(choice.NextNodeID);
-                });
+                button.onClick.AddListener(() => { foreach (Transform child in ChoiceContainer) Destroy(child.gameObject); PlayNode(choice.NextNodeID); });
             }
         }
 
         private bool CheckConditions(List<ChoiceCondition> conditions)
         {
             if (conditions == null || conditions.Count == 0) return true;
-
             foreach (var cond in conditions)
             {
                 int varValue = Variables.ContainsKey(cond.Variable) ? Variables[cond.Variable] : 0;
-
                 switch (cond.Operator)
                 {
                     case EConditionOperator.Equal: if (varValue != cond.Value) return false; break;
@@ -210,64 +343,22 @@ namespace NovellaEngine.Runtime
             foreach (var v in _currentNode.Variables)
             {
                 if (!Variables.ContainsKey(v.VariableName)) Variables[v.VariableName] = 0;
-
                 if (v.VarOperation == EVarOperation.Set) Variables[v.VariableName] = v.VarValue;
                 else if (v.VarOperation == EVarOperation.Add) Variables[v.VariableName] += v.VarValue;
-
-                Debug.Log($"[Variable] {v.VariableName} = {Variables[v.VariableName]}");
             }
-
-            PlayNode(_currentNode.NextNodeID);
-        }
-
-        private void ProcessStandaloneAudio()
-        {
-            if (!_currentNode.SyncWithDialogue)
-            {
-                AudioSource targetSource = _currentNode.AudioChannel == EAudioChannel.BGM ? _bgmSource : _sfxSource;
-
-                if (_currentNode.AudioAction == EAudioAction.Play && _currentNode.AudioAsset != null)
-                {
-                    targetSource.clip = _currentNode.AudioAsset;
-                    targetSource.volume = _currentNode.AudioVolume;
-                    targetSource.Play();
-                }
-                else if (_currentNode.AudioAction == EAudioAction.Stop)
-                {
-                    targetSource.Stop();
-                }
-            }
-
             PlayNode(_currentNode.NextNodeID);
         }
 
         private void ProcessEndNode()
         {
             DialoguePanel.SetActive(false);
-
-            if (_currentNode.EndAction == EEndAction.QuitGame)
-            {
-                Debug.Log("QUIT GAME");
-                Application.Quit();
-            }
-            else if (_currentNode.EndAction == EEndAction.LoadNextChapter && _currentNode.NextChapter != null)
-            {
-                Debug.Log($"Loading next chapter: {_currentNode.NextChapter.name}");
-                PlayTree(_currentNode.NextChapter);
-            }
-            else
-            {
-                Debug.Log("RETURN TO MAIN MENU");
-                // —˛‰‡ ÏÓÊÌÓ ‰Ó·‡‚ËÚ¸ SceneManager.LoadScene("MainMenu");
-            }
+            if (_currentNode.EndAction == EEndAction.QuitGame) Application.Quit();
+            else if (_currentNode.EndAction == EEndAction.LoadNextChapter && _currentNode.NextChapter != null) PlayTree(_currentNode.NextChapter);
         }
 
         private void ClearCharacters()
         {
-            if (CharactersContainer != null)
-            {
-                foreach (Transform child in CharactersContainer) Destroy(child.gameObject);
-            }
+            if (CharactersContainer != null) foreach (Transform child in CharactersContainer) Destroy(child.gameObject);
         }
     }
 }

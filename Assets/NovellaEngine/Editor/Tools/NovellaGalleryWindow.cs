@@ -1,9 +1,11 @@
-﻿using UnityEditor;
+﻿// Путь: Assets/NovellaEngine/Editor/Tools/NovellaGalleryWindow.cs
+using UnityEditor;
 using UnityEngine;
 using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using NovellaEngine.Data;
 
 namespace NovellaEngine.Editor
 {
@@ -37,9 +39,11 @@ namespace NovellaEngine.Editor
         private Action<UnityEngine.Object> _onSelect;
         private EGalleryFilter _filterMode = EGalleryFilter.All;
 
-        private string _galleryDir = "Assets/_Project/NovellaEngine/Gallery";
+        // === ФИКС ПУТЕЙ: Убран _Project ===
+        private string _galleryDir = "Assets/NovellaEngine/Gallery";
         private string _projectDir = "Assets";
-        private string _trashDir = "Assets/_Project/NovellaEngine/TrashBin";
+        private string _trashDir = "Assets/NovellaEngine/TrashBin";
+
         private bool _isProjectMode = false;
         private string RootDir => _isProjectMode ? _projectDir : _galleryDir;
 
@@ -90,8 +94,16 @@ namespace NovellaEngine.Editor
 
         private void Init()
         {
-            if (!AssetDatabase.IsValidFolder(_galleryDir)) { Directory.CreateDirectory(_galleryDir); AssetDatabase.Refresh(); }
-            if (!AssetDatabase.IsValidFolder(_trashDir)) { AssetDatabase.CreateFolder("Assets/_Project/NovellaEngine", "TrashBin"); }
+            // === ФИКС ПУТЕЙ ПРИ СОЗДАНИИ ПАПОК ===
+            if (!AssetDatabase.IsValidFolder(_galleryDir))
+            {
+                Directory.CreateDirectory(_galleryDir);
+                AssetDatabase.Refresh();
+            }
+            if (!AssetDatabase.IsValidFolder(_trashDir))
+            {
+                AssetDatabase.CreateFolder("Assets/NovellaEngine", "TrashBin");
+            }
 
             EmptyTrash();
 
@@ -142,8 +154,9 @@ namespace NovellaEngine.Editor
         private bool IsProtected(string path)
         {
             string p = path.Replace("\\", "/").TrimEnd('/');
-            if (p == "Assets" || p == "Assets/_Project" || p == "Assets/_Project/NovellaEngine" ||
-                p == "Assets/_Project/NovellaEngine/Gallery" || p == "Assets/_Project/NovellaEngine/TrashBin") return true;
+            // === ФИКС ЗАЩИЩЕННЫХ ПУТЕЙ ===
+            if (p == "Assets" || p == "Assets/NovellaEngine" ||
+                p == "Assets/NovellaEngine/Gallery" || p == "Assets/NovellaEngine/TrashBin") return true;
             return false;
         }
 
@@ -509,7 +522,7 @@ namespace NovellaEngine.Editor
                 DragAndDrop.PrepareStartDrag(); DragAndDrop.paths = _selectedPaths.ToArray(); DragAndDrop.StartDrag("Move Items"); e.Use();
             }
 
-            if (item.IsFolder && rect.Contains(e.mousePosition))
+            if (item.IsFolder && DragAndDrop.paths != null && DragAndDrop.paths.Length > 0 && rect.Contains(e.mousePosition))
             {
                 if (e.type == EventType.DragUpdated) { DragAndDrop.visualMode = DragAndDropVisualMode.Move; e.Use(); }
                 else if (e.type == EventType.DragPerform)

@@ -11,5 +11,8 @@ namespace NovellaEngine.Data
 
         [SerializeReference]
         public List<NovellaNodeData> Nodes = new List<NovellaNodeData>();
+
+        [SerializeReference]
+        public List<NovellaGroupData> Groups = new List<NovellaGroupData>();
     }
 }
