@@ -191,6 +191,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndVertical();
         }
+
         private void MakeSceneFirst(int index)
         {
             var scenes = EditorBuildSettings.scenes.ToList();
@@ -386,6 +387,7 @@ namespace NovellaEngine.Editor
             if (mainCam == null)
             {
                 GameObject camGO = new GameObject("Main Camera"); camGO.tag = "MainCamera";
+                camGO.transform.position = new Vector3(0, 0, -10f);
                 mainCam = camGO.AddComponent<Camera>(); mainCam.orthographic = true; mainCam.backgroundColor = Color.black;
             }
 
@@ -399,7 +401,11 @@ namespace NovellaEngine.Editor
                 canvas = canvasGO.AddComponent<Canvas>();
             }
 
-            canvas.renderMode = RenderMode.ScreenSpaceCamera; canvas.worldCamera = mainCam; canvas.planeDistance = 5f;
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = mainCam;
+            canvas.planeDistance = 5f;
+            canvas.sortingOrder = -10;
+
             var scaler = canvas.GetComponent<UnityEngine.UI.CanvasScaler>();
             if (scaler == null) scaler = canvas.gameObject.AddComponent<UnityEngine.UI.CanvasScaler>();
             scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -447,6 +453,12 @@ namespace NovellaEngine.Editor
                 listTransform = listObj.transform;
             }
             launcher.StoriesContainer = listTransform;
+
+            Canvas listCanvas = listTransform.GetComponent<Canvas>();
+            if (listCanvas == null) listCanvas = listTransform.gameObject.AddComponent<Canvas>();
+            listCanvas.overrideSorting = true;
+            listCanvas.sortingOrder = 50;
+            if (listTransform.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null) listTransform.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
 
             string prefabPath = "Assets/NovellaEngine/Runtime/Prefabs/StoryButton.prefab";
             GameObject savedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
@@ -516,6 +528,12 @@ namespace NovellaEngine.Editor
             }
             player.DialoguePanel = dpTransform.gameObject;
 
+            Canvas dpCanvas = dpTransform.GetComponent<Canvas>();
+            if (dpCanvas == null) dpCanvas = dpTransform.gameObject.AddComponent<Canvas>();
+            dpCanvas.overrideSorting = true;
+            dpCanvas.sortingOrder = 50;
+            if (dpTransform.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null) dpTransform.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
             Transform nameTransform = dpTransform.Find("Speaker Name");
             if (nameTransform == null)
             {
@@ -536,7 +554,11 @@ namespace NovellaEngine.Editor
                 GameObject bodyObj = new GameObject("Dialogue Body");
                 bodyObj.transform.SetParent(dpTransform, false);
                 var bodyText = bodyObj.AddComponent<TMPro.TextMeshProUGUI>();
-                bodyText.text = "Dialogue text goes here..."; bodyText.fontSize = 32; bodyText.color = Color.white; bodyText.enableWordWrapping = true; bodyText.alignment = TMPro.TextAlignmentOptions.TopLeft; bodyText.richText = true; bodyText.raycastTarget = false;
+
+                // === ИСПРАВЛЕНО ПРЕДУПРЕЖДЕНИЕ enableWordWrapping ===
+                bodyText.textWrappingMode = TMPro.TextWrappingModes.Normal;
+
+                bodyText.text = "Dialogue text goes here..."; bodyText.fontSize = 32; bodyText.color = Color.white; bodyText.alignment = TMPro.TextAlignmentOptions.TopLeft; bodyText.richText = true; bodyText.raycastTarget = false;
                 var bodyRect = bodyObj.GetComponent<RectTransform>();
                 bodyRect.anchorMin = new Vector2(0.05f, 0.1f); bodyRect.anchorMax = new Vector2(0.95f, 0.7f);
                 bodyRect.offsetMin = Vector2.zero; bodyRect.offsetMax = Vector2.zero;
@@ -554,6 +576,12 @@ namespace NovellaEngine.Editor
                 choicesRect.offsetMin = Vector2.zero; choicesRect.offsetMax = Vector2.zero;
                 choicesTransform = choicesObj.transform;
             }
+
+            Canvas chCanvas = choicesTransform.GetComponent<Canvas>();
+            if (chCanvas == null) chCanvas = choicesTransform.gameObject.AddComponent<Canvas>();
+            chCanvas.overrideSorting = true;
+            chCanvas.sortingOrder = 60;
+            if (choicesTransform.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null) choicesTransform.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
 
             var vlg = choicesTransform.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
             if (vlg == null) vlg = choicesTransform.gameObject.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();

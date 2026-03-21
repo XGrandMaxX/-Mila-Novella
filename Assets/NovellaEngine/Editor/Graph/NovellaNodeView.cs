@@ -41,7 +41,7 @@ namespace NovellaEngine.Editor
                     OutputPort.portName = ToolLang.Get("Next ➡", "Далее ➡");
                     outputContainer.Add(OutputPort);
                 }
-                else if (Data.NodeType == ENodeType.Branch || Data.NodeType == ENodeType.Condition)
+                else if (Data.NodeType == ENodeType.Branch || Data.NodeType == ENodeType.Condition || Data.NodeType == ENodeType.Random)
                 {
                     DrawBranchPorts();
                 }
@@ -67,12 +67,16 @@ namespace NovellaEngine.Editor
         public void ToggleAudioNextPort(bool isSynced)
         {
             if (Data.NodeType == ENodeType.Audio && OutputPort != null)
+            {
                 OutputPort.style.display = isSynced ? DisplayStyle.None : DisplayStyle.Flex;
+                RefreshExpandedState();
+                this.MarkDirtyRepaint();
+            }
         }
 
         public void DrawBranchPorts()
         {
-            if (Data.NodeType != ENodeType.Branch && Data.NodeType != ENodeType.Condition) return;
+            if (Data.NodeType != ENodeType.Branch && Data.NodeType != ENodeType.Condition && Data.NodeType != ENodeType.Random) return;
 
             var existingPorts = outputContainer.Query<Port>().ToList();
             foreach (var port in existingPorts) { if (port.connected) _graphView.DeleteElements(port.connections); outputContainer.Remove(port); }
@@ -82,6 +86,7 @@ namespace NovellaEngine.Editor
                 var port = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
 
                 if (Data.NodeType == ENodeType.Branch) port.portName = ToolLang.Get($"Choice {i + 1}", $"Выбор {i + 1}");
+                else if (Data.NodeType == ENodeType.Random) port.portName = ToolLang.Get($"Chance {i + 1}", $"Шанс {i + 1}");
                 else port.portName = Data.Choices[i].LocalizedText.GetText(ToolLang.IsRU ? "RU" : "EN");
 
                 outputContainer.Add(port);
@@ -104,24 +109,31 @@ namespace NovellaEngine.Editor
 
             titleContainer.style.borderBottomWidth = 0;
 
-            if (Data.NodeType == ENodeType.End) titleContainer.style.backgroundColor = new StyleColor(new Color(0.6f, 0.1f, 0.1f));
-            else if (Data.NodeType == ENodeType.Branch) titleContainer.style.backgroundColor = new StyleColor(new Color(0.6f, 0.4f, 0.1f));
-            else if (Data.NodeType == ENodeType.Character) titleContainer.style.backgroundColor = new StyleColor(new Color(0.1f, 0.4f, 0.6f));
-            else if (Data.NodeType == ENodeType.Audio) titleContainer.style.backgroundColor = new StyleColor(new Color(0.6f, 0.2f, 0.5f));
-            else if (Data.NodeType == ENodeType.Variable) titleContainer.style.backgroundColor = new StyleColor(new Color(0.2f, 0.6f, 0.6f));
-            else if (Data.NodeType == ENodeType.Condition)
+            // ЗАРЕЗЕРВИРОВАННЫЕ ЦВЕТА ИЗ НОВОГО ОКНА
+            if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Note)
             {
-                titleContainer.style.backgroundColor = new StyleColor(new Color(0.6f, 0.4f, 0.1f));
-                titleContainer.style.borderBottomColor = new StyleColor(new Color(1f, 0.7f, 0f));
-                titleContainer.style.borderBottomWidth = 3;
+                titleContainer.style.backgroundColor = new StyleColor(Data.NodeCustomColor);
             }
-            else titleContainer.style.backgroundColor = new StyleColor(Data.NodeCustomColor);
+            else
+            {
+                titleContainer.style.backgroundColor = new StyleColor(NovellaColorSettingsWindow.GetNodeColor(Data.NodeType));
+                if (Data.NodeType == ENodeType.Condition)
+                {
+                    titleContainer.style.borderBottomColor = new StyleColor(new Color(1f, 0.7f, 0f));
+                    titleContainer.style.borderBottomWidth = 3;
+                }
+            }
 
             extensionContainer.Clear();
             bool hasExtensionData = false;
 
             if (Data.NodeType == ENodeType.Note)
             {
+                this.style.width = Data.NoteWidth;
+
+                var oldBgs = this.Query<VisualElement>("note-bg-container").ToList();
+                foreach (var bg in oldBgs) this.Remove(bg);
+
                 titleContainer.style.display = Data.ShowBackground ? DisplayStyle.Flex : DisplayStyle.None;
 
                 var tLabel = titleContainer.Q<Label>();
@@ -129,6 +141,10 @@ namespace NovellaEngine.Editor
                 {
                     tLabel.style.color = Data.NoteTitleColor;
                     tLabel.style.fontSize = Data.NoteTitleFontSize > 0 ? Data.NoteTitleFontSize : 14;
+                    tLabel.style.whiteSpace = WhiteSpace.Normal;
+                    titleContainer.style.height = StyleKeyword.Auto;
+                    titleContainer.style.paddingTop = 8;
+                    titleContainer.style.paddingBottom = 8;
                 }
 
                 var border = this.Q("node-border");
@@ -141,6 +157,65 @@ namespace NovellaEngine.Editor
                     border.style.borderRightWidth = Data.ShowBackground ? 1 : 0;
                 }
 
+                var bgContainer = new VisualElement { name = "note-bg-container" };
+                bgContainer.style.position = Position.Absolute;
+                bgContainer.style.left = bgContainer.style.top = bgContainer.style.right = bgContainer.style.bottom = 0;
+                bgContainer.style.borderTopLeftRadius = bgContainer.style.borderTopRightRadius = 8;
+                bgContainer.style.borderBottomLeftRadius = bgContainer.style.borderBottomRightRadius = 8;
+                bgContainer.style.overflow = Overflow.Hidden;
+                this.Insert(0, bgContainer);
+
+                var topRow = new VisualElement { style = { flexDirection = FlexDirection.Column, width = Length.Percent(100) } };
+                var midRow = new VisualElement { style = { flexDirection = FlexDirection.Row, width = Length.Percent(100) } };
+                var leftCol = new VisualElement { style = { flexDirection = FlexDirection.Column, justifyContent = Justify.Center } };
+                var textCol = new VisualElement { style = { flexDirection = FlexDirection.Column, flexGrow = 1 } };
+                var rightCol = new VisualElement { style = { flexDirection = FlexDirection.Column, justifyContent = Justify.Center } };
+                var botRow = new VisualElement { style = { flexDirection = FlexDirection.Column, width = Length.Percent(100) } };
+
+                midRow.Add(leftCol); midRow.Add(textCol); midRow.Add(rightCol);
+                extensionContainer.Add(topRow); extensionContainer.Add(midRow); extensionContainer.Add(botRow);
+
+                foreach (var imgData in Data.NoteImages)
+                {
+                    if (imgData.Image == null) continue;
+
+                    var imgEl = new VisualElement();
+                    imgEl.style.backgroundImage = new StyleBackground(imgData.Image);
+                    imgEl.style.opacity = imgData.Alpha;
+
+                    float w = imgData.Size.x;
+                    float h = imgData.Shape == ENoteImageShape.Normal ? imgData.Size.y : imgData.Size.x;
+                    imgEl.style.width = w;
+                    imgEl.style.height = h;
+
+                    imgEl.style.translate = new StyleTranslate(new Translate(new Length(imgData.Offset.x), new Length(imgData.Offset.y)));
+
+                    if (imgData.Shape == ENoteImageShape.Circle)
+                    {
+                        imgEl.style.borderTopLeftRadius = imgEl.style.borderTopRightRadius = imgEl.style.borderBottomLeftRadius = imgEl.style.borderBottomRightRadius = new Length(50, LengthUnit.Percent);
+                        imgEl.style.overflow = Overflow.Hidden;
+                    }
+
+                    switch (imgData.Alignment)
+                    {
+                        case ENoteImageAlignment.Background:
+                            imgEl.style.position = Position.Absolute;
+                            imgEl.style.left = imgData.Offset.x;
+                            imgEl.style.top = imgData.Offset.y;
+                            imgEl.style.translate = new StyleTranslate(new Translate(new Length(0), new Length(0)));
+                            bgContainer.Add(imgEl);
+                            break;
+                        case ENoteImageAlignment.TopLeft: imgEl.style.alignSelf = Align.FlexStart; topRow.Add(imgEl); break;
+                        case ENoteImageAlignment.TopCenter: imgEl.style.alignSelf = Align.Center; topRow.Add(imgEl); break;
+                        case ENoteImageAlignment.TopRight: imgEl.style.alignSelf = Align.FlexEnd; topRow.Add(imgEl); break;
+                        case ENoteImageAlignment.Left: imgEl.style.alignSelf = Align.Center; leftCol.Add(imgEl); break;
+                        case ENoteImageAlignment.Right: imgEl.style.alignSelf = Align.Center; rightCol.Add(imgEl); break;
+                        case ENoteImageAlignment.BottomLeft: imgEl.style.alignSelf = Align.FlexStart; botRow.Add(imgEl); break;
+                        case ENoteImageAlignment.BottomCenter: imgEl.style.alignSelf = Align.Center; botRow.Add(imgEl); break;
+                        case ENoteImageAlignment.BottomRight: imgEl.style.alignSelf = Align.FlexEnd; botRow.Add(imgEl); break;
+                    }
+                }
+
                 var textLabel = new Label(Data.NoteText)
                 {
                     style = {
@@ -148,16 +223,24 @@ namespace NovellaEngine.Editor
                         color = Data.NoteTextColor,
                         fontSize = Data.FontSize > 0 ? Data.FontSize : 14,
                         paddingTop = 10, paddingBottom = 10, paddingLeft = 10, paddingRight = 10,
-                        maxWidth = 400
+                        maxWidth = Data.NoteWidth
                     }
                 };
-                extensionContainer.Add(textLabel);
+                textCol.Add(textLabel);
 
                 if (!string.IsNullOrEmpty(Data.NoteURL))
                 {
                     var linkBtn = new Button(() => Application.OpenURL(Data.NoteURL)) { text = "🔗 " + ToolLang.Get("Open Link", "Открыть ссылку") };
-                    linkBtn.style.marginTop = 10; linkBtn.style.marginBottom = 10; linkBtn.style.width = 150; linkBtn.style.alignSelf = Align.Center;
-                    extensionContainer.Add(linkBtn);
+                    linkBtn.style.marginTop = 5; linkBtn.style.marginBottom = 5; linkBtn.style.width = Data.NoteWidth - 30; linkBtn.style.alignSelf = Align.Center;
+                    botRow.Add(linkBtn);
+                }
+
+                foreach (var link in Data.NoteLinks)
+                {
+                    if (string.IsNullOrEmpty(link.URL)) continue;
+                    var linkBtn = new Button(() => Application.OpenURL(link.URL)) { text = $"🔗 {link.DisplayName}" };
+                    linkBtn.style.marginTop = 2; linkBtn.style.marginBottom = 2; linkBtn.style.width = Data.NoteWidth - 30; linkBtn.style.alignSelf = Align.Center;
+                    botRow.Add(linkBtn);
                 }
 
                 hasExtensionData = true;
@@ -180,7 +263,22 @@ namespace NovellaEngine.Editor
             }
             else if (Data.NodeType == ENodeType.Audio)
             {
-                if (!Data.SyncWithDialogue)
+                bool isSynced = false;
+                if (InputPort != null && InputPort.connected)
+                {
+                    foreach (var edge in InputPort.connections)
+                    {
+                        if (edge.output.portName == ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр."))
+                        {
+                            isSynced = true;
+                            break;
+                        }
+                    }
+                }
+
+                Data.SyncWithDialogue = isSynced;
+
+                if (!isSynced)
                 {
                     string audioName = Data.AudioAsset != null ? Data.AudioAsset.name : ToolLang.Get("None", "Пусто");
                     string act = Data.AudioAction == EAudioAction.Play ? "▶" : "⏸";
@@ -215,7 +313,6 @@ namespace NovellaEngine.Editor
                 if (Data.DialogueLines.Count > 0)
                 {
                     var distinctSpeakers = Data.DialogueLines.Where(l => l.Speaker != null).Select(l => l.Speaker).Distinct().ToList();
-                    int noSpeakerCount = Data.DialogueLines.Count(l => l.Speaker == null);
 
                     foreach (var spk in distinctSpeakers)
                     {
@@ -223,22 +320,16 @@ namespace NovellaEngine.Editor
                         var speakerBlock = new Label($"🗣 {spk.name} ({linesCount})") { style = { backgroundColor = new StyleColor(spk.ThemeColor), color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, marginTop = 4, marginBottom = 4, marginLeft = 5, marginRight = 5, borderBottomLeftRadius = 5, borderBottomRightRadius = 5, borderTopLeftRadius = 5, borderTopRightRadius = 5, borderTopWidth = 2, borderBottomWidth = 2, borderLeftWidth = 2, borderRightWidth = 2, borderTopColor = new Color(1f, 1f, 1f, 0.8f), borderBottomColor = new Color(1f, 1f, 1f, 0.8f), borderLeftColor = new Color(1f, 1f, 1f, 0.8f), borderRightColor = new Color(1f, 1f, 1f, 0.8f), unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11 } };
                         extensionContainer.Add(speakerBlock);
                     }
-
-                    if (noSpeakerCount > 0)
-                    {
-                        var textOnlyBlock = new Label($"📝 {ToolLang.Get("Text Only", "Без спикера")} ({noSpeakerCount})") { style = { backgroundColor = new StyleColor(new Color(0.3f, 0.3f, 0.3f)), color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, marginTop = 4, marginBottom = 4, marginLeft = 5, marginRight = 5, borderBottomLeftRadius = 5, borderBottomRightRadius = 5, borderTopLeftRadius = 5, borderTopRightRadius = 5, unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11 } };
-                        extensionContainer.Add(textOnlyBlock);
-                    }
-
                     hasExtensionData = true;
                 }
             }
 
-                if (hasExtensionData)
+            if (hasExtensionData)
             {
                 extensionContainer.style.display = DisplayStyle.Flex;
                 extensionContainer.style.backgroundColor = Data.NodeType == ENodeType.Note && !Data.ShowBackground ? new StyleColor(Color.clear) : new StyleColor(new Color(0.15f, 0.15f, 0.15f, 0.8f));
                 extensionContainer.style.paddingTop = 5; extensionContainer.style.paddingBottom = 5;
+                extensionContainer.style.overflow = Overflow.Visible;
             }
             else { extensionContainer.style.display = DisplayStyle.None; }
 
@@ -254,7 +345,7 @@ namespace NovellaEngine.Editor
             Data.GraphPosition = GetPosition().position;
             if (Data.NodeType == ENodeType.End || Data.NodeType == ENodeType.Character || Data.NodeType == ENodeType.Note) return;
 
-            if (Data.NodeType == ENodeType.Branch || Data.NodeType == ENodeType.Condition)
+            if (Data.NodeType == ENodeType.Branch || Data.NodeType == ENodeType.Condition || Data.NodeType == ENodeType.Random)
             {
                 var ports = outputContainer.Query<Port>().ToList();
                 for (int i = 0; i < Data.Choices.Count; i++)

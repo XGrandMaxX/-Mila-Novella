@@ -12,6 +12,13 @@ namespace NovellaEngine.Editor
     {
         public System.Action OnSelectedAction;
 
+        public NovellaStartNodeView()
+        {
+            this.capabilities &= ~Capabilities.Deletable;
+            this.capabilities &= ~Capabilities.Copiable;
+            this.capabilities &= ~Capabilities.Groupable;
+        }
+
         public void SetupView()
         {
             var titleLabel = titleContainer.Q<Label>();
@@ -50,22 +57,15 @@ namespace NovellaEngine.Editor
             if (nodeBorder != null)
             {
                 nodeBorder.style.backgroundColor = new StyleColor(new Color(0.15f, 0.25f, 0.15f, 1f));
-
                 Color borderColor = new Color(0.4f, 1f, 0.5f);
                 nodeBorder.style.borderTopColor = new StyleColor(borderColor);
                 nodeBorder.style.borderBottomColor = new StyleColor(borderColor);
                 nodeBorder.style.borderLeftColor = new StyleColor(borderColor);
                 nodeBorder.style.borderRightColor = new StyleColor(borderColor);
-
-                nodeBorder.style.borderTopWidth = 2;
-                nodeBorder.style.borderBottomWidth = 2;
-                nodeBorder.style.borderLeftWidth = 2;
-                nodeBorder.style.borderRightWidth = 2;
-
-                nodeBorder.style.borderTopLeftRadius = 15;
-                nodeBorder.style.borderTopRightRadius = 15;
-                nodeBorder.style.borderBottomLeftRadius = 15;
-                nodeBorder.style.borderBottomRightRadius = 15;
+                nodeBorder.style.borderTopWidth = 2; nodeBorder.style.borderBottomWidth = 2;
+                nodeBorder.style.borderLeftWidth = 2; nodeBorder.style.borderRightWidth = 2;
+                nodeBorder.style.borderTopLeftRadius = 15; nodeBorder.style.borderTopRightRadius = 15;
+                nodeBorder.style.borderBottomLeftRadius = 15; nodeBorder.style.borderBottomRightRadius = 15;
             }
         }
     }
@@ -91,9 +91,8 @@ namespace NovellaEngine.Editor
             {
                 menu.AddItem(new GUIContent(ToolLang.Get("Dialogue Block", "Блок Диалогов")), false, () => _graphView.CreateNode(localPos, ENodeType.Dialogue, port));
                 menu.AddItem(new GUIContent(ToolLang.Get("Branch Node", "Нода Развилки")), false, () => _graphView.CreateNode(localPos, ENodeType.Branch, port));
-
                 menu.AddItem(new GUIContent(ToolLang.Get("Condition (If-Else)", "Условие (If-Else)")), false, () => _graphView.CreateNode(localPos, ENodeType.Condition, port));
-
+                menu.AddItem(new GUIContent(ToolLang.Get("Random (Chance)", "Случайность (Шанс)")), false, () => _graphView.CreateNode(localPos, ENodeType.Random, port));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent(ToolLang.Get("Audio / BGM", "Аудио / Музыка")), false, () => _graphView.CreateNode(localPos, ENodeType.Audio, port));
                 menu.AddItem(new GUIContent(ToolLang.Get("Variable / Logic", "Переменная / Логика")), false, () => _graphView.CreateNode(localPos, ENodeType.Variable, port));
@@ -130,13 +129,21 @@ namespace NovellaEngine.Editor
             RegisterCallback<DetachFromPanelEvent>(e => Undo.undoRedoPerformed -= OnUndoRedo);
         }
 
-        private void OnUndoRedo() => LoadGraph();
+        private void OnUndoRedo()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                if (this == null || Window == null) return;
+                LoadGraph();
+                foreach (var nv in nodes.ToList().OfType<NovellaNodeView>()) nv.RefreshVisuals();
+                Window.Repaint();
+            };
+        }
 
         private Edge ConnectPorts(Port output, Port input)
         {
             var edge = new Edge { output = output, input = input };
-            edge.input.Connect(edge);
-            edge.output.Connect(edge);
+            edge.input.Connect(edge); edge.output.Connect(edge);
             return edge;
         }
 
@@ -145,7 +152,6 @@ namespace NovellaEngine.Editor
             if (change.elementsToRemove != null || change.edgesToCreate != null || change.movedElements != null)
             {
                 Undo.RegisterCompleteObjectUndo(Tree, "Graph Modification");
-                string syncPortName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
 
                 if (change.elementsToRemove != null)
                 {
@@ -163,13 +169,16 @@ namespace NovellaEngine.Editor
                                 if (outNode.AudioSyncPort != null && edge.output == outNode.AudioSyncPort)
                                 {
                                     outNode.Data.AudioSyncNodeID = "";
+                                    inNode.Data.SyncWithDialogue = false;
                                     inNode.ToggleAudioNextPort(false);
+                                    inNode.RefreshVisuals();
+                                    EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
                                 }
                                 else
                                 {
                                     if (outNode.Data.NodeType == ENodeType.Dialogue || outNode.Data.NodeType == ENodeType.Event || outNode.Data.NodeType == ENodeType.Audio || outNode.Data.NodeType == ENodeType.Variable)
                                         outNode.Data.NextNodeID = "";
-                                    else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition)
+                                    else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition || outNode.Data.NodeType == ENodeType.Random)
                                     {
                                         int portIdx = outNode.outputContainer.IndexOf(edge.output);
                                         if (portIdx >= 0 && portIdx < outNode.Data.Choices.Count) outNode.Data.Choices[portIdx].NextNodeID = "";
@@ -191,6 +200,7 @@ namespace NovellaEngine.Editor
                             if (outNode.AudioSyncPort != null && edge.output == outNode.AudioSyncPort)
                             {
                                 outNode.Data.AudioSyncNodeID = inNode.Data.NodeID;
+                                inNode.Data.SyncWithDialogue = true;
                                 inNode.ToggleAudioNextPort(true);
 
                                 if (inNode.OutputPort != null && inNode.OutputPort.connected)
@@ -198,12 +208,14 @@ namespace NovellaEngine.Editor
                                     var connections = inNode.OutputPort.connections.ToList();
                                     EditorApplication.delayCall += () => { DeleteElements(connections); };
                                 }
+                                EditorApplication.delayCall += () => { if (inNode != null) inNode.RefreshVisuals(); };
+                                EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
                             }
                             else
                             {
                                 if (outNode.Data.NodeType == ENodeType.Dialogue || outNode.Data.NodeType == ENodeType.Event || outNode.Data.NodeType == ENodeType.Audio || outNode.Data.NodeType == ENodeType.Variable)
                                     outNode.Data.NextNodeID = inNode.Data.NodeID;
-                                else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition)
+                                else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition || outNode.Data.NodeType == ENodeType.Random)
                                 {
                                     int portIdx = outNode.outputContainer.IndexOf(edge.output);
                                     if (portIdx >= 0 && portIdx < outNode.Data.Choices.Count) outNode.Data.Choices[portIdx].NextNodeID = inNode.Data.NodeID;
@@ -224,7 +236,16 @@ namespace NovellaEngine.Editor
                 }
                 else
                 {
-                    EditorApplication.delayCall += () => { if (this != null && Tree != null) { SyncGraphToData(); Window.MarkUnsaved(); Window.rootVisualElement.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals()); Window.Repaint(); } };
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (this != null && Tree != null)
+                        {
+                            SyncGraphToData();
+                            Window.MarkUnsaved();
+                            foreach (var nv in nodes.ToList().OfType<NovellaNodeView>()) nv.RefreshVisuals();
+                            Window.Repaint();
+                        }
+                    };
                 }
             }
             return change;
@@ -236,8 +257,7 @@ namespace NovellaEngine.Editor
             node.OnSelectedAction = () => { OnStartNodeSelected?.Invoke(); };
 
             var port = GeneratePort(node, Direction.Output); port.portName = ToolLang.Get("Start", "Старт");
-            node.outputContainer.Add(port);
-            node.SetupView();
+            node.outputContainer.Add(port); node.SetupView();
 
             node.RegisterCallback<GeometryChangedEvent>(evt => { var collapseBtn = node.titleButtonContainer.Q("collapse-button"); if (collapseBtn != null) collapseBtn.style.display = DisplayStyle.None; });
             node.RefreshExpandedState(); node.RefreshPorts();
@@ -249,14 +269,15 @@ namespace NovellaEngine.Editor
         {
             Vector2 pos = viewTransform.matrix.inverse.MultiplyPoint(evt.localMousePosition);
 
-            var selectedNodes = selection.OfType<NovellaNodeView>().ToList();
+            var groupableNodes = selection.OfType<NovellaNodeView>().Where(n => n.GetContainingScope() == null).ToList();
 
-            if (selectedNodes.Count > 1)
+            if (groupableNodes.Count > 1)
             {
                 evt.menu.AppendAction(ToolLang.Get("📦 Group Selection", "📦 Сгруппировать выделенное"), (a) => GroupSelection());
                 evt.menu.AppendSeparator("");
             }
 
+            var selectedNodes = selection.OfType<NovellaNodeView>().ToList();
             var nodesInGroup = selectedNodes.Where(n => n.GetContainingScope() is NovellaGroupView).ToList();
             if (nodesInGroup.Count > 0)
             {
@@ -276,84 +297,58 @@ namespace NovellaEngine.Editor
             evt.menu.AppendAction(nodeCat + ToolLang.Get("Dialogue Block", "Блок Диалогов"), (a) => CreateNode(pos, ENodeType.Dialogue));
             evt.menu.AppendAction(nodeCat + ToolLang.Get("Branch Node", "Нода Развилки"), (a) => CreateNode(pos, ENodeType.Branch));
             evt.menu.AppendAction(nodeCat + ToolLang.Get("Condition (If-Else)", "Условие (If-Else)"), (a) => CreateNode(pos, ENodeType.Condition));
-
+            evt.menu.AppendAction(nodeCat + ToolLang.Get("Random (Chance)", "Случайность (Шанс)"), (a) => CreateNode(pos, ENodeType.Random));
             evt.menu.AppendSeparator(nodeCat);
             evt.menu.AppendAction(nodeCat + ToolLang.Get("Audio / BGM", "Аудио / Музыка"), (a) => CreateNode(pos, ENodeType.Audio));
             evt.menu.AppendAction(nodeCat + ToolLang.Get("Variable / Logic", "Переменная / Логика"), (a) => CreateNode(pos, ENodeType.Variable));
             evt.menu.AppendSeparator(nodeCat);
             evt.menu.AppendAction(nodeCat + ToolLang.Get("END Node", "Конец Сцены"), (a) => CreateNode(pos, ENodeType.End));
-
             evt.menu.AppendSeparator("");
             evt.menu.AppendAction(tutCat + ToolLang.Get("Sticky Note", "Текстовая Заметка"), (a) => CreateNode(pos, ENodeType.Note));
 
             base.BuildContextualMenu(evt);
         }
+
         private void RemoveNodesFromGroup(List<NovellaNodeView> nodes)
         {
             Undo.RegisterCompleteObjectUndo(Tree, "Remove From Group");
-            foreach (var n in nodes)
-            {
-                var group = n.GetContainingScope() as NovellaGroupView;
-                group?.RemoveElement(n);
-            }
+            foreach (var n in nodes) { var group = n.GetContainingScope() as NovellaGroupView; group?.RemoveElement(n); }
             Window.MarkUnsaved();
         }
+
         private void UngroupSelection()
         {
             var selectedGroups = selection.OfType<NovellaGroupView>().ToList();
             if (selectedGroups.Count == 0) return;
 
             int totalNodesInGroups = selectedGroups.Sum(g => g.containedElements.Count());
-
             if (totalNodesInGroups > 3)
             {
-                string warnTitle = ToolLang.Get("Ungroup Warning", "Разгруппировка");
-                string warnMsg = ToolLang.Get(
-                    $"You are about to ungroup {totalNodesInGroups} nodes. Are you sure you want to delete this group?",
-                    $"В этой рамке находится {totalNodesInGroups} нод. Вы уверены, что хотите удалить рамку (ноды останутся)?"
-                );
-
-                if (!EditorUtility.DisplayDialog(warnTitle, warnMsg, ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена")))
-                {
-                    return;
-                }
+                if (!EditorUtility.DisplayDialog(ToolLang.Get("Ungroup Warning", "Разгруппировка"), ToolLang.Get($"You are about to ungroup {totalNodesInGroups} nodes. Are you sure you want to delete this group?", $"В этой рамке находится {totalNodesInGroups} нод. Вы уверены, что хотите удалить рамку (ноды останутся)?"), ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена"))) return;
             }
 
             Undo.RegisterCompleteObjectUndo(Tree, "Ungroup");
-
             foreach (var group in selectedGroups)
             {
                 var elements = group.containedElements.ToList();
                 foreach (var el in elements) group.RemoveElement(el);
-
-                Tree.Groups.Remove(group.Data);
-                RemoveElement(group);
+                Tree.Groups.Remove(group.Data); RemoveElement(group);
             }
-
             Window.MarkUnsaved();
         }
+
         private void GroupSelection()
         {
-            var selectedNodes = selection.OfType<NovellaNodeView>().ToList();
+            var selectedNodes = selection.OfType<NovellaNodeView>().Where(n => n.GetContainingScope() == null).ToList();
             if (selectedNodes.Count < 2) return;
 
             Undo.RegisterCompleteObjectUndo(Tree, "Create Group");
-
-            var groupData = new NovellaGroupData
-            {
-                GroupID = "Group_" + System.Guid.NewGuid().ToString().Substring(0, 5),
-                Title = ToolLang.Get("New Group", "Новая Группа")
-            };
-
+            var groupData = new NovellaGroupData { GroupID = "Group_" + System.Guid.NewGuid().ToString().Substring(0, 5), Title = ToolLang.Get("New Group", "Новая Группа") };
             foreach (var n in selectedNodes) groupData.ContainedNodeIDs.Add(n.Data.NodeID);
-
             Tree.Groups.Add(groupData);
 
-            var groupView = new NovellaGroupView(groupData, this);
-            AddElement(groupView);
-
+            var groupView = new NovellaGroupView(groupData, this); AddElement(groupView);
             foreach (var n in selectedNodes) groupView.AddElement(n);
-
             Window.MarkUnsaved();
         }
 
@@ -372,32 +367,22 @@ namespace NovellaEngine.Editor
 
             if (autoConnectPort != null && autoConnectPort.node is NovellaNodeView parentNode)
             {
-                var pData = parentNode.Data;
-                foreach (var charInPrev in pData.ActiveCharacters)
+                foreach (var charInPrev in parentNode.Data.ActiveCharacters)
                 {
-                    nodeData.ActiveCharacters.Add(new CharacterInDialogue
-                    {
-                        CharacterAsset = charInPrev.CharacterAsset,
-                        Plane = charInPrev.Plane,
-                        Scale = charInPrev.Scale,
-                        Emotion = charInPrev.Emotion,
-                        PosX = charInPrev.PosX,
-                        PosY = charInPrev.PosY
-                    });
+                    nodeData.ActiveCharacters.Add(new CharacterInDialogue { CharacterAsset = charInPrev.CharacterAsset, Plane = charInPrev.Plane, Scale = charInPrev.Scale, Emotion = charInPrev.Emotion, PosX = charInPrev.PosX, PosY = charInPrev.PosY });
                 }
             }
 
-            if (type == ENodeType.Branch)
-            {
-                nodeData.Choices.Add(new NovellaChoice());
-                nodeData.Choices.Add(new NovellaChoice());
-            }
+            if (type == ENodeType.Branch) { nodeData.Choices.Add(new NovellaChoice()); nodeData.Choices.Add(new NovellaChoice()); }
             else if (type == ENodeType.Condition)
             {
                 var trueChoice = new NovellaChoice(); trueChoice.LocalizedText.SetText("EN", "True"); trueChoice.LocalizedText.SetText("RU", "Истина");
                 var falseChoice = new NovellaChoice(); falseChoice.LocalizedText.SetText("EN", "False"); falseChoice.LocalizedText.SetText("RU", "Ложь");
-                nodeData.Choices.Add(trueChoice);
-                nodeData.Choices.Add(falseChoice);
+                nodeData.Choices.Add(trueChoice); nodeData.Choices.Add(falseChoice);
+            }
+            else if (type == ENodeType.Random)
+            {
+                nodeData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 }); nodeData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 });
             }
 
             Tree.Nodes.Add(nodeData);
@@ -411,8 +396,31 @@ namespace NovellaEngine.Editor
                 {
                     if (autoConnectPort.portName == syncPortName && type == ENodeType.Audio)
                     {
+                        if (autoConnectPort.connected)
+                        {
+                            var oldEdges = autoConnectPort.connections.ToList();
+                            foreach (var e in oldEdges)
+                            {
+                                if (e.input.node is NovellaNodeView oldIn)
+                                {
+                                    oldIn.Data.SyncWithDialogue = false;
+                                    oldIn.ToggleAudioNextPort(false);
+                                    oldIn.RefreshVisuals();
+                                }
+                            }
+                            DeleteElements(oldEdges);
+                        }
+
                         AddElement(ConnectPorts(autoConnectPort, view.InputPort));
+
+                        if (autoConnectPort.node is NovellaNodeView sourceNode)
+                        {
+                            sourceNode.Data.AudioSyncNodeID = view.Data.NodeID;
+                        }
+
+                        view.Data.SyncWithDialogue = true;
                         view.ToggleAudioNextPort(true);
+                        view.RefreshVisuals();
                     }
                     else if (view.InputPort != null && autoConnectPort.portName != syncPortName)
                     {
@@ -422,11 +430,7 @@ namespace NovellaEngine.Editor
                 }
                 else if (autoConnectPort.direction == Direction.Input)
                 {
-                    if (view.OutputPort != null)
-                    {
-                        if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections);
-                        AddElement(ConnectPorts(view.OutputPort, autoConnectPort));
-                    }
+                    if (view.OutputPort != null) { if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections); AddElement(ConnectPorts(view.OutputPort, autoConnectPort)); }
                 }
             }
             Window.MarkUnsaved();
@@ -446,15 +450,23 @@ namespace NovellaEngine.Editor
             ports.ForEach(port => {
                 if (startPort != port && startPort.node != port.node && startPort.direction != port.direction)
                 {
-                    bool isAudioSyncOut = (startPort.portName == syncPortName && startPort.direction == Direction.Output) ||
-                                          (port.portName == syncPortName && port.direction == Direction.Output);
+                    bool isStartSyncOut = (startPort.portName == syncPortName && startPort.direction == Direction.Output);
+                    bool isPortSyncOut = (port.portName == syncPortName && port.direction == Direction.Output);
 
-                    if (isAudioSyncOut)
+                    if (isStartSyncOut)
                     {
-                        Port inPort = startPort.direction == Direction.Input ? startPort : port;
-                        if (inPort.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Audio)
+                        if (port.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Audio)
                         {
-                            compPorts.Add(port);
+                            bool hasSync = port.connections.Any(e => e.output.portName == syncPortName);
+                            if (!hasSync) compPorts.Add(port);
+                        }
+                    }
+                    else if (isPortSyncOut)
+                    {
+                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Audio)
+                        {
+                            bool hasSync = startPort.connections.Any(e => e.output.portName == syncPortName);
+                            if (!hasSync) compPorts.Add(port);
                         }
                     }
                     else
@@ -505,18 +517,10 @@ namespace NovellaEngine.Editor
                 view.SetPosition(new Rect(data.GraphPosition, new Vector2(200, 150))); AddElement(view); nodeDict.Add(data.NodeID, view);
             }
 
-            // Загружаем Группы
             foreach (var groupData in Tree.Groups)
             {
-                var groupView = new NovellaGroupView(groupData, this);
-                groupView.SetPosition(groupData.Position);
-                AddElement(groupView);
-
-                foreach (var nodeID in groupData.ContainedNodeIDs)
-                {
-                    if (nodeDict.TryGetValue(nodeID, out var nodeView))
-                        groupView.AddElement(nodeView);
-                }
+                var groupView = new NovellaGroupView(groupData, this); groupView.SetPosition(groupData.Position); AddElement(groupView);
+                foreach (var nodeID in groupData.ContainedNodeIDs) { if (nodeDict.TryGetValue(nodeID, out var nodeView)) groupView.AddElement(nodeView); }
             }
 
             if (!string.IsNullOrEmpty(Tree.RootNodeID) && nodeDict.TryGetValue(Tree.RootNodeID, out var rootNodeView))
@@ -536,12 +540,14 @@ namespace NovellaEngine.Editor
                         if (nodeView.AudioSyncPort != null && audioNode.InputPort != null)
                         {
                             AddElement(ConnectPorts(nodeView.AudioSyncPort, audioNode.InputPort));
+                            audioNode.Data.SyncWithDialogue = true;
                             audioNode.ToggleAudioNextPort(true);
+                            audioNode.RefreshVisuals();
                         }
                     }
                 }
 
-                if (nodeView.Data.NodeType == ENodeType.Branch || nodeView.Data.NodeType == ENodeType.Condition)
+                if (nodeView.Data.NodeType == ENodeType.Branch || nodeView.Data.NodeType == ENodeType.Condition || nodeView.Data.NodeType == ENodeType.Random)
                 {
                     var ports = nodeView.outputContainer.Query<Port>().ToList();
                     for (int i = 0; i < nodeView.Data.Choices.Count; i++)

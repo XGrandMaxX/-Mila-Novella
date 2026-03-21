@@ -1,4 +1,11 @@
-﻿// Путь: Assets/NovellaEngine/Editor/Tools/NovellaGalleryWindow.cs
+﻿using UnityEditor;
+using UnityEngine;
+using System;
+using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using NovellaEngine.Data;
+
 using UnityEditor;
 using UnityEngine;
 using System;
@@ -11,7 +18,7 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video }
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab }
 
         private enum UndoType { Delete, Move, Copy }
 
@@ -39,7 +46,6 @@ namespace NovellaEngine.Editor
         private Action<UnityEngine.Object> _onSelect;
         private EGalleryFilter _filterMode = EGalleryFilter.All;
 
-        // === ФИКС ПУТЕЙ: Убран _Project ===
         private string _galleryDir = "Assets/NovellaEngine/Gallery";
         private string _projectDir = "Assets";
         private string _trashDir = "Assets/NovellaEngine/TrashBin";
@@ -56,10 +62,12 @@ namespace NovellaEngine.Editor
         private Texture2D _scriptIcon;
         private Texture2D _audioIcon;
         private Texture2D _videoIcon;
+        private Texture2D _prefabIcon;
 
         private List<string> _selectedPaths = new List<string>();
         private List<string> _clipboard = new List<string>();
         private bool _isCut = false;
+        private string _searchQuery = "";
 
         private Stack<UndoAction> _undoStack = new Stack<UndoAction>();
         private bool _showTrashPanel = false;
@@ -77,13 +85,28 @@ namespace NovellaEngine.Editor
             ShowWindow(null);
         }
 
-        public static void ShowWindow(Action<UnityEngine.Object> onSelect, EGalleryFilter filter = EGalleryFilter.All)
+        public static void ShowWindow(Action<UnityEngine.Object> onSelect, EGalleryFilter filter = EGalleryFilter.All, string startDir = "")
         {
             var window = GetWindow<NovellaGalleryWindow>(false, ToolLang.Get("Art Gallery", "Галерея Изображений"), true);
             window._onSelect = onSelect;
             window._filterMode = onSelect != null ? filter : EGalleryFilter.All;
+
+            // Если ищем префабы, сразу переключаемся на весь проект и идем в папку префабов
+            if (filter == EGalleryFilter.Prefab)
+            {
+                window._isProjectMode = true;
+                startDir = "Assets/NovellaEngine/Runtime/Prefabs";
+            }
+
             window.minSize = new Vector2(900, 500);
             window.Init();
+
+            if (!string.IsNullOrEmpty(startDir))
+            {
+                if (Directory.Exists(startDir)) window._currentDir = startDir;
+                else window._currentDir = "Assets/NovellaEngine"; // Фолбэк, если папки еще нет
+            }
+
             window.Show();
         }
 
@@ -94,7 +117,6 @@ namespace NovellaEngine.Editor
 
         private void Init()
         {
-            // === ФИКС ПУТЕЙ ПРИ СОЗДАНИИ ПАПОК ===
             if (!AssetDatabase.IsValidFolder(_galleryDir))
             {
                 Directory.CreateDirectory(_galleryDir);
@@ -107,12 +129,14 @@ namespace NovellaEngine.Editor
 
             EmptyTrash();
 
-            _currentDir = RootDir;
+            if (string.IsNullOrEmpty(_currentDir)) _currentDir = RootDir;
+
             _folderIcon = EditorGUIUtility.IconContent("Folder Icon").image as Texture2D;
             _fileIcon = EditorGUIUtility.IconContent("DefaultAsset Icon").image as Texture2D;
             _scriptIcon = EditorGUIUtility.IconContent("cs Script Icon").image as Texture2D;
             _audioIcon = EditorGUIUtility.IconContent("AudioClip Icon").image as Texture2D;
             _videoIcon = EditorGUIUtility.IconContent("VideoClip Icon").image as Texture2D;
+            _prefabIcon = EditorGUIUtility.IconContent("Prefab Icon").image as Texture2D;
 
             InitMediaPlayers();
             RequestRefresh();
@@ -154,7 +178,6 @@ namespace NovellaEngine.Editor
         private bool IsProtected(string path)
         {
             string p = path.Replace("\\", "/").TrimEnd('/');
-            // === ФИКС ЗАЩИЩЕННЫХ ПУТЕЙ ===
             if (p == "Assets" || p == "Assets/NovellaEngine" ||
                 p == "Assets/NovellaEngine/Gallery" || p == "Assets/NovellaEngine/TrashBin") return true;
             return false;
@@ -163,61 +186,90 @@ namespace NovellaEngine.Editor
         private void RefreshDirectoryCache()
         {
             _cachedItems.Clear();
-            if (!Directory.Exists(_currentDir)) return;
 
-            string[] directories = Directory.GetDirectories(_currentDir);
-            foreach (string dir in directories)
+            bool isSearching = !string.IsNullOrEmpty(_searchQuery);
+
+            if (isSearching)
             {
-                string formattedDir = dir.Replace("\\", "/");
-                if (formattedDir == _trashDir) continue;
+                // === ГЛОБАЛЬНЫЙ ПОИСК ===
+                string[] guids = AssetDatabase.FindAssets(_searchQuery, new[] { RootDir });
+                var paths = guids.Select(g => AssetDatabase.GUIDToAssetPath(g)).Distinct().ToList();
 
-                long sizeBytes = 0;
-                var allFiles = Directory.GetFiles(formattedDir, "*.*", SearchOption.AllDirectories).Where(f => !f.EndsWith(".meta")).ToArray();
-                foreach (var f in allFiles) sizeBytes += new FileInfo(f).Length;
-
-                bool isEmpty = allFiles.Length == 0;
-                float mb = sizeBytes / 1048576f;
-                string sizeStr = mb >= 1f ? $"{mb:F1} MB" : $"{sizeBytes / 1024} KB";
-                string subText = isEmpty ? ToolLang.Get("Empty", "Пустая") : $"{allFiles.Length} f. ({sizeStr})";
-
-                _cachedItems.Add(new CachedItem { Path = formattedDir, Name = Path.GetFileName(formattedDir), IsFolder = true, IsEmptyFolder = isEmpty, Icon = _folderIcon, SubText = subText });
-            }
-
-            string[] files = Directory.GetFiles(_currentDir, "*.*").Where(f => !f.EndsWith(".meta")).ToArray();
-            foreach (string file in files)
-            {
-                string formattedFile = file.Replace("\\", "/");
-                string ext = Path.GetExtension(formattedFile).ToLower();
-
-                bool isImage = ext == ".png" || ext == ".jpg" || ext == ".jpeg";
-                bool isScript = ext == ".cs";
-                bool isAudio = ext == ".mp3" || ext == ".wav" || ext == ".ogg";
-                bool isVideo = ext == ".mp4" || ext == ".mov" || ext == ".webm" || ext == ".avi" || ext == ".gif";
-
-                if (!_isProjectMode)
+                foreach (string path in paths)
                 {
-                    if (_filterMode == EGalleryFilter.Image && !isImage) continue;
-                    if (_filterMode == EGalleryFilter.Audio && !isAudio) continue;
-                    if (_filterMode == EGalleryFilter.Video && !isVideo) continue;
-                    if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo)) continue;
+                    if (AssetDatabase.IsValidFolder(path)) continue; // В поиске показываем только файлы
+                    if (path.Replace("\\", "/").StartsWith(_trashDir)) continue;
+
+                    ProcessFileForCache(path);
+                }
+            }
+            else
+            {
+                // === ЛОКАЛЬНЫЙ ПРОСМОТР ===
+                if (!Directory.Exists(_currentDir)) return;
+
+                string[] directories = Directory.GetDirectories(_currentDir);
+                foreach (string dir in directories)
+                {
+                    string formattedDir = dir.Replace("\\", "/");
+                    if (formattedDir == _trashDir) continue;
+
+                    long sizeBytes = 0;
+                    var allFiles = Directory.GetFiles(formattedDir, "*.*", SearchOption.AllDirectories).Where(f => !f.EndsWith(".meta")).ToArray();
+                    foreach (var f in allFiles) sizeBytes += new FileInfo(f).Length;
+
+                    bool isEmpty = allFiles.Length == 0;
+                    float mb = sizeBytes / 1048576f;
+                    string sizeStr = mb >= 1f ? $"{mb:F1} MB" : $"{sizeBytes / 1024} KB";
+                    string subText = isEmpty ? ToolLang.Get("Empty", "Пустая") : $"{allFiles.Length} f. ({sizeStr})";
+
+                    _cachedItems.Add(new CachedItem { Path = formattedDir, Name = Path.GetFileName(formattedDir), IsFolder = true, IsEmptyFolder = isEmpty, Icon = _folderIcon, SubText = subText });
                 }
 
-                Texture2D tex = null;
-                Sprite spr = null;
-
-                if (isImage)
+                string[] files = Directory.GetFiles(_currentDir, "*.*").Where(f => !f.EndsWith(".meta")).ToArray();
+                foreach (string file in files)
                 {
-                    spr = AssetDatabase.LoadAssetAtPath<Sprite>(formattedFile);
-                    if (spr != null) tex = spr.texture;
-                    else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D;
+                    ProcessFileForCache(file);
                 }
-                else if (isScript) tex = _scriptIcon;
-                else if (isAudio) tex = _audioIcon;
-                else if (isVideo) tex = _videoIcon;
-                else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D ?? _fileIcon;
-
-                _cachedItems.Add(new CachedItem { Path = formattedFile, Name = Path.GetFileNameWithoutExtension(formattedFile), IsFolder = false, Icon = tex, SpriteAsset = spr, SubText = "" });
             }
+        }
+
+        private void ProcessFileForCache(string file)
+        {
+            string formattedFile = file.Replace("\\", "/");
+            string ext = Path.GetExtension(formattedFile).ToLower();
+
+            bool isImage = ext == ".png" || ext == ".jpg" || ext == ".jpeg";
+            bool isScript = ext == ".cs";
+            bool isAudio = ext == ".mp3" || ext == ".wav" || ext == ".ogg";
+            bool isVideo = ext == ".mp4" || ext == ".mov" || ext == ".webm" || ext == ".avi" || ext == ".gif";
+            bool isPrefab = ext == ".prefab";
+
+            if (!_isProjectMode || _onSelect != null)
+            {
+                if (_filterMode == EGalleryFilter.Image && !isImage) return;
+                if (_filterMode == EGalleryFilter.Audio && !isAudio) return;
+                if (_filterMode == EGalleryFilter.Video && !isVideo) return;
+                if (_filterMode == EGalleryFilter.Prefab && !isPrefab) return;
+                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab)) return;
+            }
+
+            Texture2D tex = null;
+            Sprite spr = null;
+
+            if (isImage)
+            {
+                spr = AssetDatabase.LoadAssetAtPath<Sprite>(formattedFile);
+                if (spr != null) tex = spr.texture;
+                else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D;
+            }
+            else if (isScript) tex = _scriptIcon;
+            else if (isAudio) tex = _audioIcon;
+            else if (isVideo) tex = _videoIcon;
+            else if (isPrefab) tex = _prefabIcon ?? _fileIcon;
+            else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D ?? _fileIcon;
+
+            _cachedItems.Add(new CachedItem { Path = formattedFile, Name = Path.GetFileNameWithoutExtension(formattedFile), IsFolder = false, Icon = tex, SpriteAsset = spr, SubText = "" });
         }
 
         private void OnGUI()
@@ -303,7 +355,7 @@ namespace NovellaEngine.Editor
             }
             GUI.backgroundColor = Color.white;
 
-            EditorGUI.BeginDisabledGroup(_currentDir == RootDir);
+            EditorGUI.BeginDisabledGroup(_currentDir == RootDir || !string.IsNullOrEmpty(_searchQuery));
             if (GUILayout.Button("◀ " + ToolLang.Get("Back", "Назад"), EditorStyles.toolbarButton, GUILayout.Width(60)))
             {
                 string targetDir = Path.GetDirectoryName(_currentDir).Replace("\\", "/");
@@ -326,6 +378,22 @@ namespace NovellaEngine.Editor
                 }
             }
 
+            GUILayout.Space(10);
+            EditorGUI.BeginChangeCheck();
+            _searchQuery = EditorGUILayout.TextField(_searchQuery, EditorStyles.toolbarSearchField, GUILayout.Width(200));
+            if (EditorGUI.EndChangeCheck())
+            {
+                RequestRefresh();
+            }
+            if (GUILayout.Button("✖", EditorStyles.toolbarButton, GUILayout.Width(20)))
+            {
+                _searchQuery = "";
+                GUI.FocusControl(null);
+                RequestRefresh();
+            }
+
+            GUILayout.FlexibleSpace();
+
             if (_filterMode != EGalleryFilter.All)
             {
                 GUIStyle filterStyle = new GUIStyle(EditorStyles.label)
@@ -337,8 +405,8 @@ namespace NovellaEngine.Editor
                 GUILayout.Label($"[ TARGET: {_filterMode.ToString().ToUpper()} ]", filterStyle, GUILayout.Width(130));
             }
 
-            string displayPath = _currentDir;
-            if (!_isProjectMode) displayPath = _currentDir.Replace(_galleryDir, "Gallery");
+            string displayPath = !string.IsNullOrEmpty(_searchQuery) ? "Global Search..." : _currentDir;
+            if (!_isProjectMode && string.IsNullOrEmpty(_searchQuery)) displayPath = _currentDir.Replace(_galleryDir, "Gallery");
             if (displayPath.Length > 40) displayPath = ".../" + displayPath.Substring(displayPath.Length - 35);
 
             GUILayout.Label(displayPath, new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleLeft }, GUILayout.ExpandWidth(true));
@@ -459,31 +527,35 @@ namespace NovellaEngine.Editor
                 if (e.control || e.command)
                 {
                     if (isSelected) _selectedPaths.Remove(item.Path);
-                    else { _selectedPaths.Add(item.Path); PlayMediaPreview(item.Path); }
+                    else { _selectedPaths.Add(item.Path); }
                 }
                 else
                 {
-                    if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); PlayMediaPreview(item.Path); }
+                    if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); StopMedia(); }
                 }
 
+                // === ФИКС ОШИБКИ EndLayoutGroup ПРИ ДВОЙНОМ КЛИКЕ ===
                 if (e.clickCount == 2)
                 {
                     if (item.IsFolder)
                     {
                         string targetDir = item.Path;
-                        EditorApplication.delayCall += () => { _currentDir = targetDir; _selectedPaths.Clear(); StopMedia(); RequestRefresh(); };
+                        EditorApplication.delayCall += () => { _currentDir = targetDir; _searchQuery = ""; _selectedPaths.Clear(); StopMedia(); RequestRefresh(); };
                     }
                     else
                     {
-                        if (_onSelect != null && !_isProjectMode)
+                        string path = item.Path;
+                        if (_onSelect != null)
                         {
-                            var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(item.Path);
-                            _onSelect?.Invoke(asset);
-                            EditorApplication.delayCall += () => Close();
+                            EditorApplication.delayCall += () => {
+                                var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                                _onSelect?.Invoke(asset);
+                                Close();
+                            };
                         }
                         else
                         {
-                            EditorUtility.OpenWithDefaultApp(item.Path);
+                            EditorApplication.delayCall += () => EditorUtility.OpenWithDefaultApp(path);
                         }
                     }
                 }
@@ -492,7 +564,7 @@ namespace NovellaEngine.Editor
 
             if (e.type == EventType.ContextClick && rect.Contains(e.mousePosition))
             {
-                if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); PlayMediaPreview(item.Path); }
+                if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); }
 
                 GenericMenu menu = new GenericMenu();
 
@@ -628,6 +700,11 @@ namespace NovellaEngine.Editor
                     Texture2D icon = AssetDatabase.GetCachedIcon(path) as Texture2D;
                     if (icon) { Rect r = GUILayoutUtility.GetRect(128, 128); GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit); }
                 }
+                else if (asset != null && ext == ".prefab")
+                {
+                    Texture2D icon = AssetDatabase.GetCachedIcon(path) as Texture2D ?? _prefabIcon;
+                    if (icon) { Rect r = GUILayoutUtility.GetRect(128, 128); GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit); }
+                }
 
                 GUILayout.FlexibleSpace();
                 GUILayout.Label($"Path: {path}", EditorStyles.wordWrappedMiniLabel);
@@ -638,6 +715,20 @@ namespace NovellaEngine.Editor
                     float kb = bytes / 1024f;
                     float mb = kb / 1024f;
                     GUILayout.Label($"Size: {kb:F2} KB ({mb:F2} MB)", EditorStyles.miniLabel);
+                }
+
+                if (_onSelect != null && !IsProtected(path) && !AssetDatabase.IsValidFolder(path))
+                {
+                    GUILayout.Space(10);
+                    GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+                    if (GUILayout.Button("✔ " + ToolLang.Get("Select Asset", "Выбрать Ассет"), GUILayout.Height(40)))
+                    {
+                        EditorApplication.delayCall += () => {
+                            _onSelect?.Invoke(asset);
+                            Close();
+                        };
+                    }
+                    GUI.backgroundColor = Color.white;
                 }
             }
             else if (_selectedPaths.Count > 1)
@@ -659,14 +750,6 @@ namespace NovellaEngine.Editor
         private void StopMedia()
         {
             if (_audioPreviewer != null) _audioPreviewer.Stop();
-        }
-
-        private void PlayMediaPreview(string path)
-        {
-            StopMedia();
-            var asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-
-            if (asset is AudioClip clip) { _audioPreviewer.clip = clip; _audioPreviewer.Play(); }
         }
 
         private void DrawTrashPanel()
@@ -1027,8 +1110,7 @@ namespace NovellaEngine.Editor
             RequestRefresh();
         }
     }
-
-    public class RenamePopup : EditorWindow
+public class RenamePopup : EditorWindow
     {
         private string _newName;
         private Action<string> _onRename;

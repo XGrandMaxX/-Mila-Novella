@@ -15,9 +15,14 @@ namespace NovellaEngine.Editor
         private VisualElement _rightPanel;
         private IMGUIContainer _inspectorContainer;
 
+        private VisualElement _leftPanel;
+        private bool _isLeftPanelOpen = true;
+        private Button _toggleLeftPanelBtn;
+        private float _sidebarWidth = 260f;
+
         private bool _isInspectorOpen = true;
         private NovellaNodeView _selectedNodeView;
-        private NovellaGroupView _selectedGroupView; // <-- Добавили поддержку выбора группы
+        private NovellaGroupView _selectedGroupView;
         private bool _isStartNodeSelected = false;
         private bool _hasUnsavedChanges = false;
         private Button _saveButton;
@@ -26,6 +31,8 @@ namespace NovellaEngine.Editor
 
         private bool _needsFocusFrame = false;
         private int _focusFramesDelay = 0;
+
+        private bool _isTutorialMode = false;
 
         private NovellaLocalizationSettings _locSettings;
         public string PreviewLanguage { get; private set; } = "EN";
@@ -40,8 +47,26 @@ namespace NovellaEngine.Editor
 
         public static void OpenGraphWindow(NovellaTree tree)
         {
+            bool isTut = false;
+            if (AssetDatabase.Contains(tree))
+            {
+                string path = AssetDatabase.GetAssetPath(tree).Replace("\\", "/");
+                if (path.Contains("/NovellaEngine/Tutorials/"))
+                {
+                    isTut = true;
+                }
+            }
+
+            if (isTut)
+            {
+                NovellaTree instance = Instantiate(tree);
+                instance.name = tree.name;
+                tree = instance;
+            }
+
             var window = GetWindow<NovellaGraphWindow>("Novella Editor");
             window._currentTree = tree;
+            window._isTutorialMode = isTut;
             window.minSize = new Vector2(1000, 600);
             window.ConstructGraph();
         }
@@ -49,6 +74,7 @@ namespace NovellaEngine.Editor
         private void OnEnable()
         {
             _autoSave = EditorPrefs.GetBool("NovellaGraph_AutoSave", true);
+            _isLeftPanelOpen = EditorPrefs.GetBool("NovellaGraph_SidebarOpen", true);
             _locSettings = NovellaLocalizationSettings.GetOrCreateSettings();
 
             string savedLang = EditorPrefs.GetString("NovellaGraph_PreviewLang", "");
@@ -62,7 +88,7 @@ namespace NovellaEngine.Editor
 
         private void Update()
         {
-            if (_autoSave && _hasUnsavedChanges)
+            if (!_isTutorialMode && _autoSave && _hasUnsavedChanges)
                 if (EditorApplication.timeSinceStartup - _lastChangeTime > 0.5f) SaveGraph();
 
             if (_needsFocusFrame && _graphView != null)
@@ -98,10 +124,94 @@ namespace NovellaEngine.Editor
 
             var mainContainer = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 1 } };
             rootVisualElement.Add(mainContainer);
+
             var graphContainer = new VisualElement { style = { flexGrow = 1 } };
+
             graphContainer.Add(_graphView);
 
-            _rightPanel = new VisualElement { style = { width = _isInspectorOpen ? 480 : 0, backgroundColor = new StyleColor(new Color(0.18f, 0.18f, 0.18f)), borderLeftColor = new StyleColor(Color.black), borderLeftWidth = 1 } };
+            if (!_isTutorialMode)
+            {
+                _leftPanel = new VisualElement
+                {
+                    style = {
+                        width = _isLeftPanelOpen ? _sidebarWidth : 0,
+                        flexShrink = 0,
+                        backgroundColor = new StyleColor(new Color(0.15f, 0.15f, 0.15f)),
+                        borderRightColor = new StyleColor(Color.black),
+                        borderRightWidth = 1,
+                        overflow = Overflow.Hidden
+                    }
+                };
+
+                var toolsLabel = new Label("🛠 " + ToolLang.Get("Workspace Tools", "Инструменты"))
+                {
+                    style = { color = new Color(0.6f, 0.8f, 1f), unityFontStyleAndWeight = FontStyle.Bold, fontSize = 16, marginTop = 15, marginBottom = 10, alignSelf = Align.Center }
+                };
+                _leftPanel.Add(toolsLabel);
+
+                AddSidebarButton("🎓", ToolLang.Get("Tutorial", "Обучение"), ToolLang.Get("Open interactive tutorials.", "Открыть интерактивные уроки."), () => NovellaWelcomeWindow.ShowWindow());
+
+                var separator = new VisualElement { style = { height = 1, backgroundColor = new Color(0.25f, 0.25f, 0.25f), marginTop = 15, marginBottom = 10, marginLeft = 15, marginRight = 15 } };
+                _leftPanel.Add(separator);
+
+                AddSidebarButton("🎨", ToolLang.Get("Node Colors", "Цвета Нод"), ToolLang.Get("Change reserved node colors.", "Настроить системные цвета нод."), () => NovellaColorSettingsWindow.ShowWindow());
+
+                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorWindow.ShowWindow());
+
+                var ioLabel = new Label(ToolLang.Get("CSV Localization (Text Data):", "CSV Локализация (Весь текст):"))
+                {
+                    style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
+                };
+                _leftPanel.Add(ioLabel);
+
+                var ioRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
+
+                var btnExport = new Button(() => NovellaCSVUtility.ExportCSV(_currentTree, _locSettings.Languages))
+                { text = "📤 " + ToolLang.Get("Export", "Экспорт"), tooltip = ToolLang.Get("Export all texts to CSV.", "Выгрузить все тексты графа в таблицу Excel/CSV.") };
+                btnExport.style.flexGrow = 1; btnExport.style.height = 35; btnExport.style.marginRight = 2;
+
+                var btnImport = new Button(() => { NovellaCSVUtility.ImportCSV(_currentTree, _locSettings.Languages); _inspectorContainer.MarkDirtyRepaint(); _graphView.LoadGraph(); })
+                { text = "📥 " + ToolLang.Get("Import", "Импорт"), tooltip = ToolLang.Get("Import translated texts from CSV.", "Загрузить переводы из таблицы обратно в граф.") };
+                btnImport.style.flexGrow = 1; btnImport.style.height = 35; btnImport.style.marginLeft = 2;
+
+                ioRow.Add(btnExport);
+                ioRow.Add(btnImport);
+                _leftPanel.Add(ioRow);
+
+                mainContainer.Add(_leftPanel);
+
+                _toggleLeftPanelBtn = new Button(() => {
+                    _isLeftPanelOpen = !_isLeftPanelOpen;
+                    _leftPanel.style.width = _isLeftPanelOpen ? _sidebarWidth : 0;
+                    _toggleLeftPanelBtn.text = _isLeftPanelOpen ? "◀" : "▶";
+                    EditorPrefs.SetBool("NovellaGraph_SidebarOpen", _isLeftPanelOpen);
+                })
+                { text = _isLeftPanelOpen ? "◀" : "▶" };
+
+                _toggleLeftPanelBtn.style.position = Position.Absolute;
+                _toggleLeftPanelBtn.style.top = Length.Percent(45);
+                _toggleLeftPanelBtn.style.left = -1f;
+                _toggleLeftPanelBtn.style.width = 24;
+                _toggleLeftPanelBtn.style.height = 100;
+                _toggleLeftPanelBtn.style.borderTopRightRadius = 10;
+                _toggleLeftPanelBtn.style.borderBottomRightRadius = 10;
+                _toggleLeftPanelBtn.style.borderTopLeftRadius = 0;
+                _toggleLeftPanelBtn.style.borderBottomLeftRadius = 0;
+                _toggleLeftPanelBtn.style.backgroundColor = new StyleColor(new Color(0.25f, 0.25f, 0.25f, 0.95f));
+
+                graphContainer.Add(_toggleLeftPanelBtn);
+            }
+
+            _rightPanel = new VisualElement
+            {
+                style = {
+                    width = _isInspectorOpen ? 550 : 0,
+                    flexShrink = 0,
+                    backgroundColor = new StyleColor(new Color(0.18f, 0.18f, 0.18f)),
+                    borderLeftColor = new StyleColor(Color.black),
+                    borderLeftWidth = 1
+                }
+            };
 
             _inspectorContainer = new IMGUIContainer(DrawInspectorPanel);
             _inspectorContainer.StretchToParentSize();
@@ -121,18 +231,54 @@ namespace NovellaEngine.Editor
             _focusFramesDelay = 3;
         }
 
+        private void AddSidebarButton(string icon, string text, string tooltip, System.Action onClick)
+        {
+            var btn = new Button(onClick) { tooltip = tooltip };
+            btn.style.flexDirection = FlexDirection.Row;
+            btn.style.alignItems = Align.Center;
+            btn.style.justifyContent = Justify.FlexStart;
+            btn.style.height = 45;
+            btn.style.marginTop = 5;
+            btn.style.marginLeft = 10;
+            btn.style.marginRight = 10;
+            btn.style.paddingLeft = 10;
+            btn.style.backgroundColor = new StyleColor(new Color(0.2f, 0.2f, 0.2f));
+            btn.style.borderTopLeftRadius = 6; btn.style.borderBottomLeftRadius = 6;
+            btn.style.borderTopRightRadius = 6; btn.style.borderBottomRightRadius = 6;
+
+            var iconLabel = new Label(icon) { style = { fontSize = 20, width = 35 } };
+            var textLabel = new Label(text) { style = { fontSize = 14, unityFontStyleAndWeight = FontStyle.Bold, color = new Color(0.9f, 0.9f, 0.9f) } };
+
+            btn.Add(iconLabel);
+            btn.Add(textLabel);
+            _leftPanel.Add(btn);
+        }
+
         private void GenerateToolbar(VisualElement container)
         {
             var toolbarContainer = new VisualElement { style = { flexDirection = FlexDirection.Row, backgroundColor = new Color(0.22f, 0.22f, 0.22f), paddingBottom = 4, paddingTop = 4, alignItems = Align.Center } };
 
-            _saveButton = new Button(() => SaveGraph()) { text = ToolLang.Get("💾 SAVE", "💾 СОХРАНИТЬ") };
-            _saveButton.style.unityFontStyleAndWeight = FontStyle.Bold;
+            if (_isTutorialMode)
+            {
+                var tutLabel = new Label("🎓 " + ToolLang.Get("TUTORIAL MODE (READ-ONLY)", "РЕЖИМ ОБУЧЕНИЯ (ТОЛЬКО ЧТЕНИЕ)"))
+                {
+                    style = { color = new Color(1f, 0.8f, 0.2f), unityFontStyleAndWeight = FontStyle.Bold, marginLeft = 15, marginRight = 15, alignSelf = Align.Center }
+                };
+                toolbarContainer.Add(tutLabel);
+            }
+            else
+            {
+                _saveButton = new Button(() => SaveGraph()) { text = ToolLang.Get("💾 SAVE", "💾 СОХРАНИТЬ") };
+                _saveButton.style.unityFontStyleAndWeight = FontStyle.Bold;
+                toolbarContainer.Add(_saveButton);
 
-            var autoSaveToggle = new Toggle(ToolLang.Get("Auto-Save", "Автосохр.")) { value = _autoSave };
-            autoSaveToggle.style.marginLeft = 15;
-            autoSaveToggle.RegisterValueChangedCallback(evt => { _autoSave = evt.newValue; EditorPrefs.SetBool("NovellaGraph_AutoSave", _autoSave); });
-            var toggleLabel = autoSaveToggle.Q<Label>();
-            if (toggleLabel != null) { toggleLabel.style.minWidth = StyleKeyword.Auto; toggleLabel.style.paddingRight = 5; }
+                var autoSaveToggle = new Toggle(ToolLang.Get("Auto-Save", "Автосохр.")) { value = _autoSave };
+                autoSaveToggle.style.marginLeft = 15;
+                autoSaveToggle.RegisterValueChangedCallback(evt => { _autoSave = evt.newValue; EditorPrefs.SetBool("NovellaGraph_AutoSave", _autoSave); });
+                var toggleLabel = autoSaveToggle.Q<Label>();
+                if (toggleLabel != null) { toggleLabel.style.minWidth = StyleKeyword.Auto; toggleLabel.style.paddingRight = 5; }
+                toolbarContainer.Add(autoSaveToggle);
+            }
 
             var langButton = new Button(() => { ToolLang.Toggle(); ConstructGraph(); }) { text = ToolLang.IsRU ? "UI: RU" : "UI: EN" };
             langButton.style.marginLeft = 15;
@@ -148,8 +294,6 @@ namespace NovellaEngine.Editor
                 _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
             });
 
-            toolbarContainer.Add(_saveButton);
-            toolbarContainer.Add(autoSaveToggle);
             toolbarContainer.Add(langButton);
             toolbarContainer.Add(langLabel);
             toolbarContainer.Add(langDropdown);
@@ -157,17 +301,9 @@ namespace NovellaEngine.Editor
             var spacer = new VisualElement { style = { flexGrow = 1 } };
             toolbarContainer.Add(spacer);
 
-            var helpBtn = new Button(() => NovellaWelcomeWindow.ShowWindow()) { text = ToolLang.Get("🎓 Tutorial", "🎓 Обучение") };
-            var exportBtn = new Button(() => NovellaCSVUtility.ExportCSV(_currentTree, _locSettings.Languages)) { text = ToolLang.Get("📤 Export CSV", "📤 Экспорт CSV") };
-            var importBtn = new Button(() => { NovellaCSVUtility.ImportCSV(_currentTree, _locSettings.Languages); _inspectorContainer.MarkDirtyRepaint(); _graphView.LoadGraph(); }) { text = ToolLang.Get("📥 Import CSV", "📥 Импорт CSV") };
-            helpBtn.style.marginRight = 5; exportBtn.style.marginRight = 5; importBtn.style.marginRight = 15;
-
-            var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 480 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
-
-            toolbarContainer.Add(helpBtn);
-            toolbarContainer.Add(exportBtn);
-            toolbarContainer.Add(importBtn);
+            var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 550 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
             toolbarContainer.Add(toggleInspectorBtn);
+
             container.Add(toolbarContainer);
         }
 
@@ -180,8 +316,73 @@ namespace NovellaEngine.Editor
             }
         }
 
-        public void SaveGraph() { if (_graphView != null) { _graphView.SyncGraphToData(); EditorUtility.SetDirty(_currentTree); AssetDatabase.SaveAssets(); } _hasUnsavedChanges = false; UpdateButtonState(); }
-        public void MarkUnsaved() { _hasUnsavedChanges = true; _lastChangeTime = EditorApplication.timeSinceStartup; UpdateButtonState(); if (_currentTree != null) EditorUtility.SetDirty(_currentTree); }
-        private void UpdateButtonState() { if (_saveButton == null) return; _saveButton.SetEnabled(_hasUnsavedChanges); _saveButton.style.backgroundColor = _hasUnsavedChanges ? new StyleColor(new Color(0.2f, 0.6f, 0.2f)) : new StyleColor(new Color(0.3f, 0.3f, 0.3f)); }
+        public void SaveGraph()
+        {
+            if (_isTutorialMode) return;
+            if (_graphView != null) { _graphView.SyncGraphToData(); EditorUtility.SetDirty(_currentTree); AssetDatabase.SaveAssets(); }
+            _hasUnsavedChanges = false; UpdateButtonState();
+        }
+
+        public void MarkUnsaved()
+        {
+            if (_isTutorialMode) return;
+            _hasUnsavedChanges = true; _lastChangeTime = EditorApplication.timeSinceStartup; UpdateButtonState();
+            if (_currentTree != null) EditorUtility.SetDirty(_currentTree);
+        }
+
+        public void RefreshAllNodes()
+        {
+            if (_graphView != null) _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
+        }
+
+        private void UpdateButtonState()
+        {
+            if (_saveButton == null) return;
+            _saveButton.SetEnabled(_hasUnsavedChanges);
+            _saveButton.style.backgroundColor = _hasUnsavedChanges ? new StyleColor(new Color(0.2f, 0.6f, 0.2f)) : new StyleColor(new Color(0.3f, 0.3f, 0.3f));
+        }
+
+        public void FocusAndHighlightNode(string nodeID)
+        {
+            EditorApplication.delayCall += () => {
+                if (_graphView == null) return;
+                var targetNode = _graphView.nodes.ToList().OfType<NovellaNodeView>().FirstOrDefault(n => n.Data.NodeID == nodeID);
+                if (targetNode != null)
+                {
+                    _graphView.ClearSelection();
+                    _graphView.AddToSelection(targetNode);
+                    _graphView.FrameSelection();
+
+                    var border = targetNode.Q("node-border");
+                    if (border != null)
+                    {
+                        var oldColor = border.style.borderTopColor;
+                        var oldW = border.style.borderTopWidth;
+
+                        Color highlight = new Color(1f, 0.85f, 0f, 1f);
+                        border.style.borderTopColor = highlight;
+                        border.style.borderBottomColor = highlight;
+                        border.style.borderLeftColor = highlight;
+                        border.style.borderRightColor = highlight;
+                        border.style.borderTopWidth = 4;
+                        border.style.borderBottomWidth = 4;
+                        border.style.borderLeftWidth = 4;
+                        border.style.borderRightWidth = 4;
+
+                        targetNode.schedule.Execute(() => {
+                            if (border == null) return;
+                            border.style.borderTopColor = oldColor;
+                            border.style.borderBottomColor = oldColor;
+                            border.style.borderLeftColor = oldColor;
+                            border.style.borderRightColor = oldColor;
+                            border.style.borderTopWidth = oldW;
+                            border.style.borderBottomWidth = oldW;
+                            border.style.borderLeftWidth = oldW;
+                            border.style.borderRightWidth = oldW;
+                        }).StartingIn(2000);
+                    }
+                }
+            };
+        }
     }
 }

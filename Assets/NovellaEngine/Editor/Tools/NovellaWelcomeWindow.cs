@@ -76,7 +76,6 @@ namespace NovellaEngine.Editor
             if (tutorialAsset != null)
             {
                 NovellaGraphWindow.OpenGraphWindow(tutorialAsset);
-                EditorGUIUtility.PingObject(tutorialAsset);
                 EditorPrefs.SetBool("Novella_HasShownWelcome", true);
                 if (HasOpenInstances<NovellaWelcomeWindow>()) GetWindow<NovellaWelcomeWindow>().Close();
             }

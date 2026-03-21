@@ -2,6 +2,7 @@
 using UnityEngine;
 using UnityEngine.UIElements;
 using NovellaEngine.Data;
+using System.Linq;
 
 namespace NovellaEngine.Editor
 {
@@ -9,9 +10,6 @@ namespace NovellaEngine.Editor
     {
         public NovellaGroupData Data;
         private NovellaGraphView _graphView;
-        private Label _descLabel;
-        private Button _toggleDescBtn;
-        private VisualElement _descContainer;
 
         public NovellaGroupView(NovellaGroupData data, NovellaGraphView graphView)
         {
@@ -27,51 +25,30 @@ namespace NovellaEngine.Editor
                 header.style.borderBottomColor = new StyleColor(Color.black);
             }
 
-            var titleContainer = header.Q("titleContainer");
-
-            _toggleDescBtn = new Button(ToggleDesc) { text = Data.IsDescExpanded ? "▼" : "▶" };
-            _toggleDescBtn.style.width = 20;
-            _toggleDescBtn.style.height = 20;
-            _toggleDescBtn.style.backgroundColor = Color.clear;
-            _toggleDescBtn.style.borderTopWidth = 0; _toggleDescBtn.style.borderBottomWidth = 0;
-            _toggleDescBtn.style.borderLeftWidth = 0; _toggleDescBtn.style.borderRightWidth = 0;
-
-            if (titleContainer != null) titleContainer.Insert(0, _toggleDescBtn);
-
-            _descContainer = new VisualElement();
-            _descContainer.style.display = Data.IsDescExpanded ? DisplayStyle.Flex : DisplayStyle.None;
-            _descContainer.style.backgroundColor = new StyleColor(new Color(0.1f, 0.1f, 0.1f, 0.95f));
-            _descContainer.style.paddingLeft = 10; _descContainer.style.paddingRight = 10;
-            _descContainer.style.paddingTop = 10; _descContainer.style.paddingBottom = 10;
-
-            _descContainer.style.position = Position.Absolute;
-            _descContainer.style.bottom = new Length(100, LengthUnit.Percent);
-            _descContainer.style.left = 0;
-            _descContainer.style.right = 0;
-
-            _descContainer.style.borderBottomWidth = 1; _descContainer.style.borderBottomColor = Color.black;
-            _descContainer.style.borderTopLeftRadius = 8; _descContainer.style.borderTopRightRadius = 8;
-
-            _descLabel = new Label(Data.Description) { style = { whiteSpace = WhiteSpace.Normal } };
-            _descContainer.Add(_descLabel);
-
-            this.Add(_descContainer);
-
             RefreshVisuals();
         }
 
-        private void ToggleDesc()
+        // ЖЕСТКАЯ ЗАЩИТА: Отторгаем любые элементы, кроме обычных нод (NovellaNodeView)
+        protected override void OnElementsAdded(System.Collections.Generic.IEnumerable<GraphElement> elements)
         {
-            Data.IsDescExpanded = !Data.IsDescExpanded;
-            _descContainer.style.display = Data.IsDescExpanded ? DisplayStyle.Flex : DisplayStyle.None;
-            _toggleDescBtn.text = Data.IsDescExpanded ? "▼" : "▶";
-            _graphView.Window.MarkUnsaved();
+            base.OnElementsAdded(elements);
+            bool hasInvalid = false;
+
+            foreach (var el in elements.ToList())
+            {
+                if (!(el is NovellaNodeView))
+                {
+                    this.RemoveElement(el);
+                    hasInvalid = true;
+                }
+            }
+
+            if (hasInvalid && _graphView != null) _graphView.Window.MarkUnsaved();
         }
 
         public void RefreshVisuals()
         {
             title = Data.Title;
-            _descLabel.text = Data.Description;
 
             var titleLabel = headerContainer.Q<Label>("titleLabel");
             if (titleLabel != null)
@@ -79,9 +56,6 @@ namespace NovellaEngine.Editor
                 titleLabel.style.color = Data.TitleColor;
                 titleLabel.style.fontSize = Data.TitleFontSize;
             }
-
-            _descLabel.style.color = Data.DescColor;
-            _descLabel.style.fontSize = Data.DescFontSize;
 
             this.style.backgroundColor = Data.BackgroundColor;
             var content = this.Q("contentContainer");
@@ -95,13 +69,6 @@ namespace NovellaEngine.Editor
             this.style.borderRightColor = Data.BorderColor;
             this.style.borderTopLeftRadius = 8; this.style.borderTopRightRadius = 8;
             this.style.borderBottomLeftRadius = 8; this.style.borderBottomRightRadius = 8;
-
-            _descContainer.style.borderTopWidth = 2; _descContainer.style.borderBottomWidth = 2;
-            _descContainer.style.borderLeftWidth = 2; _descContainer.style.borderRightWidth = 2;
-            _descContainer.style.borderTopColor = Data.BorderColor;
-            _descContainer.style.borderBottomColor = Data.BorderColor;
-            _descContainer.style.borderLeftColor = Data.BorderColor;
-            _descContainer.style.borderRightColor = Data.BorderColor;
         }
 
         public override void OnSelected() { base.OnSelected(); _graphView?.OnGroupSelected?.Invoke(this); }

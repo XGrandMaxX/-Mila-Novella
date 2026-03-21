@@ -28,70 +28,113 @@ namespace NovellaEngine.Editor
 
         public void SetGraphView(NovellaGraphView gv) => _graphView = gv;
 
+        // === ХЕЛПЕР: ОТРИСОВКА ВЫПАДАЮЩЕГО СПИСКА С ПРЕМИУМ-ИКОНКАМИ ===
+        private string DrawVariableDropdown(string currentVar, params GUILayoutOption[] options)
+        {
+            GUILayout.BeginHorizontal();
+
+            var settings = NovellaVariableSettings.Instance;
+            if (settings.Variables.Count == 0)
+            {
+                GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
+                if (GUILayout.Button(ToolLang.Get("Create Var!", "Создать!"), EditorStyles.popup, options))
+                {
+                    NovellaVariableEditorWindow.ShowWindow();
+                }
+                GUI.backgroundColor = Color.white;
+                GUILayout.EndHorizontal();
+                return currentVar;
+            }
+
+            // Массив чистых имен для логики
+            var realNames = settings.Variables.Select(v => v.Name).ToArray();
+            // Массив для отображения (добавляем 💎 если премиум)
+            var displayNames = settings.Variables.Select(v => (v.Type == EVarType.Integer && v.IsPremiumCurrency ? "💎 " : "") + v.Name).ToArray();
+
+            int idx = Array.IndexOf(realNames, currentVar);
+            if (idx == -1) idx = 0;
+
+            int newIdx = EditorGUILayout.Popup(idx, displayNames, options);
+
+            if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
+            {
+                NovellaVariableEditorWindow.ShowWindow(realNames[newIdx]);
+            }
+
+            GUILayout.EndHorizontal();
+            return realNames[newIdx];
+        }
+
+        private EVarType GetVarType(string varName)
+        {
+            var settings = NovellaVariableSettings.Instance;
+            var def = settings.Variables.FirstOrDefault(v => v.Name == varName);
+            return def != null ? def.Type : EVarType.Integer;
+        }
+
+        // === ХЕЛПЕР: СЕРАЯ ПОДСКАЗКА ТИПА ДАННЫХ ===
+        private void DrawTypeHint(EVarType type)
+        {
+            string hint = type switch
+            {
+                EVarType.Integer => ToolLang.Get("Type: Number (Integer)", "Тип: Число (Целое)"),
+                EVarType.Boolean => ToolLang.Get("Type: Boolean (True/False)", "Тип: Переключатель (Да/Нет)"),
+                EVarType.String => ToolLang.Get("Type: String (Text)", "Тип: Строка (Текст)"),
+                _ => ""
+            };
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(hint, EditorStyles.centeredGreyMiniLabel);
+            GUILayout.EndHorizontal();
+        }
+
         public void DrawGroupInspector(NovellaGroupView groupView)
         {
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
             GUILayout.BeginHorizontal(); GUILayout.Space(15); GUILayout.BeginVertical(); GUILayout.Space(15);
 
             DrawSectionHeader("📦", ToolLang.Get("GROUP SETTINGS", "НАСТРОЙКИ ГРУППЫ"));
+            GUILayout.Space(10);
 
-            var data = groupView.Data;
             EditorGUI.BeginChangeCheck();
 
-            GUILayout.BeginVertical(EditorStyles.helpBox);
-
             GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Title", "Название"), EditorStyles.boldLabel);
+            GUILayout.Label(ToolLang.Get("Group Title", "Название группы"), EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
-            int titleLen = data.Title != null ? data.Title.Length : 0;
-            GUI.contentColor = titleLen >= 40 ? new Color(1f, 0.4f, 0.4f) : Color.gray;
-            GUILayout.Label($"{titleLen} / 40", EditorStyles.miniLabel);
-            GUI.contentColor = Color.white;
+            GUILayout.Label($"{groupView.Data.Title.Length}/50", EditorStyles.miniLabel);
             GUILayout.EndHorizontal();
 
-            data.Title = EditorGUILayout.TextField(data.Title);
-            if (data.Title != null && data.Title.Length > 40) data.Title = data.Title[..40];
-
-            data.TitleColor = EditorGUILayout.ColorField(ToolLang.Get("Title Color", "Цвет названия"), data.TitleColor);
-            data.BorderColor = EditorGUILayout.ColorField(ToolLang.Get("Border Color", "Цвет рамки"), data.BorderColor);
-            data.TitleFontSize = EditorGUILayout.IntSlider(ToolLang.Get("Title Size", "Размер названия"), data.TitleFontSize, 10, 60);
-            GUILayout.EndVertical();
+            string newTitle = EditorGUILayout.TextField(groupView.Data.Title);
+            if (newTitle.Length > 50) newTitle = newTitle.Substring(0, 50);
+            groupView.Data.Title = newTitle;
 
             GUILayout.Space(10);
-
-            GUILayout.BeginVertical(EditorStyles.helpBox);
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Description", "Описание"), EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
-            int descLen = data.Description != null ? data.Description.Length : 0;
-            GUI.contentColor = descLen >= 500 ? new Color(1f, 0.4f, 0.4f) : Color.gray;
-            GUILayout.Label($"{descLen} / 500", EditorStyles.miniLabel);
-            GUI.contentColor = Color.white;
-            GUILayout.EndHorizontal();
-
-            data.Description = EditorGUILayout.TextArea(data.Description, new GUIStyle(EditorStyles.textArea) { wordWrap = true }, GUILayout.Height(80));
-            if (data.Description != null && data.Description.Length > 500) data.Description = data.Description[..500];
-
-            data.DescColor = EditorGUILayout.ColorField(ToolLang.Get("Desc Color", "Цвет описания"), data.DescColor);
-            data.DescFontSize = EditorGUILayout.IntSlider(ToolLang.Get("Desc Size", "Размер описания"), data.DescFontSize, 10, 60);
-            GUILayout.EndVertical();
+            groupView.Data.TitleColor = EditorGUILayout.ColorField(ToolLang.Get("Title Color", "Цвет названия"), groupView.Data.TitleColor);
+            groupView.Data.TitleFontSize = EditorGUILayout.IntSlider(ToolLang.Get("Title Font Size", "Размер названия"), groupView.Data.TitleFontSize, 10, 60);
 
             GUILayout.Space(10);
+            GUILayout.Label(ToolLang.Get("Border Color", "Цвет рамки"), EditorStyles.boldLabel);
+            groupView.Data.BorderColor = EditorGUILayout.ColorField(groupView.Data.BorderColor);
 
-            GUILayout.BeginVertical(EditorStyles.helpBox);
-            data.BackgroundColor = EditorGUILayout.ColorField(ToolLang.Get("Background Color", "Цвет фона"), data.BackgroundColor);
-            GUILayout.EndVertical();
+            GUILayout.Space(10);
+            GUILayout.Label(ToolLang.Get("Background Color", "Цвет фона"), EditorStyles.boldLabel);
+            groupView.Data.BackgroundColor = EditorGUILayout.ColorField(groupView.Data.BackgroundColor);
 
-            if (GUI.changed)
+            if (EditorGUI.EndChangeCheck())
             {
-                Undo.RecordObject(_currentTree, "Edit Group");
+                groupView.title = groupView.Data.Title;
+                groupView.style.borderTopColor = groupView.Data.BorderColor;
+                groupView.style.borderBottomColor = groupView.Data.BorderColor;
+                groupView.style.borderLeftColor = groupView.Data.BorderColor;
+                groupView.style.borderRightColor = groupView.Data.BorderColor;
                 groupView.RefreshVisuals();
                 _onMarkUnsaved?.Invoke();
             }
 
-            EndLayout();
+            GUILayout.EndVertical(); GUILayout.Space(15); GUILayout.EndHorizontal();
+            GUILayout.EndScrollView();
         }
+
         public void DrawInspector(NovellaNodeView selectedNodeView, bool isStartNodeSelected)
         {
             if (_serializedObject == null || _currentTree == null || _window == null) return;
@@ -135,8 +178,7 @@ namespace NovellaEngine.Editor
 
             if (nodeData.NodeType == ENodeType.Variable && nodeData.Variables.Count == 0)
             {
-                if (!string.IsNullOrEmpty(nodeData.VariableName)) nodeData.Variables.Add(new VariableUpdate { VariableName = nodeData.VariableName, VarOperation = nodeData.VarOperation, VarValue = nodeData.VarValue });
-                else nodeData.Variables.Add(new VariableUpdate());
+                nodeData.Variables.Add(new VariableUpdate());
             }
 
             _serializedObject.Update();
@@ -151,27 +193,30 @@ namespace NovellaEngine.Editor
             EditorGUI.BeginDisabledGroup(true); EditorGUILayout.TextField(ToolLang.Get("Internal ID", "Внутренний ID"), nodeData.NodeID); EditorGUI.EndDisabledGroup();
 
             EditorGUI.BeginChangeCheck();
-            string newTitle = EditorGUILayout.TextField(ToolLang.Get("Node Name", "Имя Ноды"), nodeData.NodeTitle);
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Node Name"); nodeData.NodeTitle = newTitle; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
+            string newNodeTitle = EditorGUILayout.TextField(ToolLang.Get("Node Name", "Имя Ноды"), nodeData.NodeTitle);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Node Name"); nodeData.NodeTitle = newNodeTitle; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
 
             GUILayout.BeginHorizontal();
-            if (nodeData.NodeType != ENodeType.End && nodeData.NodeType != ENodeType.Character && nodeData.NodeType != ENodeType.Branch && nodeData.NodeType != ENodeType.Audio && nodeData.NodeType != ENodeType.Variable && nodeData.NodeType != ENodeType.Condition)
+            if (nodeData.NodeType == ENodeType.Dialogue || nodeData.NodeType == ENodeType.Event || nodeData.NodeType == ENodeType.Note)
             {
                 EditorGUI.BeginChangeCheck(); Color newColor = EditorGUILayout.ColorField(GUIContent.none, nodeData.NodeCustomColor, false, true, false, GUILayout.Width(60));
                 if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Color"); nodeData.NodeCustomColor = newColor; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
             }
-            else GUILayout.Label(ToolLang.Get("🎨 Color is locked for this type", "🎨 Цвет заблокирован для этого типа"), EditorStyles.centeredGreyMiniLabel);
+            else GUILayout.Label(ToolLang.Get("🎨 Color is locked (Global Settings)", "🎨 Цвет зарезервирован (Общие настройки)"), EditorStyles.centeredGreyMiniLabel);
 
             EditorGUI.BeginChangeCheck(); bool isPinnedRequest = GUILayout.Toggle(nodeData.IsPinned, $"📌 {ToolLang.Get("Pin Node", "Закрепить")}", EditorStyles.miniButton, GUILayout.Height(20));
             if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Pin"); foreach (var n in _currentTree.Nodes) if (n != null) n.IsPinned = false; nodeData.IsPinned = isPinnedRequest; EditorApplication.delayCall += () => _graphView?.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals()); _onMarkUnsaved?.Invoke(); }
             GUILayout.EndHorizontal();
 
-            // --- ОБНОВЛЕННЫЙ ИНСПЕКТОР ЗАМЕТКИ (NOTE) ---
             if (nodeData.NodeType == ENodeType.Note)
             {
                 DrawSectionHeader("📌", ToolLang.Get("Note Settings", "Настройки Заметки"));
 
+                EditorGUI.BeginChangeCheck();
+
                 GUILayout.BeginVertical(EditorStyles.helpBox);
+                nodeData.NoteWidth = EditorGUILayout.Slider(ToolLang.Get("Node Max Width", "Ширина ноды"), nodeData.NoteWidth, 200f, 1000f);
+                GUILayout.Space(5);
                 nodeData.NoteTitleColor = EditorGUILayout.ColorField(ToolLang.Get("Title Color", "Цвет названия"), nodeData.NoteTitleColor);
                 nodeData.NoteTitleFontSize = EditorGUILayout.IntSlider(ToolLang.Get("Title Font Size", "Размер названия"), nodeData.NoteTitleFontSize, 10, 60);
                 GUILayout.EndVertical();
@@ -196,20 +241,98 @@ namespace NovellaEngine.Editor
                 GUILayout.EndVertical();
 
                 GUILayout.Space(10);
-                nodeData.NoteURL = EditorGUILayout.TextField(ToolLang.Get("Doc Link (URL):", "Ссылка (Например YouTube):"), nodeData.NoteURL);
+                DrawSectionHeader("🖼", ToolLang.Get("Attached Images", "Изображения на Заметке"));
 
-                // Моментальное применение изменений на графе
-                if (GUI.changed)
+                for (int i = 0; i < nodeData.NoteImages.Count; i++)
+                {
+                    var img = nodeData.NoteImages[i];
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get($"Image {i + 1}", $"Картинка {i + 1}"), EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                    if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { nodeData.NoteImages.RemoveAt(i); GUI.backgroundColor = Color.white; break; }
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Texture", "Текстура"), GUILayout.Width(100));
+                    string imgName = img.Image != null ? img.Image.name : ToolLang.Get("Select from Gallery...", "Выбрать из галереи...");
+                    if (GUILayout.Button("🖼 " + imgName, EditorStyles.popup))
+                    {
+                        NovellaGalleryWindow.ShowWindow(obj => {
+                            Undo.RecordObject(_currentTree, "Change Note Image");
+                            img.Image = obj as Texture2D;
+                            if (img.Image == null && obj is Sprite sp) img.Image = sp.texture;
+                            selectedNodeView.RefreshVisuals();
+                            _onMarkUnsaved?.Invoke();
+                            _window.Repaint();
+                        }, NovellaGalleryWindow.EGalleryFilter.Image);
+                    }
+                    GUILayout.EndHorizontal();
+
+                    img.Shape = (ENoteImageShape)EditorGUILayout.EnumPopup(ToolLang.Get("Shape", "Форма"), img.Shape);
+                    img.Alignment = (ENoteImageAlignment)EditorGUILayout.EnumPopup(ToolLang.Get("Position Preset", "Пресет позиции"), img.Alignment);
+
+                    GUILayout.BeginHorizontal();
+                    img.Offset = EditorGUILayout.Vector2Field(ToolLang.Get("Custom Offset (X,Y)", "Смещение (X,Y)"), img.Offset);
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.BeginHorizontal();
+                    img.Size = EditorGUILayout.Vector2Field(ToolLang.Get("Size (W,H)", "Размер (Ш,В)"), img.Size);
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.BeginHorizontal();
+                    img.Alpha = EditorGUILayout.Slider(ToolLang.Get("Alpha", "Прозрачность"), img.Alpha, 0f, 1f);
+                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
+                }
+
+                if (nodeData.NoteImages.Count < 3)
+                {
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Image", "Добавить картинку"), EditorStyles.miniButton))
+                    {
+                        nodeData.NoteImages.Add(new NoteImageData());
+                    }
+                }
+
+                GUILayout.Space(10);
+                DrawSectionHeader("🔗", ToolLang.Get("Attached Links", "Прикрепленные ссылки"));
+
+                for (int i = 0; i < nodeData.NoteLinks.Count; i++)
+                {
+                    var lnk = nodeData.NoteLinks[i];
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUILayout.BeginHorizontal();
+                    lnk.DisplayName = EditorGUILayout.TextField(lnk.DisplayName, GUILayout.Width(100));
+                    lnk.URL = EditorGUILayout.TextField(lnk.URL, GUILayout.ExpandWidth(true));
+                    GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                    if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { nodeData.NoteLinks.RemoveAt(i); GUI.backgroundColor = Color.white; break; }
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
+                }
+
+                if (nodeData.NoteLinks.Count < 3)
+                {
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Link", "Добавить ссылку"), EditorStyles.miniButton))
+                    {
+                        nodeData.NoteLinks.Add(new NoteLinkData());
+                    }
+                }
+
+                if (EditorGUI.EndChangeCheck() || GUI.changed)
                 {
                     Undo.RecordObject(_currentTree, "Edit Note");
                     selectedNodeView.RefreshVisuals();
                     _onMarkUnsaved?.Invoke();
+                    _window.Repaint();
                 }
 
                 GUILayout.Space(15);
                 EditorGUILayout.HelpBox(ToolLang.Get(
-                    "💡 Tip: Uncheck 'Show Background' to make the note transparent. It's great for writing large tutorials directly on the graph!",
-                    "💡 Подсказка: Уберите 'Показывать фон', чтобы сделать заметку прозрачной. Это идеально подходит для написания туториалов прямо на холсте!"
+                    "💡 Tip: Use 'Background' preset to place image under text. Use offsets to adjust spacing.",
+                    "💡 Подсказка: Пресет 'Background' кладет картинку под текст как водяной знак. Используйте 'Смещение' для точной подгонки."
                 ), MessageType.Info);
 
                 EndLayout(); return;
@@ -288,13 +411,17 @@ namespace NovellaEngine.Editor
                 if (!nodeData.SyncWithDialogue)
                 {
                     EditorGUILayout.HelpBox(ToolLang.Get("Standard sequential mode. Connect to Dialogue 'Audio Sync' port for advanced features.", "Обычный режим. Подключите к порту 'Audio Sync' Диалога для продвинутых фишек."), MessageType.Info);
+
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
                     nodeData.AudioChannel = (EAudioChannel)EditorGUILayout.EnumPopup(ToolLang.Get("Channel", "Канал"), nodeData.AudioChannel);
 
                     string channelInfo = "";
                     if (nodeData.AudioChannel == EAudioChannel.BGM) channelInfo = ToolLang.Get("BGM - Background Music (Loops usually).", "BGM - Фоновая музыка (музыка сцены).");
                     else if (nodeData.AudioChannel == EAudioChannel.SFX) channelInfo = ToolLang.Get("SFX - Sound Effects (Steps, clicks, etc).", "SFX - Звуковые эффекты (шаги, удары и т.д).");
                     else if (nodeData.AudioChannel == EAudioChannel.Voice) channelInfo = ToolLang.Get("Voice - Character Voiceover.", "Voice - Озвучка персонажей.");
-                    GUILayout.Label(channelInfo, new GUIStyle(EditorStyles.wordWrappedMiniLabel) { normal = { textColor = Color.gray } });
+                    EditorGUILayout.HelpBox(channelInfo, MessageType.None);
+                    GUILayout.EndVertical();
+
                     GUILayout.Space(5);
 
                     nodeData.AudioAction = (EAudioAction)EditorGUILayout.EnumPopup(ToolLang.Get("Action", "Действие"), nodeData.AudioAction);
@@ -326,68 +453,60 @@ namespace NovellaEngine.Editor
                 else
                 {
                     int linesCount = syncedDialogue.DialogueLines.Count;
-                    int maxEvents = linesCount + 1;
+                    int requiredEvents = linesCount + 1;
 
-                    string countStr = $"<b><color=#55FF55>{linesCount}</color></b>";
-                    string textEn = $"Synced with Dialogue: {countStr} lines available.";
-                    string textRu = $"Синхронизировано с Диалогом: доступна {countStr} реплика.";
-
-                    if (ToolLang.IsRU)
+                    while (nodeData.AudioEvents.Count < requiredEvents)
                     {
-                        int mod10 = linesCount % 10; int mod100 = linesCount % 100;
-                        if (mod10 == 1 && mod100 != 11) textRu = $"Синхронизировано с Диалогом: доступна {countStr} реплика.";
-                        else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) textRu = $"Синхронизировано с Диалогом: доступно {countStr} реплики.";
-                        else textRu = $"Синхронизировано с Диалогом: доступно {countStr} реплик.";
+                        nodeData.AudioEvents.Add(new DialogueAudioEvent());
+                    }
+                    while (nodeData.AudioEvents.Count > requiredEvents)
+                    {
+                        nodeData.AudioEvents.RemoveAt(nodeData.AudioEvents.Count - 1);
                     }
 
-                    GUILayout.BeginVertical(EditorStyles.helpBox);
-                    GUILayout.Label(ToolLang.Get(textEn, textRu), new GUIStyle(EditorStyles.label) { richText = true });
-                    GUILayout.EndVertical();
-                    GUILayout.Space(5);
-
-                    string[] lineOptions = new string[syncedDialogue.DialogueLines.Count];
-                    for (int i = 0; i < syncedDialogue.DialogueLines.Count; i++)
-                    {
-                        string spkName = syncedDialogue.DialogueLines[i].Speaker != null ? syncedDialogue.DialogueLines[i].Speaker.name : ToolLang.Get("Narrator", "Автор");
-                        lineOptions[i] = ToolLang.Get($"Line #{i + 1} ({spkName})", $"Реплика #{i + 1} ({spkName})");
-                    }
-
-                    for (int i = 0; i < nodeData.AudioEvents.Count; i++)
+                    for (int i = 0; i <= linesCount; i++)
                     {
                         var ev = nodeData.AudioEvents[i];
+                        bool isAfterDialogue = (i == linesCount);
+
+                        ev.LineIndex = isAfterDialogue ? -1 : i;
+
+                        if (isAfterDialogue) ev.TriggerType = EAudioTriggerType.OnDialogueEnd;
+                        else if (ev.TriggerType == EAudioTriggerType.OnDialogueEnd) ev.TriggerType = EAudioTriggerType.OnStart;
+
                         GUILayout.BeginVertical(EditorStyles.helpBox);
                         GUILayout.BeginHorizontal();
-                        GUILayout.Label(ToolLang.Get($"Audio Event {i + 1}", $"Событие {i + 1}"), EditorStyles.boldLabel);
-                        GUILayout.FlexibleSpace();
-                        GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
-                        if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { Undo.RecordObject(_currentTree, "Remove Audio Event"); nodeData.AudioEvents.RemoveAt(i); GUI.backgroundColor = Color.white; break; }
-                        GUI.backgroundColor = Color.white;
+
+                        if (isAfterDialogue)
+                        {
+                            GUILayout.Label("🏁 " + ToolLang.Get("After Dialogue", "После диалога"), EditorStyles.boldLabel);
+                        }
+                        else
+                        {
+                            string spkName = syncedDialogue.DialogueLines[i].Speaker != null ? syncedDialogue.DialogueLines[i].Speaker.name : ToolLang.Get("Narrator", "Автор");
+                            GUILayout.Label($"💬 {ToolLang.Get("Line", "Реплика")} #{i + 1} ({spkName})", EditorStyles.boldLabel);
+
+                            GUILayout.FlexibleSpace();
+                            string[] triggerNames = { ToolLang.Get("On Start", "В начале"), ToolLang.Get("Custom Delay", "Задержка") };
+                            int tIndex = ev.TriggerType == EAudioTriggerType.TimeDelay ? 1 : 0;
+                            tIndex = EditorGUILayout.Popup(tIndex, triggerNames, GUILayout.Width(100));
+                            ev.TriggerType = tIndex == 1 ? EAudioTriggerType.TimeDelay : EAudioTriggerType.OnStart;
+
+                            if (ev.TriggerType == EAudioTriggerType.TimeDelay)
+                                ev.TimeDelay = EditorGUILayout.FloatField(ev.TimeDelay, GUILayout.Width(40));
+                        }
                         GUILayout.EndHorizontal();
+
                         GUILayout.Space(5);
 
-                        if (ev.LineIndex >= lineOptions.Length) ev.LineIndex = Mathf.Max(0, lineOptions.Length - 1);
-
-                        string[] triggerNames = { ToolLang.Get("On Start", "В начале"), ToolLang.Get("On End", "В конце"), ToolLang.Get("Custom Delay", "Задержка"), ToolLang.Get("After Dialogue", "После диалога") };
-                        ev.TriggerType = (EAudioTriggerType)EditorGUILayout.Popup(ToolLang.Get("Trigger At", "Когда:"), (int)ev.TriggerType, triggerNames);
-
-                        if (ev.TriggerType != EAudioTriggerType.OnDialogueEnd)
-                        {
-                            ev.LineIndex = EditorGUILayout.Popup(ToolLang.Get("Target Line", "Целевая реплика"), ev.LineIndex, lineOptions);
-                        }
-
-                        if (ev.TriggerType == EAudioTriggerType.TimeDelay)
-                            ev.TimeDelay = EditorGUILayout.FloatField(ToolLang.Get("Delay (sec)", "Задержка (сек)"), ev.TimeDelay);
-
-                        GUILayout.Space(15);
-
+                        GUILayout.BeginVertical(EditorStyles.helpBox);
                         ev.AudioChannel = (EAudioChannel)EditorGUILayout.EnumPopup(ToolLang.Get("Channel", "Канал"), ev.AudioChannel);
-
                         string evChannelInfo = "";
                         if (ev.AudioChannel == EAudioChannel.BGM) evChannelInfo = ToolLang.Get("BGM - Background Music (Loops usually).", "BGM - Фоновая музыка (музыка сцены).");
                         else if (ev.AudioChannel == EAudioChannel.SFX) evChannelInfo = ToolLang.Get("SFX - Sound Effects (Steps, clicks, etc).", "SFX - Звуковые эффекты (шаги, удары и т.д).");
                         else if (ev.AudioChannel == EAudioChannel.Voice) evChannelInfo = ToolLang.Get("Voice - Character Voiceover.", "Voice - Озвучка персонажей.");
-                        GUILayout.Label(evChannelInfo, new GUIStyle(EditorStyles.wordWrappedMiniLabel) { normal = { textColor = Color.gray } });
-                        GUILayout.Space(5);
+                        EditorGUILayout.HelpBox(evChannelInfo, MessageType.None);
+                        GUILayout.EndVertical();
 
                         ev.AudioAction = (EAudioAction)EditorGUILayout.EnumPopup(ToolLang.Get("Action", "Действие"), ev.AudioAction);
 
@@ -395,7 +514,7 @@ namespace NovellaEngine.Editor
                         {
                             GUILayout.BeginHorizontal();
                             GUILayout.Label(ToolLang.Get("Audio Clip", "Аудиофайл"), GUILayout.Width(126));
-                            string evAudioName = ev.AudioAsset != null ? ev.AudioAsset.name : ToolLang.Get("Select from Gallery...", "Выбрать из галереи...");
+                            string evAudioName = ev.AudioAsset != null ? ev.AudioAsset.name : ToolLang.Get("None (Disabled)", "Пусто (Отключено)");
 
                             if (GUILayout.Button("🎵 " + evAudioName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
                             {
@@ -414,24 +533,8 @@ namespace NovellaEngine.Editor
 
                             ev.Volume = EditorGUILayout.Slider(ToolLang.Get("Volume", "Громкость"), ev.Volume, 0f, 1f);
                         }
-
                         GUILayout.EndVertical();
                         GUILayout.Space(5);
-                    }
-
-                    if (nodeData.AudioEvents.Count >= maxEvents)
-                    {
-                        string limitEn = $"Limit reached. Events available: {maxEvents - 1} (based on line count), +1 extra event is provided in case you need to play a sound after the dialogue!";
-                        string limitRu = $"Достигнут лимит. Доступно событий: {maxEvents - 1} (по числу реплик), +1 событие дается если вам понадобится проиграть звук после диалога!";
-                        EditorGUILayout.HelpBox(ToolLang.Get(limitEn, limitRu), MessageType.Info);
-                    }
-                    else
-                    {
-                        if (GUILayout.Button("+ " + ToolLang.Get("Add Audio Event", "Добавить аудио событие"), EditorStyles.miniButton, GUILayout.Height(25)))
-                        {
-                            Undo.RecordObject(_currentTree, "Add Audio Event");
-                            nodeData.AudioEvents.Add(new DialogueAudioEvent());
-                        }
                     }
                 }
 
@@ -461,14 +564,36 @@ namespace NovellaEngine.Editor
                     GUILayout.EndHorizontal();
 
                     EditorGUI.BeginChangeCheck();
-                    EditorGUIUtility.labelWidth = 100;
-                    v.VariableName = EditorGUILayout.TextField(ToolLang.Get("Name (Key)", "Имя (Ключ)"), v.VariableName);
 
                     GUILayout.BeginHorizontal();
-                    string[] opNames = { ToolLang.Get("Set (=)", "Установить (=)"), ToolLang.Get("Add (+)", "Добавить (+)") };
-                    v.VarOperation = (EVarOperation)EditorGUILayout.Popup(ToolLang.Get("Operation", "Операция"), (int)v.VarOperation, opNames);
-                    v.VarValue = EditorGUILayout.IntField(ToolLang.Get("Value", "Значение"), v.VarValue);
+                    GUILayout.Label(ToolLang.Get("Name", "Имя"), GUILayout.Width(50));
+                    v.VariableName = DrawVariableDropdown(v.VariableName, GUILayout.ExpandWidth(true));
                     GUILayout.EndHorizontal();
+
+                    EVarType type = GetVarType(v.VariableName);
+
+                    GUILayout.BeginHorizontal();
+                    if (type == EVarType.Integer)
+                    {
+                        string[] opNames = { ToolLang.Get("Set (=)", "Установить (=)"), ToolLang.Get("Add (+)", "Добавить (+)") };
+                        v.VarOperation = (EVarOperation)EditorGUILayout.Popup((int)v.VarOperation, opNames, GUILayout.Width(100));
+                        v.VarValue = EditorGUILayout.IntField(v.VarValue, GUILayout.ExpandWidth(true));
+                    }
+                    else if (type == EVarType.Boolean)
+                    {
+                        v.VarOperation = EVarOperation.Set;
+                        GUILayout.Label(ToolLang.Get("Set to", "Задать как"), GUILayout.Width(80));
+                        v.VarBool = EditorGUILayout.Toggle(v.VarBool, GUILayout.ExpandWidth(true));
+                    }
+                    else if (type == EVarType.String)
+                    {
+                        v.VarOperation = EVarOperation.Set;
+                        GUILayout.Label(ToolLang.Get("Set to", "Задать как"), GUILayout.Width(80));
+                        v.VarString = EditorGUILayout.TextField(v.VarString, GUILayout.ExpandWidth(true));
+                    }
+                    GUILayout.EndHorizontal();
+
+                    DrawTypeHint(type);
 
                     if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Var Edit"); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
                     GUILayout.EndVertical();
@@ -497,12 +622,36 @@ namespace NovellaEngine.Editor
                     var cond = nodeData.Conditions[c];
                     GUILayout.BeginVertical(EditorStyles.helpBox);
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label("IF", EditorStyles.boldLabel, GUILayout.Width(20));
-                    cond.Variable = EditorGUILayout.TextField(cond.Variable, GUILayout.ExpandWidth(true));
 
-                    string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
-                    cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
-                    cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
+                    GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), EditorStyles.boldLabel, GUILayout.Width(40));
+                    cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
+
+                    EVarType type = GetVarType(cond.Variable);
+
+                    if (type == EVarType.Integer)
+                    {
+                        string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                        cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
+                        cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
+                    }
+                    else if (type == EVarType.Boolean)
+                    {
+                        string[] eqNames = { "==", "!=" };
+                        EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                        int idx = Array.IndexOf(eqOps, cond.Operator);
+                        if (idx == -1) idx = 0;
+                        cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
+                        cond.ValueBool = EditorGUILayout.Toggle(cond.ValueBool, GUILayout.Width(50));
+                    }
+                    else if (type == EVarType.String)
+                    {
+                        string[] eqNames = { "==", "!=" };
+                        EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                        int idx = Array.IndexOf(eqOps, cond.Operator);
+                        if (idx == -1) idx = 0;
+                        cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
+                        cond.ValueString = EditorGUILayout.TextField(cond.ValueString, GUILayout.Width(80));
+                    }
 
                     bool canDeleteCond = nodeData.Conditions.Count > 1;
                     EditorGUI.BeginDisabledGroup(!canDeleteCond);
@@ -511,6 +660,9 @@ namespace NovellaEngine.Editor
                     GUI.backgroundColor = Color.white;
                     EditorGUI.EndDisabledGroup();
                     GUILayout.EndHorizontal();
+
+                    DrawTypeHint(type);
+
                     GUILayout.EndVertical();
                     GUILayout.Space(2);
                 }
@@ -527,6 +679,113 @@ namespace NovellaEngine.Editor
                     "Если ВСЕ условия выше выполняются, сюжет пойдет по ветке 'Истина' (True). Иначе — по ветке 'Ложь' (False)."
                 ), MessageType.Info);
 
+                EndLayout(); return;
+            }
+
+            if (nodeData.NodeType == ENodeType.Random)
+            {
+                DrawSectionHeader("🎲", ToolLang.Get("Random Chances", "Случайные события (Шанс)"));
+
+                int totalMaxWeight = nodeData.Choices.Sum(c => c.ChanceWeight + c.ChanceModifiers.Sum(m => m.BonusWeight));
+
+                for (int i = 0; i < nodeData.Choices.Count; i++)
+                {
+                    var choice = nodeData.Choices[i];
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+                    int choiceMaxWeight = choice.ChanceWeight + choice.ChanceModifiers.Sum(m => m.BonusWeight);
+                    float percentage = totalMaxWeight > 0 ? ((float)choiceMaxWeight / totalMaxWeight) * 100f : 0f;
+
+                    GUILayout.Label(ToolLang.Get($"Max Chance {i + 1} ({percentage:F1}%)", $"Макс. Шанс {i + 1} ({percentage:F1}%)"), EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+
+                    bool canDelete = nodeData.Choices.Count > 1;
+                    EditorGUI.BeginDisabledGroup(!canDelete);
+                    GUI.backgroundColor = canDelete ? new Color(0.9f, 0.4f, 0.4f) : Color.grey;
+                    if (GUILayout.Button(ToolLang.Get("Delete", "Удалить"), EditorStyles.toolbarButton, GUILayout.Width(65))) { Undo.RecordObject(_currentTree, "Remove Choice"); nodeData.Choices.RemoveAt(i); _serializedObject.Update(); selectedNodeView.DrawBranchPorts(); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); GUI.backgroundColor = Color.white; EditorGUI.EndDisabledGroup(); break; }
+                    GUI.backgroundColor = Color.white; EditorGUI.EndDisabledGroup(); GUILayout.EndHorizontal();
+
+                    GUILayout.Space(5);
+
+                    EditorGUI.BeginChangeCheck();
+                    int newWeight = EditorGUILayout.IntSlider(ToolLang.Get("Base Weight", "Базовый Вес"), choice.ChanceWeight, 1, 100);
+
+                    GUILayout.Space(10);
+                    GUILayout.Label(ToolLang.Get("Dynamic Modifiers (Bonus Weight):", "Динамические модификаторы (Доп. Вес):"), EditorStyles.miniBoldLabel);
+
+                    for (int m = 0; m < choice.ChanceModifiers.Count; m++)
+                    {
+                        var mod = choice.ChanceModifiers[m];
+                        GUILayout.BeginVertical();
+                        GUILayout.BeginHorizontal();
+
+                        GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), GUILayout.Width(35));
+
+                        mod.Variable = DrawVariableDropdown(mod.Variable, GUILayout.ExpandWidth(true), GUILayout.MinWidth(80));
+
+                        EVarType type = GetVarType(mod.Variable);
+
+                        if (type == EVarType.Integer)
+                        {
+                            string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                            mod.Operator = (EConditionOperator)EditorGUILayout.Popup((int)mod.Operator, opNames, GUILayout.Width(45));
+                            mod.Value = EditorGUILayout.IntField(mod.Value, GUILayout.Width(35));
+                        }
+                        else if (type == EVarType.Boolean)
+                        {
+                            string[] eqNames = { "==", "!=" };
+                            EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                            int idx = Array.IndexOf(eqOps, mod.Operator);
+                            if (idx == -1) idx = 0;
+                            mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(45))];
+                            mod.ValueBool = EditorGUILayout.Toggle(mod.ValueBool, GUILayout.Width(35));
+                        }
+                        else if (type == EVarType.String)
+                        {
+                            string[] eqNames = { "==", "!=" };
+                            EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                            int idx = Array.IndexOf(eqOps, mod.Operator);
+                            if (idx == -1) idx = 0;
+                            mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(45))];
+                            mod.ValueString = EditorGUILayout.TextField(mod.ValueString, GUILayout.Width(50));
+                        }
+
+                        GUILayout.Label("➔", new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter }, GUILayout.Width(20));
+                        GUILayout.Label("+", new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleRight }, GUILayout.Width(12));
+                        mod.BonusWeight = EditorGUILayout.IntField(mod.BonusWeight, GUILayout.Width(35));
+                        GUILayout.Label(ToolLang.Get("Wgt", "Вес"), GUILayout.Width(30));
+
+                        GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                        if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(20))) { choice.ChanceModifiers.RemoveAt(m); GUI.backgroundColor = Color.white; break; }
+                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+                        DrawTypeHint(type);
+                        GUILayout.EndVertical();
+                    }
+
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Modifier", "Добавить модификатор"), EditorStyles.miniButton))
+                    {
+                        choice.ChanceModifiers.Add(new ChanceModifier());
+                    }
+
+                    if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Edit Weight"); choice.ChanceWeight = newWeight; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
+
+                    GUILayout.Space(5); GUILayout.EndVertical(); GUILayout.Space(5);
+                }
+
+                GUILayout.Space(10);
+                EditorGUILayout.HelpBox(ToolLang.Get(
+                    "💡 How it works:\n• Base Weight: Default probability.\n• Modifiers: Add EXTRA weight if true.\n• Chance = (Weight / Total Weight) * 100%\n\n% shown above calculates the MAX chance if all conditions apply.",
+                    "💡 Как это работает:\n• Базовый Вес: Стандартная доля вероятности.\n• Модификаторы: Дают ЭКСТРА вес, если условие истинно.\n• Шанс = (Вес / Сумма всех весов) * 100%\n\nПроценты (%) выше показывают МАКСИМАЛЬНЫЙ шанс, если все условия сработают."
+                ), MessageType.Info);
+
+                if (nodeData.Choices.Count >= 4 && !nodeData.UnlockChoiceLimit)
+                {
+                    EditorGUILayout.HelpBox(ToolLang.Get("Default limit of 4 choices reached.", "Достигнут базовый лимит (4 выхода)."), MessageType.Info);
+                    if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять ограничение"), EditorStyles.miniButton, GUILayout.Height(25))) { Undo.RecordObject(_currentTree, "Unlock Choice"); nodeData.UnlockChoiceLimit = true; _onMarkUnsaved?.Invoke(); }
+                }
+                else { if (GUILayout.Button($"+ {ToolLang.Get("Add Chance", "Добавить шанс")}", EditorStyles.miniButton, GUILayout.Height(30))) { Undo.RecordObject(_currentTree, "Add Choice"); nodeData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 }); _serializedObject.Update(); selectedNodeView.DrawBranchPorts(); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); } }
                 EndLayout(); return;
             }
 
@@ -565,19 +824,45 @@ namespace NovellaEngine.Editor
                         for (int c = 0; c < choice.Conditions.Count; c++)
                         {
                             var cond = choice.Conditions[c];
+                            GUILayout.BeginVertical();
                             GUILayout.BeginHorizontal();
-                            GUILayout.Label("IF", GUILayout.Width(20));
-                            cond.Variable = EditorGUILayout.TextField(cond.Variable, GUILayout.ExpandWidth(true));
 
-                            string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
-                            cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
+                            GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), GUILayout.Width(35));
+                            cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
 
-                            cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
+                            EVarType type = GetVarType(cond.Variable);
+
+                            if (type == EVarType.Integer)
+                            {
+                                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                                cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
+                                cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
+                            }
+                            else if (type == EVarType.Boolean)
+                            {
+                                string[] eqNames = { "==", "!=" };
+                                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                                int idx = Array.IndexOf(eqOps, cond.Operator);
+                                if (idx == -1) idx = 0;
+                                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
+                                cond.ValueBool = EditorGUILayout.Toggle(cond.ValueBool, GUILayout.Width(50));
+                            }
+                            else if (type == EVarType.String)
+                            {
+                                string[] eqNames = { "==", "!=" };
+                                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                                int idx = Array.IndexOf(eqOps, cond.Operator);
+                                if (idx == -1) idx = 0;
+                                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
+                                cond.ValueString = EditorGUILayout.TextField(cond.ValueString, GUILayout.Width(80));
+                            }
 
                             GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
                             if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { Undo.RecordObject(_currentTree, "Remove Condition"); choice.Conditions.RemoveAt(c); GUI.backgroundColor = Color.white; break; }
                             GUI.backgroundColor = Color.white;
                             GUILayout.EndHorizontal();
+                            DrawTypeHint(type);
+                            GUILayout.EndVertical();
                         }
                     }
 
@@ -608,6 +893,11 @@ namespace NovellaEngine.Editor
             }
 
             DrawSectionHeader("👥", ToolLang.Get("Scene Layout", "Расстановка на сцене"));
+            EditorGUILayout.HelpBox(ToolLang.Get(
+                "Note: Speakers are auto-spawned. Use this section ONLY for background characters or to set default positions for speakers.",
+                "Примечание: Спикеры из реплик появляются автоматически. Используйте этот раздел ТОЛЬКО для настройки массовки или задания позиции спикеров по умолчанию."
+            ), MessageType.None);
+
             if (GUILayout.Button($"🛠 {ToolLang.Get("Character Editor", "Редактор Персонажей")}", EditorStyles.miniButton, GUILayout.Height(25))) NovellaCharacterEditor.OpenWindow();
             GUILayout.Space(15);
 
@@ -617,18 +907,19 @@ namespace NovellaEngine.Editor
                 var activeChar = nodeData.ActiveCharacters[i];
                 GUILayout.BeginHorizontal(EditorStyles.toolbar);
 
+                activeChar.IsExpanded = GUILayout.Toggle(activeChar.IsExpanded, activeChar.IsExpanded ? "▼" : "▶", EditorStyles.toolbarButton, GUILayout.Width(25));
+
                 string charName = activeChar.CharacterAsset != null ? activeChar.CharacterAsset.name : ToolLang.Get("Select...", "Выбрать...");
-                if (GUILayout.Button($"👤 {charName}", EditorStyles.toolbarDropDown, GUILayout.Width(150)))
+                if (GUILayout.Button($"👤 {charName}", EditorStyles.toolbarDropDown, GUILayout.ExpandWidth(true)))
                 {
                     NovellaCharacterSelectorWindow.ShowWindow((selectedChar) => { Undo.RecordObject(_currentTree, "Change Character Asset"); activeChar.CharacterAsset = selectedChar; selectedNodeView.RefreshVisuals(); SyncSceneWithDialogueNode(nodeData); _onMarkUnsaved?.Invoke(); _window.Repaint(); });
                 }
 
-                GUILayout.FlexibleSpace();
                 GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
-                if (GUILayout.Button(ToolLang.Get("Delete", "Удалить"), EditorStyles.toolbarButton, GUILayout.Width(65))) { Undo.RecordObject(_currentTree, "Remove Character"); nodeData.ActiveCharacters.RemoveAt(i); GUI.changed = true; GUI.backgroundColor = Color.white; break; }
-                GUI.backgroundColor = Color.white; GUILayout.EndHorizontal(); GUILayout.Space(8); EditorGUIUtility.labelWidth = 65;
+                if (GUILayout.Button("X", EditorStyles.toolbarButton, GUILayout.Width(30))) { Undo.RecordObject(_currentTree, "Remove Character"); nodeData.ActiveCharacters.RemoveAt(i); GUI.changed = true; GUI.backgroundColor = Color.white; break; }
+                GUI.backgroundColor = Color.white; GUILayout.EndHorizontal();
 
-                if (activeChar.CharacterAsset != null)
+                if (activeChar.IsExpanded && activeChar.CharacterAsset != null)
                 {
                     GUILayout.Space(5); EditorGUI.BeginChangeCheck(); GUILayout.BeginHorizontal();
 
@@ -647,7 +938,7 @@ namespace NovellaEngine.Editor
                     activeChar.PosY = EditorGUILayout.FloatField(ToolLang.Get("Pos Y:", "Поз. Y:"), activeChar.PosY); GUILayout.EndHorizontal();
                     if (EditorGUI.EndChangeCheck()) Undo.RecordObject(_currentTree, "Change Data");
                 }
-                EditorGUIUtility.labelWidth = originalLabelWidth; GUILayout.Space(8); GUILayout.EndVertical(); GUILayout.Space(10);
+                EditorGUIUtility.labelWidth = originalLabelWidth; GUILayout.EndVertical(); GUILayout.Space(5);
             }
 
             if (GUILayout.Button($"+ {ToolLang.Get("Add Character to Scene", "Добавить персонажа на сцену")}", EditorStyles.miniButton, GUILayout.Height(30))) { Undo.RecordObject(_currentTree, "Add Character"); nodeData.ActiveCharacters.Add(new CharacterInDialogue()); GUI.changed = true; }
@@ -672,7 +963,43 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.BeginHorizontal(EditorStyles.toolbar);
-                GUILayout.Label($"#{i + 1}", EditorStyles.boldLabel, GUILayout.Width(25));
+
+                GUIStyle numStyle = new GUIStyle(EditorStyles.boldLabel);
+                numStyle.normal.textColor = new Color(1f, 0.6f, 0f);
+                GUILayout.Label($"#{i + 1}", numStyle, GUILayout.Width(25));
+
+                if (GUILayout.Button("▲", EditorStyles.toolbarButton, GUILayout.Width(20)))
+                {
+                    if (i > 0)
+                    {
+                        Undo.RecordObject(_currentTree, "Move Line Up");
+                        var temp = nodeData.DialogueLines[i];
+                        nodeData.DialogueLines[i] = nodeData.DialogueLines[i - 1];
+                        nodeData.DialogueLines[i - 1] = temp;
+                        if (_activePreviewLineIndex == i) _activePreviewLineIndex = i - 1;
+                        else if (_activePreviewLineIndex == i - 1) _activePreviewLineIndex = i;
+                        SyncSceneWithDialogueNode(nodeData);
+                        _onMarkUnsaved?.Invoke();
+                        break;
+                    }
+                }
+                if (GUILayout.Button("▼", EditorStyles.toolbarButton, GUILayout.Width(20)))
+                {
+                    if (i < nodeData.DialogueLines.Count - 1)
+                    {
+                        Undo.RecordObject(_currentTree, "Move Line Down");
+                        var temp = nodeData.DialogueLines[i];
+                        nodeData.DialogueLines[i] = nodeData.DialogueLines[i + 1];
+                        nodeData.DialogueLines[i + 1] = temp;
+                        if (_activePreviewLineIndex == i) _activePreviewLineIndex = i + 1;
+                        else if (_activePreviewLineIndex == i + 1) _activePreviewLineIndex = i;
+                        SyncSceneWithDialogueNode(nodeData);
+                        _onMarkUnsaved?.Invoke();
+                        break;
+                    }
+                }
+
+                GUILayout.Space(5);
 
                 string speakerName = line.Speaker != null ? line.Speaker.name : ToolLang.Get("No Speaker", "Без спикера");
                 if (GUILayout.Button($"🗣 {speakerName}", EditorStyles.toolbarDropDown, GUILayout.Width(120)))
@@ -727,7 +1054,14 @@ namespace NovellaEngine.Editor
                     List<string> moodList = new List<string> { "Default" }; if (line.Speaker.Emotions != null) moodList.AddRange(line.Speaker.Emotions.Select(e => e.EmotionName));
                     int moodIdx = moodList.IndexOf(line.Mood); if (moodIdx == -1) moodIdx = 0;
                     EditorGUIUtility.labelWidth = 55;
-                    line.Mood = moodList[EditorGUILayout.Popup(ToolLang.Get("Mood:", "Эмоция:"), moodIdx, moodList.ToArray(), GUILayout.Width(150))];
+                    line.Mood = moodList[EditorGUILayout.Popup(ToolLang.Get("Mood:", "Эмоция:"), moodIdx, moodList.ToArray(), GUILayout.Width(130))];
+
+                    GUILayout.Space(5);
+                    GUILayout.BeginVertical();
+                    line.HideSpeakerName = GUILayout.Toggle(line.HideSpeakerName, " 👁 " + ToolLang.Get("Override Name", "Заменить/Скрыть Имя"));
+                    line.HideSpeakerSprite = GUILayout.Toggle(line.HideSpeakerSprite, " 👻 " + ToolLang.Get("Hide Sprite", "Скрыть Спрайт"));
+                    line.CustomizeSpeakerLayout = GUILayout.Toggle(line.CustomizeSpeakerLayout, " ⚙ " + ToolLang.Get("Override Pos", "Позиция"));
+                    GUILayout.EndVertical();
                 }
                 GUILayout.FlexibleSpace();
 
@@ -738,9 +1072,61 @@ namespace NovellaEngine.Editor
                 if (line.FontSize <= 0) line.FontSize = nodeData.FontSize > 0 ? nodeData.FontSize : 32;
                 EditorGUIUtility.labelWidth = 40;
                 line.FontSize = EditorGUILayout.IntField(new GUIContent(ToolLang.Get("Size:", "Разм:"), ToolLang.Get("Font size for this specific line.", "Размер шрифта только для этой реплики.")), line.FontSize, GUILayout.Width(75));
-
                 EditorGUIUtility.labelWidth = originalLabelWidth;
                 GUILayout.EndHorizontal();
+
+                if (line.Speaker != null && line.HideSpeakerName)
+                {
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "If text is empty, name window will be hidden. If filled, it overrides the speaker's name.",
+                        "Если поле пустое, окно имени скроется. Если заполнить - заменит оригинальное имя."
+                    ), MessageType.None);
+
+                    GUILayout.BeginHorizontal();
+                    float oldLw = EditorGUIUtility.labelWidth;
+                    EditorGUIUtility.labelWidth = ToolLang.IsRU ? 80 : 85;
+                    line.CustomName = EditorGUILayout.TextField(ToolLang.Get("Custom Name:", "Новое Имя:"), line.CustomName, GUILayout.ExpandWidth(true));
+
+                    GUILayout.Space(10);
+                    EditorGUIUtility.labelWidth = 40;
+                    line.CustomNameColor = EditorGUILayout.ColorField(ToolLang.Get("Color:", "Цвет:"), line.CustomNameColor, GUILayout.Width(100));
+                    EditorGUIUtility.labelWidth = oldLw;
+                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
+                }
+
+                if (line.Speaker != null && line.CustomizeSpeakerLayout)
+                {
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "Overrides the default position from 'Scene Layout' for this line only.",
+                        "Заменяет базовые настройки из 'Расстановки на сцене' только для этой реплики."
+                    ), MessageType.None);
+
+                    GUILayout.BeginHorizontal();
+                    float oldLw = EditorGUIUtility.labelWidth;
+
+                    EditorGUIUtility.labelWidth = 15;
+                    line.SpeakerPosX = EditorGUILayout.FloatField("X", line.SpeakerPosX, GUILayout.Width(65));
+                    GUILayout.Space(5);
+                    line.SpeakerPosY = EditorGUILayout.FloatField("Y", line.SpeakerPosY, GUILayout.Width(65));
+
+                    GUILayout.FlexibleSpace();
+
+                    EditorGUIUtility.labelWidth = ToolLang.IsRU ? 55 : 45;
+                    line.SpeakerScale = EditorGUILayout.FloatField(ToolLang.Get("Scale", "Размер"), line.SpeakerScale, GUILayout.Width(100));
+
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.BeginHorizontal();
+                    EditorGUIUtility.labelWidth = 45;
+                    line.SpeakerPlane = (ECharacterPlane)EditorGUILayout.EnumPopup(ToolLang.Get("Plane", "Слой"), line.SpeakerPlane);
+                    GUILayout.EndHorizontal();
+
+                    EditorGUIUtility.labelWidth = oldLw;
+                    GUILayout.EndVertical();
+                }
 
                 GUIStyle textAreaStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
                 string currentPhrase = line.LocalizedPhrase.GetText(_window.PreviewLanguage);
@@ -781,7 +1167,8 @@ namespace NovellaEngine.Editor
                 GUILayout.EndVertical();
 
                 GUILayout.EndVertical();
-                GUILayout.Space(5);
+
+                GUILayout.Space(15);
             }
 
             if (GUILayout.Button($"+ {ToolLang.Get("Add Dialogue Line", "Добавить реплику")}", EditorStyles.miniButton, GUILayout.Height(30)))
@@ -845,63 +1232,113 @@ namespace NovellaEngine.Editor
         {
             if (nodeData.NodeType != ENodeType.Dialogue && nodeData.NodeType != ENodeType.Event) { ClearScene(); return; }
 
-            var entities = UnityEngine.Object.FindObjectsByType<NovellaSceneEntity>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Transform charsContainer = null;
+            var sceneManagerPlayer = UnityEngine.Object.FindFirstObjectByType<NovellaPlayer>();
+            if (sceneManagerPlayer != null) charsContainer = sceneManagerPlayer.CharactersContainer;
+
+            List<NovellaSceneEntity> entities = new List<NovellaSceneEntity>();
+            if (charsContainer != null)
+            {
+                entities = charsContainer.GetComponentsInChildren<NovellaSceneEntity>(true).ToList();
+            }
+            else
+            {
+                entities = UnityEngine.Object.FindObjectsByType<NovellaSceneEntity>(FindObjectsInactive.Include, FindObjectsSortMode.None).ToList();
+            }
 
             string currentSpeakerID = "";
+            DialogueLine activeLine = null;
             if (nodeData.DialogueLines.Count > 0 && _activePreviewLineIndex >= 0 && _activePreviewLineIndex < nodeData.DialogueLines.Count)
             {
-                var activeLine = nodeData.DialogueLines[_activePreviewLineIndex];
+                activeLine = nodeData.DialogueLines[_activePreviewLineIndex];
                 if (activeLine.Speaker != null) currentSpeakerID = activeLine.Speaker.CharacterID;
             }
 
-            foreach (var activeChar in nodeData.ActiveCharacters)
+            Dictionary<string, CharacterInDialogue> charConfigs = new Dictionary<string, CharacterInDialogue>();
+            foreach (var ac in nodeData.ActiveCharacters)
             {
-                if (activeChar.CharacterAsset == null) continue;
+                if (ac.CharacterAsset != null) charConfigs[ac.CharacterAsset.CharacterID] = ac;
+            }
 
-                var entity = entities.FirstOrDefault(e => e.LinkedNodeID == activeChar.CharacterAsset.CharacterID);
+            foreach (var line in nodeData.DialogueLines)
+            {
+                if (line.Speaker != null && !charConfigs.ContainsKey(line.Speaker.CharacterID))
+                {
+                    charConfigs[line.Speaker.CharacterID] = new CharacterInDialogue
+                    {
+                        CharacterAsset = line.Speaker,
+                        Plane = ECharacterPlane.Speaker,
+                        Scale = 1f,
+                        Emotion = "Default",
+                        PosX = 0f,
+                        PosY = 0f
+                    };
+                }
+            }
+
+            foreach (var config in charConfigs.Values)
+            {
+                var entity = entities.FirstOrDefault(e => e.LinkedNodeID == config.CharacterAsset.CharacterID);
                 if (entity == null)
                 {
-                    GameObject go = new GameObject("Char_" + activeChar.CharacterAsset.name);
+                    GameObject go = new GameObject("Char_" + config.CharacterAsset.name);
+                    if (charsContainer != null) go.transform.SetParent(charsContainer, false);
                     var sr = go.AddComponent<SpriteRenderer>();
                     entity = go.AddComponent<NovellaSceneEntity>();
-                    entity.Initialize(activeChar.CharacterAsset.CharacterID);
+                    entity.Initialize(config.CharacterAsset.CharacterID);
                     Undo.RegisterCreatedObjectUndo(go, "Spawn Character");
                 }
 
                 var renderer = entity.GetComponent<SpriteRenderer>();
                 if (renderer != null)
                 {
-                    Sprite targetSprite = activeChar.CharacterAsset.DefaultSprite;
+                    Sprite targetSprite = config.CharacterAsset.DefaultSprite;
+                    string emotionToSet = config.Emotion;
 
-                    string emotionToSet = activeChar.Emotion;
-                    if (activeChar.CharacterAsset.CharacterID == currentSpeakerID)
+                    if (activeLine != null && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID)
                     {
-                        emotionToSet = nodeData.DialogueLines[_activePreviewLineIndex].Mood;
+                        emotionToSet = activeLine.Mood;
+                        if (activeLine.CustomizeSpeakerLayout)
+                        {
+                            renderer.sortingOrder = (int)activeLine.SpeakerPlane;
+                            entity.transform.localScale = Vector3.one * activeLine.SpeakerScale;
+                            entity.transform.localPosition = new Vector3(activeLine.SpeakerPosX, activeLine.SpeakerPosY, 0);
+                        }
+                        else
+                        {
+                            renderer.sortingOrder = (int)ECharacterPlane.Speaker;
+                            entity.transform.localScale = Vector3.one * config.Scale;
+                            entity.transform.localPosition = new Vector3(config.PosX, config.PosY, 0);
+                        }
+                    }
+                    else
+                    {
+                        renderer.sortingOrder = (int)config.Plane;
+                        entity.transform.localScale = Vector3.one * config.Scale;
+                        entity.transform.localPosition = new Vector3(config.PosX, config.PosY, 0);
                     }
 
                     if (emotionToSet != "Default")
                     {
-                        var emotionData = activeChar.CharacterAsset.Emotions.FirstOrDefault(e => e.EmotionName == emotionToSet);
+                        var emotionData = config.CharacterAsset.Emotions.FirstOrDefault(e => e.EmotionName == emotionToSet);
                         if (emotionData.EmotionSprite != null) targetSprite = emotionData.EmotionSprite;
                     }
 
                     renderer.sprite = targetSprite;
-
-                    if (activeChar.CharacterAsset.CharacterID == currentSpeakerID)
-                        renderer.sortingOrder = (int)ECharacterPlane.Speaker;
-                    else
-                        renderer.sortingOrder = (int)activeChar.Plane;
                 }
-                entity.transform.localScale = Vector3.one * activeChar.Scale;
-                entity.transform.position = new Vector3(activeChar.PosX, activeChar.PosY, 0);
-                entity.gameObject.SetActive(true);
+
+                bool shouldHide = (activeLine != null && activeLine.HideSpeakerSprite && config.CharacterAsset.CharacterID == currentSpeakerID);
+                entity.gameObject.SetActive(!shouldHide);
             }
 
             bool sceneChanged = false;
             foreach (var entity in entities)
             {
-                bool isNeeded = nodeData.ActiveCharacters.Any(c => c.CharacterAsset != null && c.CharacterAsset.CharacterID == entity.LinkedNodeID);
-                if (!isNeeded) { Undo.DestroyObjectImmediate(entity.gameObject); sceneChanged = true; }
+                if (!charConfigs.ContainsKey(entity.LinkedNodeID))
+                {
+                    Undo.DestroyObjectImmediate(entity.gameObject);
+                    sceneChanged = true;
+                }
             }
             if (sceneChanged && !Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
         }
