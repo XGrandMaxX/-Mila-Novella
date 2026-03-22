@@ -20,6 +20,8 @@ namespace NovellaEngine.Editor
         private NovellaNodeData _lastSyncedNode;
         private int _activePreviewLineIndex = 0;
 
+        private Dictionary<DialogueLine, bool> _lineAdvancedExpanded = new Dictionary<DialogueLine, bool>();
+
         public NovellaNodeInspectorUI(NovellaTree tree, NovellaGraphView graphView, Action onMarkUnsaved, NovellaGraphWindow window)
         {
             _currentTree = tree; _graphView = graphView; _onMarkUnsaved = onMarkUnsaved; _window = window;
@@ -28,7 +30,6 @@ namespace NovellaEngine.Editor
 
         public void SetGraphView(NovellaGraphView gv) => _graphView = gv;
 
-        // === ХЕЛПЕР: ОТРИСОВКА ВЫПАДАЮЩЕГО СПИСКА С ПРЕМИУМ-ИКОНКАМИ ===
         private string DrawVariableDropdown(string currentVar, params GUILayoutOption[] options)
         {
             GUILayout.BeginHorizontal();
@@ -46,9 +47,7 @@ namespace NovellaEngine.Editor
                 return currentVar;
             }
 
-            // Массив чистых имен для логики
             var realNames = settings.Variables.Select(v => v.Name).ToArray();
-            // Массив для отображения (добавляем 💎 если премиум)
             var displayNames = settings.Variables.Select(v => (v.Type == EVarType.Integer && v.IsPremiumCurrency ? "💎 " : "") + v.Name).ToArray();
 
             int idx = Array.IndexOf(realNames, currentVar);
@@ -72,7 +71,6 @@ namespace NovellaEngine.Editor
             return def != null ? def.Type : EVarType.Integer;
         }
 
-        // === ХЕЛПЕР: СЕРАЯ ПОДСКАЗКА ТИПА ДАННЫХ ===
         private void DrawTypeHint(EVarType type)
         {
             string hint = type switch
@@ -792,6 +790,28 @@ namespace NovellaEngine.Editor
             if (nodeData.NodeType == ENodeType.Branch)
             {
                 DrawSectionHeader("🔀", $"{ToolLang.Get("Branch Choices", "Варианты выбора")} ({_window.PreviewLanguage})");
+
+                GUILayout.BeginHorizontal(EditorStyles.helpBox);
+                GUILayout.Label(ToolLang.Get("Custom Button Prefab:", "Кастомный префаб кнопок:"), EditorStyles.miniBoldLabel, GUILayout.Width(170));
+                string btnUiName = nodeData.OverrideChoiceButtonPrefab != null ? nodeData.OverrideChoiceButtonPrefab.name : ToolLang.Get("Default System Button", "Базовая системная кнопка");
+                if (GUILayout.Button("🔘 " + btnUiName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+                {
+                    NovellaGalleryWindow.ShowWindow(obj => {
+                        Undo.RecordObject(_currentTree, "Override Button UI");
+                        nodeData.OverrideChoiceButtonPrefab = obj as GameObject;
+                        _onMarkUnsaved?.Invoke();
+                        _window.Repaint();
+                    }, NovellaGalleryWindow.EGalleryFilter.Prefab);
+                }
+                if (nodeData.OverrideChoiceButtonPrefab != null)
+                {
+                    GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                    if (GUILayout.Button("X", GUILayout.Width(25))) { Undo.RecordObject(_currentTree, "Clear Button"); nodeData.OverrideChoiceButtonPrefab = null; _onMarkUnsaved?.Invoke(); }
+                    GUI.backgroundColor = Color.white;
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(10);
+
                 for (int i = 0; i < nodeData.Choices.Count; i++)
                 {
                     var choice = nodeData.Choices[i];
@@ -947,6 +967,14 @@ namespace NovellaEngine.Editor
 
             DrawSectionHeader("💬", $"{ToolLang.Get("Dialogue Lines", "Список реплик")} ({_window.PreviewLanguage})");
 
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("🎨 " + ToolLang.Get("Open UI Editor (Base Frame)", "Открыть редактор UI (Базовая рамка)"), EditorStyles.miniButton, GUILayout.Height(25)))
+            {
+                NovellaUIEditorWindow.ShowWindow();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10);
+
             for (int i = 0; i < nodeData.DialogueLines.Count; i++)
             {
                 var line = nodeData.DialogueLines[i];
@@ -1017,12 +1045,15 @@ namespace NovellaEngine.Editor
 
                 if (line.Speaker != null)
                 {
-                    if (GUILayout.Button("🛠", EditorStyles.toolbarButton, GUILayout.Width(25)))
-                        NovellaCharacterEditor.OpenWithCharacter(line.Speaker);
+                    EditorGUI.BeginChangeCheck();
+                    List<string> moodList = new List<string> { "Default" }; if (line.Speaker.Emotions != null) moodList.AddRange(line.Speaker.Emotions.Select(e => e.EmotionName));
+                    int moodIdx = moodList.IndexOf(line.Mood); if (moodIdx == -1) moodIdx = 0;
 
-                    GUI.backgroundColor = new Color(0.9f, 0.5f, 0.5f);
-                    if (GUILayout.Button("X", EditorStyles.toolbarButton, GUILayout.Width(20))) { Undo.RecordObject(_currentTree, "Clear Speaker"); line.Speaker = null; selectedNodeView.RefreshVisuals(); _activePreviewLineIndex = i; SyncSceneWithDialogueNode(nodeData); _onMarkUnsaved?.Invoke(); }
-                    GUI.backgroundColor = Color.white;
+                    GUILayout.Space(5);
+                    GUILayout.Label(ToolLang.Get("Emotion:", "Эмоция:"), new GUIStyle(EditorStyles.miniLabel) { padding = new RectOffset(0, 0, 3, 0) });
+                    line.Mood = moodList[EditorGUILayout.Popup(moodIdx, moodList.ToArray(), EditorStyles.toolbarDropDown, GUILayout.Width(90))];
+
+                    if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Mood"); _onMarkUnsaved?.Invoke(); SyncSceneWithDialogueNode(nodeData); _window.Repaint(); }
                 }
 
                 GUILayout.FlexibleSpace();
@@ -1046,128 +1077,169 @@ namespace NovellaEngine.Editor
                 EditorGUI.EndDisabledGroup();
                 GUILayout.EndHorizontal();
 
+                GUIStyle textAreaStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true, fontSize = 13 };
                 EditorGUI.BeginChangeCheck();
+                string currentPhrase = line.LocalizedPhrase.GetText(_window.PreviewLanguage);
+                string newPhrase = EditorGUILayout.TextArea(currentPhrase, textAreaStyle, GUILayout.Height(50));
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Edit Phrase"); line.LocalizedPhrase.SetText(_window.PreviewLanguage, newPhrase); _activePreviewLineIndex = i; SyncSceneWithDialogueNode(nodeData); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
+
+                GUILayout.Space(2);
 
                 GUILayout.BeginHorizontal();
-                if (line.Speaker != null)
+                if (GUILayout.Button(new GUIContent($"✎ {ToolLang.Get("Full Editor", "Полный редактор")}", ToolLang.Get("Open full text editor window.", "Открыть полноценный редактор текста.")), EditorStyles.miniButton, GUILayout.Width(145)))
                 {
-                    List<string> moodList = new List<string> { "Default" }; if (line.Speaker.Emotions != null) moodList.AddRange(line.Speaker.Emotions.Select(e => e.EmotionName));
-                    int moodIdx = moodList.IndexOf(line.Mood); if (moodIdx == -1) moodIdx = 0;
-                    EditorGUIUtility.labelWidth = 55;
-                    line.Mood = moodList[EditorGUILayout.Popup(ToolLang.Get("Mood:", "Эмоция:"), moodIdx, moodList.ToArray(), GUILayout.Width(130))];
-
-                    GUILayout.Space(5);
-                    GUILayout.BeginVertical();
-                    line.HideSpeakerName = GUILayout.Toggle(line.HideSpeakerName, " 👁 " + ToolLang.Get("Override Name", "Заменить/Скрыть Имя"));
-                    line.HideSpeakerSprite = GUILayout.Toggle(line.HideSpeakerSprite, " 👻 " + ToolLang.Get("Hide Sprite", "Скрыть Спрайт"));
-                    line.CustomizeSpeakerLayout = GUILayout.Toggle(line.CustomizeSpeakerLayout, " ⚙ " + ToolLang.Get("Override Pos", "Позиция"));
-                    GUILayout.EndVertical();
+                    NovellaTextEditorWindow.OpenWindow(line, fontSizeProp, _currentTree, () => { selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); });
                 }
                 GUILayout.FlexibleSpace();
 
-                EditorGUIUtility.labelWidth = 45;
-                line.DelayBefore = EditorGUILayout.FloatField(new GUIContent(ToolLang.Get("Wait:", "Пауза:"), ToolLang.Get("Delay in seconds before showing this line.", "Задержка в секундах перед появлением этой реплики.")), line.DelayBefore, GUILayout.Width(85));
-                GUILayout.Label(ToolLang.Get("s.", "с."), GUILayout.Width(15));
+                bool isExpanded = _lineAdvancedExpanded.ContainsKey(line) && _lineAdvancedExpanded[line];
 
-                if (line.FontSize <= 0) line.FontSize = nodeData.FontSize > 0 ? nodeData.FontSize : 32;
-                EditorGUIUtility.labelWidth = 40;
-                line.FontSize = EditorGUILayout.IntField(new GUIContent(ToolLang.Get("Size:", "Разм:"), ToolLang.Get("Font size for this specific line.", "Размер шрифта только для этой реплики.")), line.FontSize, GUILayout.Width(75));
-                EditorGUIUtility.labelWidth = originalLabelWidth;
+                GUI.backgroundColor = new Color(0.9f, 0.9f, 0.9f);
+                isExpanded = GUILayout.Toggle(isExpanded, "⚙ " + ToolLang.Get("Advanced Settings", "Дополнительные настройки"), EditorStyles.foldout);
+                GUI.backgroundColor = Color.white;
                 GUILayout.EndHorizontal();
 
-                if (line.Speaker != null && line.HideSpeakerName)
+                _lineAdvancedExpanded[line] = isExpanded;
+
+                if (isExpanded)
                 {
                     GUILayout.BeginVertical(EditorStyles.helpBox);
-                    EditorGUILayout.HelpBox(ToolLang.Get(
-                        "If text is empty, name window will be hidden. If filled, it overrides the speaker's name.",
-                        "Если поле пустое, окно имени скроется. Если заполнить - заменит оригинальное имя."
-                    ), MessageType.None);
+                    GUILayout.Space(5);
 
+                    // --- БЛОК: КАСТОМНАЯ РАМКА ---
+                    GUILayout.Label("🖼 " + ToolLang.Get("Custom UI Frame", "Кастомная рамка"), EditorStyles.miniBoldLabel);
                     GUILayout.BeginHorizontal();
-                    float oldLw = EditorGUIUtility.labelWidth;
-                    EditorGUIUtility.labelWidth = ToolLang.IsRU ? 80 : 85;
-                    line.CustomName = EditorGUILayout.TextField(ToolLang.Get("Custom Name:", "Новое Имя:"), line.CustomName, GUILayout.ExpandWidth(true));
+                    string uiName = line.OverrideDialogueFrame != null ? line.OverrideDialogueFrame.name : ToolLang.Get("Default UI", "Базовая рамка");
+
+                    if (GUILayout.Button("🖼 " + uiName, EditorStyles.popup, GUILayout.ExpandWidth(true), GUILayout.MinWidth(100)))
+                    {
+                        NovellaGalleryWindow.ShowWindow(obj => {
+                            Undo.RecordObject(_currentTree, "Override UI");
+                            line.OverrideDialogueFrame = obj as GameObject;
+                            _onMarkUnsaved?.Invoke();
+                            _window.Repaint();
+                        }, NovellaGalleryWindow.EGalleryFilter.CustomUI);
+                    }
+
+                    if (line.OverrideDialogueFrame != null)
+                    {
+                        if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
+                            NovellaUIEditorWindow.OpenWithCustomPrefab(line.OverrideDialogueFrame);
+
+                        GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                        if (GUILayout.Button("X", GUILayout.Width(20))) { Undo.RecordObject(_currentTree, "Clear UI"); line.OverrideDialogueFrame = null; _onMarkUnsaved?.Invoke(); }
+                        GUI.backgroundColor = Color.white;
+                    }
+                    else
+                    {
+                        if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
+                            NovellaUIEditorWindow.ShowWindow();
+                    }
+                    GUILayout.EndHorizontal();
 
                     GUILayout.Space(10);
-                    EditorGUIUtility.labelWidth = 40;
-                    line.CustomNameColor = EditorGUILayout.ColorField(ToolLang.Get("Color:", "Цвет:"), line.CustomNameColor, GUILayout.Width(100));
-                    EditorGUIUtility.labelWidth = oldLw;
-                    GUILayout.EndHorizontal();
-                    GUILayout.EndVertical();
-                }
+                    EditorGUI.BeginChangeCheck();
 
-                if (line.Speaker != null && line.CustomizeSpeakerLayout)
-                {
-                    GUILayout.BeginVertical(EditorStyles.helpBox);
-                    EditorGUILayout.HelpBox(ToolLang.Get(
-                        "Overrides the default position from 'Scene Layout' for this line only.",
-                        "Заменяет базовые настройки из 'Расстановки на сцене' только для этой реплики."
-                    ), MessageType.None);
+                    // --- БЛОК: НАСТРОЙКИ СПИКЕРА ---
+                    if (line.Speaker != null)
+                    {
+                        GUILayout.Label("👤 " + ToolLang.Get("Speaker Overrides", "Переопределение спикера"), EditorStyles.miniBoldLabel);
 
-                    GUILayout.BeginHorizontal();
-                    float oldLw = EditorGUIUtility.labelWidth;
+                        GUILayout.BeginHorizontal();
+                        line.HideSpeakerName = GUILayout.Toggle(line.HideSpeakerName, " 👁 " + ToolLang.Get("Name", "Имя"), GUILayout.ExpandWidth(false));
+                        GUILayout.Space(10);
+                        line.HideSpeakerSprite = GUILayout.Toggle(line.HideSpeakerSprite, " 👻 " + ToolLang.Get("Sprite", "Спрайт"), GUILayout.ExpandWidth(false));
+                        GUILayout.Space(10);
+                        line.CustomizeSpeakerLayout = GUILayout.Toggle(line.CustomizeSpeakerLayout, " ⚙ " + ToolLang.Get("Pos", "Позиция"), GUILayout.ExpandWidth(false));
+                        GUILayout.FlexibleSpace();
+                        GUILayout.EndHorizontal();
 
-                    EditorGUIUtility.labelWidth = 15;
-                    line.SpeakerPosX = EditorGUILayout.FloatField("X", line.SpeakerPosX, GUILayout.Width(65));
-                    GUILayout.Space(5);
-                    line.SpeakerPosY = EditorGUILayout.FloatField("Y", line.SpeakerPosY, GUILayout.Width(65));
+                        if (line.HideSpeakerName)
+                        {
+                            GUILayout.BeginHorizontal(GUI.skin.box);
+                            float oldLw = EditorGUIUtility.labelWidth;
+                            EditorGUIUtility.labelWidth = ToolLang.IsRU ? 40 : 45;
+                            line.CustomName = EditorGUILayout.TextField(ToolLang.Get("Name:", "Имя:"), line.CustomName, GUILayout.ExpandWidth(true));
+                            GUILayout.Space(5);
+                            EditorGUIUtility.labelWidth = 45;
+                            line.CustomNameColor = EditorGUILayout.ColorField(ToolLang.Get("Color:", "Цвет:"), line.CustomNameColor, GUILayout.Width(100));
+                            EditorGUIUtility.labelWidth = oldLw;
+                            GUILayout.EndHorizontal();
+                        }
 
-                    GUILayout.FlexibleSpace();
+                        if (line.CustomizeSpeakerLayout)
+                        {
+                            GUILayout.BeginHorizontal(GUI.skin.box);
+                            float oldLw = EditorGUIUtility.labelWidth;
 
-                    EditorGUIUtility.labelWidth = ToolLang.IsRU ? 55 : 45;
-                    line.SpeakerScale = EditorGUILayout.FloatField(ToolLang.Get("Scale", "Размер"), line.SpeakerScale, GUILayout.Width(100));
+                            EditorGUIUtility.labelWidth = 15;
+                            line.SpeakerPosX = EditorGUILayout.FloatField("X", line.SpeakerPosX, GUILayout.Width(50));
+                            GUILayout.Space(5);
+                            line.SpeakerPosY = EditorGUILayout.FloatField("Y", line.SpeakerPosY, GUILayout.Width(50));
 
-                    GUILayout.EndHorizontal();
+                            GUILayout.Space(5);
+                            EditorGUIUtility.labelWidth = ToolLang.IsRU ? 55 : 40;
+                            line.SpeakerScale = EditorGUILayout.FloatField(ToolLang.Get("Scale", "Масштаб"), line.SpeakerScale, GUILayout.Width(95));
+
+                            GUILayout.Space(5);
+                            EditorGUIUtility.labelWidth = 40;
+                            line.SpeakerPlane = (ECharacterPlane)EditorGUILayout.EnumPopup(ToolLang.Get("Layer", "Слой"), line.SpeakerPlane, GUILayout.ExpandWidth(true));
+
+                            EditorGUIUtility.labelWidth = oldLw;
+                            GUILayout.EndHorizontal();
+                        }
+                        GUILayout.Space(10);
+                    }
+
+                    // --- БЛОК: ТАЙМИНГИ И ТЕКСТ ---
+                    GUILayout.Label("⏳ " + ToolLang.Get("Timing & Text Settings", "Тайминги и текст"), EditorStyles.miniBoldLabel);
+                    GUILayout.BeginVertical(GUI.skin.box);
 
                     GUILayout.BeginHorizontal();
                     EditorGUIUtility.labelWidth = 45;
-                    line.SpeakerPlane = (ECharacterPlane)EditorGUILayout.EnumPopup(ToolLang.Get("Plane", "Слой"), line.SpeakerPlane);
+                    line.DelayBefore = EditorGUILayout.FloatField(ToolLang.Get("Wait:", "Пауза:"), line.DelayBefore, GUILayout.Width(85));
+
+                    if (line.FontSize <= 0) line.FontSize = nodeData.FontSize > 0 ? nodeData.FontSize : 32;
+                    EditorGUIUtility.labelWidth = 40;
+                    line.FontSize = EditorGUILayout.IntField(ToolLang.Get("Size:", "Разм:"), line.FontSize, GUILayout.Width(75));
+
+                    GUILayout.Space(10);
+                    line.UseTypewriter = GUILayout.Toggle(line.UseTypewriter, " ⌨ " + ToolLang.Get("Typewriter", "Печать"), GUILayout.ExpandWidth(false));
+
+                    if (line.UseTypewriter)
+                    {
+                        GUILayout.Space(10);
+                        EditorGUIUtility.labelWidth = 35;
+                        line.BaseSpeed = EditorGUILayout.FloatField(ToolLang.Get("Spd:", "Скор:"), line.BaseSpeed, GUILayout.Width(70));
+                        GUILayout.Space(5);
+                        line.UseCustomPacing = GUILayout.Toggle(line.UseCustomPacing, "📈 " + ToolLang.Get("Curve", "Кривая"), GUILayout.ExpandWidth(false));
+                    }
+                    GUILayout.FlexibleSpace();
                     GUILayout.EndHorizontal();
 
-                    EditorGUIUtility.labelWidth = oldLw;
+                    GUIStyle hintStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, normal = new GUIStyleState { textColor = new Color(0.6f, 0.6f, 0.6f) } };
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Wait = delay (sec). Size = font scale.", "Пауза = задержка в сек. Разм = кегль шрифта."), hintStyle);
+                    GUILayout.FlexibleSpace();
+                    if (line.UseTypewriter) GUILayout.Label(ToolLang.Get("Spd = chars per sec.", "Скор = символов в секунду."), hintStyle);
+                    GUILayout.EndHorizontal();
+
+                    if (line.UseTypewriter && line.UseCustomPacing)
+                    {
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label(new GUIContent(ToolLang.Get("Speed Multiplier:", "Множитель:"), ToolLang.Get("Left side is start of text, right side is end.", "Левая часть — начало текста, правая — конец.")), EditorStyles.miniLabel, GUILayout.Width(90));
+                        line.PacingCurve = EditorGUILayout.CurveField(line.PacingCurve, Color.green, new Rect(0, 0, 1, 2), GUILayout.Height(20));
+                        GUILayout.EndHorizontal();
+                    }
+                    GUILayout.EndVertical();
+
+                    if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Settings"); _onMarkUnsaved?.Invoke(); }
+
+                    GUILayout.Space(5);
                     GUILayout.EndVertical();
                 }
 
-                GUIStyle textAreaStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
-                string currentPhrase = line.LocalizedPhrase.GetText(_window.PreviewLanguage);
-                string newPhrase = EditorGUILayout.TextArea(currentPhrase, textAreaStyle, GUILayout.Height(45));
-                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Edit Phrase"); line.LocalizedPhrase.SetText(_window.PreviewLanguage, newPhrase); _activePreviewLineIndex = i; SyncSceneWithDialogueNode(nodeData); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
-
-                GUILayout.BeginVertical(GUI.skin.box);
-                GUILayout.BeginHorizontal();
-                EditorGUI.BeginChangeCheck();
-
-                line.UseTypewriter = GUILayout.Toggle(line.UseTypewriter, new GUIContent(" ⌨ " + ToolLang.Get("Typewriter", "Печать"), ToolLang.Get("Enable character-by-character typewriter effect.", "Включить эффект посимвольной печати (Печатная машинка).")), GUILayout.Width(85));
-
-                if (line.UseTypewriter)
-                {
-                    EditorGUIUtility.labelWidth = 35;
-                    line.BaseSpeed = EditorGUILayout.FloatField(new GUIContent(ToolLang.Get("Spd:", "Скор:"), ToolLang.Get("Speed in characters per second.", "Базовая скорость: символов в секунду.")), line.BaseSpeed, GUILayout.Width(75));
-                    GUILayout.FlexibleSpace();
-                    line.UseCustomPacing = GUILayout.Toggle(line.UseCustomPacing, new GUIContent("📈 " + ToolLang.Get("Curve", "Кривая"), ToolLang.Get("Use an animation curve to dynamically change typing speed.", "Использовать кривую для динамического изменения скорости печати.")), GUILayout.Width(80));
-                }
-                else
-                {
-                    GUILayout.FlexibleSpace();
-                }
-
-                if (GUILayout.Button(new GUIContent($"✎ {ToolLang.Get("Editor", "Редакт.")}", ToolLang.Get("Open full text editor window.", "Открыть полноценный редактор текста.")), EditorStyles.miniButton, GUILayout.Width(65)))
-                    NovellaTextEditorWindow.OpenWindow(line, fontSizeProp, _currentTree, () => { selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); });
-                GUILayout.EndHorizontal();
-
-                if (line.UseTypewriter && line.UseCustomPacing)
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(new GUIContent(ToolLang.Get("Speed Multiplier:", "Множитель:"), ToolLang.Get("Left side is start of text, right side is end.", "Левая часть — начало текста, правая — конец.")), EditorStyles.miniLabel, GUILayout.Width(90));
-                    line.PacingCurve = EditorGUILayout.CurveField(line.PacingCurve, Color.green, new Rect(0, 0, 1, 2), GUILayout.Height(20));
-                    GUILayout.EndHorizontal();
-                }
-
-                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Typewriter Settings"); _onMarkUnsaved?.Invoke(); }
                 GUILayout.EndVertical();
-
-                GUILayout.EndVertical();
-
                 GUILayout.Space(15);
             }
 
@@ -1268,10 +1340,7 @@ namespace NovellaEngine.Editor
                     {
                         CharacterAsset = line.Speaker,
                         Plane = ECharacterPlane.Speaker,
-                        Scale = 1f,
-                        Emotion = "Default",
-                        PosX = 0f,
-                        PosY = 0f
+                        Scale = 1f, Emotion = "Default", PosX = 0f, PosY = 0f
                     };
                 }
             }
@@ -1334,10 +1403,10 @@ namespace NovellaEngine.Editor
             bool sceneChanged = false;
             foreach (var entity in entities)
             {
-                if (!charConfigs.ContainsKey(entity.LinkedNodeID))
-                {
-                    Undo.DestroyObjectImmediate(entity.gameObject);
-                    sceneChanged = true;
+                if (!charConfigs.ContainsKey(entity.LinkedNodeID)) 
+                { 
+                    Undo.DestroyObjectImmediate(entity.gameObject); 
+                    sceneChanged = true; 
                 }
             }
             if (sceneChanged && !Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());

@@ -43,8 +43,13 @@ namespace NovellaEngine.Runtime
         private bool _isTyping = false;
         private Coroutine _typewriterCoroutine;
 
-        // Ключ обфускации (можешь поменять на любой)
         private const int SECURE_XOR_KEY = 777;
+
+        private GameObject _defaultDialoguePanel;
+        private TMP_Text _defaultSpeakerNameText;
+        private TMP_Text _defaultDialogueBodyText;
+
+        private GameObject _currentCustomFrame; // Ссылка на активную в данный момент кастомную рамку
 
         private void Start()
         {
@@ -54,6 +59,11 @@ namespace NovellaEngine.Runtime
             _poolManager = gameObject.GetComponent<NovellaPoolManager>();
             if (_poolManager == null) _poolManager = gameObject.AddComponent<NovellaPoolManager>();
             _poolManager.InitializePools();
+
+            // Сохраняем дефолтные элементы UI
+            _defaultDialoguePanel = DialoguePanel;
+            _defaultSpeakerNameText = SpeakerNameText;
+            _defaultDialogueBodyText = DialogueBodyText;
 
             InitializeVariables();
 
@@ -100,7 +110,6 @@ namespace NovellaEngine.Runtime
             }
         }
 
-        // === СИСТЕМА ОБФУСКАЦИИ (ЗАЩИТА ПРЕМИУМ ВАЛЮТЫ) ===
         private int GetGlobalInt(string key, int defaultValue, bool isPremium)
         {
             if (isPremium)
@@ -169,7 +178,8 @@ namespace NovellaEngine.Runtime
         {
             if (string.IsNullOrEmpty(nodeID))
             {
-                DialoguePanel.SetActive(false);
+                if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+                if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
                 return;
             }
 
@@ -224,7 +234,8 @@ namespace NovellaEngine.Runtime
 
         private void ProcessRandomNode()
         {
-            DialoguePanel.SetActive(false);
+            if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+            if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
 
             if (_currentNode.Choices == null || _currentNode.Choices.Count == 0)
             {
@@ -291,7 +302,7 @@ namespace NovellaEngine.Runtime
                 {
                     if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
 
-                    DialogueBodyText.maxVisibleCharacters = int.MaxValue;
+                    if (DialogueBodyText != null) DialogueBodyText.maxVisibleCharacters = int.MaxValue;
                     _isTyping = false;
                     _isWaitingForClick = true;
                 }
@@ -307,8 +318,6 @@ namespace NovellaEngine.Runtime
 
         private void ProcessDialogueLine()
         {
-            DialoguePanel.SetActive(true);
-
             if (_currentLineIndex >= _currentNode.DialogueLines.Count)
             {
                 ProcessSyncedAudio(EAudioTriggerType.OnDialogueEnd, -1);
@@ -335,58 +344,111 @@ namespace NovellaEngine.Runtime
 
         private IEnumerator WaitAndShowLine(DialogueLine line)
         {
-            DialoguePanel.SetActive(false);
+            if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+            if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
+
             yield return new WaitForSeconds(line.DelayBefore);
-            DialoguePanel.SetActive(true);
+
             ShowLineData(line);
         }
 
         private void ShowLineData(DialogueLine line)
         {
-            if (line.Speaker != null)
+            // === ПОДМЕНА РАМКИ ЧЕРЕЗ POOL MANAGER ===
+            if (line.OverrideDialogueFrame != null)
             {
-                if (!line.HideSpeakerName)
-                {
-                    SpeakerNameText.gameObject.SetActive(true);
-                    string displayName = CurrentLanguage == "RU" ? line.Speaker.DisplayName_RU : line.Speaker.DisplayName_EN;
-                    if (string.IsNullOrEmpty(displayName)) displayName = line.Speaker.name;
+                if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
 
-                    SpeakerNameText.text = displayName;
-                    SpeakerNameText.color = line.Speaker.ThemeColor;
-                }
-                else
+                Transform parent = _defaultDialoguePanel != null ? _defaultDialoguePanel.transform.parent : transform;
+
+                // Запрашиваем рамку из пула
+                GameObject requestedFrame = _poolManager.GetCustomUIFrame(line.OverrideDialogueFrame, parent);
+
+                // Если нужно сменить текущую кастомную на другую кастомную
+                if (_currentCustomFrame != null && _currentCustomFrame != requestedFrame)
                 {
-                    if (string.IsNullOrWhiteSpace(line.CustomName))
+                    _currentCustomFrame.SetActive(false);
+                }
+
+                _currentCustomFrame = requestedFrame;
+                _currentCustomFrame.SetActive(true);
+
+                var customUI = _currentCustomFrame.GetComponent<NovellaCustomUI>();
+                if (customUI != null)
+                {
+                    SpeakerNameText = customUI.OverrideSpeakerName;
+                    DialogueBodyText = customUI.OverrideDialogueText;
+                }
+            }
+            else
+            {
+                if (_currentCustomFrame != null)
+                {
+                    _currentCustomFrame.SetActive(false);
+                    _currentCustomFrame = null;
+                }
+
+                if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(true);
+
+                SpeakerNameText = _defaultSpeakerNameText;
+                DialogueBodyText = _defaultDialogueBodyText;
+            }
+
+            if (SpeakerNameText != null)
+            {
+                if (line.Speaker != null)
+                {
+                    if (!line.HideSpeakerName)
                     {
-                        SpeakerNameText.text = "";
-                        SpeakerNameText.gameObject.SetActive(false);
+                        SpeakerNameText.gameObject.SetActive(true);
+                        string displayName = CurrentLanguage == "RU" ? line.Speaker.DisplayName_RU : line.Speaker.DisplayName_EN;
+                        if (string.IsNullOrEmpty(displayName)) displayName = line.Speaker.name;
+
+                        SpeakerNameText.text = displayName;
+                        SpeakerNameText.color = line.Speaker.ThemeColor;
                     }
                     else
                     {
-                        SpeakerNameText.gameObject.SetActive(true);
-                        SpeakerNameText.text = line.CustomName;
-                        SpeakerNameText.color = line.CustomNameColor;
+                        if (string.IsNullOrWhiteSpace(line.CustomName))
+                        {
+                            SpeakerNameText.text = "";
+                            SpeakerNameText.gameObject.SetActive(false);
+                        }
+                        else
+                        {
+                            SpeakerNameText.gameObject.SetActive(true);
+                            SpeakerNameText.text = line.CustomName;
+                            SpeakerNameText.color = line.CustomNameColor;
+                        }
                     }
+                }
+                else
+                {
+                    SpeakerNameText.text = "";
+                    SpeakerNameText.gameObject.SetActive(false);
+                }
+            }
+
+            if (DialogueBodyText != null)
+            {
+                DialogueBodyText.fontSize = line.FontSize > 0 ? line.FontSize : 32;
+                string localizedText = line.LocalizedPhrase.GetText(CurrentLanguage);
+
+                if (line.UseTypewriter)
+                {
+                    if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
+                    _typewriterCoroutine = StartCoroutine(TypewriterRoutine(line, localizedText));
+                }
+                else
+                {
+                    DialogueBodyText.text = localizedText;
+                    DialogueBodyText.maxVisibleCharacters = 99999;
+                    _isTyping = false;
+                    _isWaitingForClick = true;
                 }
             }
             else
             {
-                SpeakerNameText.text = "";
-                SpeakerNameText.gameObject.SetActive(false);
-            }
-
-            DialogueBodyText.fontSize = line.FontSize > 0 ? line.FontSize : 32;
-            string localizedText = line.LocalizedPhrase.GetText(CurrentLanguage);
-
-            if (line.UseTypewriter)
-            {
-                if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
-                _typewriterCoroutine = StartCoroutine(TypewriterRoutine(line, localizedText));
-            }
-            else
-            {
-                DialogueBodyText.text = localizedText;
-                DialogueBodyText.maxVisibleCharacters = 99999;
                 _isTyping = false;
                 _isWaitingForClick = true;
             }
@@ -571,19 +633,29 @@ namespace NovellaEngine.Runtime
 
         private void ShowChoices()
         {
-            DialoguePanel.SetActive(false);
+            if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+            if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
+
             foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+
+            GameObject prefabToUse = _currentNode.OverrideChoiceButtonPrefab != null ? _currentNode.OverrideChoiceButtonPrefab : ChoiceButtonPrefab;
 
             foreach (var choice in _currentNode.Choices)
             {
                 if (!CheckConditions(choice.Conditions)) continue;
 
-                GameObject btnGO = Instantiate(ChoiceButtonPrefab, ChoiceContainer);
+                GameObject btnGO = Instantiate(prefabToUse, ChoiceContainer);
                 var tmpText = btnGO.GetComponentInChildren<TMP_Text>();
                 if (tmpText != null) tmpText.text = choice.LocalizedText.GetText(CurrentLanguage);
 
                 var button = btnGO.GetComponent<Button>();
-                button.onClick.AddListener(() => { foreach (Transform child in ChoiceContainer) Destroy(child.gameObject); PlayNode(choice.NextNodeID); });
+                if (button != null)
+                {
+                    button.onClick.AddListener(() => {
+                        foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+                        PlayNode(choice.NextNodeID);
+                    });
+                }
             }
         }
 
@@ -676,7 +748,9 @@ namespace NovellaEngine.Runtime
 
         private void ProcessEndNode()
         {
-            DialoguePanel.SetActive(false);
+            if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+            if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
+
             if (_currentNode.EndAction == EEndAction.QuitGame) Application.Quit();
             else if (_currentNode.EndAction == EEndAction.LoadNextChapter && _currentNode.NextChapter != null) PlayTree(_currentNode.NextChapter);
         }

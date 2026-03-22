@@ -99,6 +99,9 @@ namespace NovellaEngine.Data
         public float SpeakerScale = 1f;
         public ECharacterPlane SpeakerPlane = ECharacterPlane.Speaker;
 
+        // === ÍÎÂÎÅ: ÊÀÑÒÎÌÍÀß ĞÀÌÊÀ ===
+        public GameObject OverrideDialogueFrame;
+
         public float DelayBefore = 0f;
         public int FontSize = 32;
         public LocalizedString LocalizedPhrase = new LocalizedString();
@@ -173,6 +176,9 @@ namespace NovellaEngine.Data
         public List<NovellaChoice> Choices = new List<NovellaChoice>();
         public bool UnlockChoiceLimit = false;
         public List<ChoiceCondition> Conditions = new List<ChoiceCondition>();
+
+        // === ÍÎÂÎÅ: ÊÀÑÒÎÌÍÀß ÊÍÎÏÊÀ (Äëÿ Branch) ===
+        public GameObject OverrideChoiceButtonPrefab;
 
         public EEndAction EndAction = EEndAction.ReturnToMainMenu;
         public NovellaTree NextChapter;

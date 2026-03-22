@@ -17,6 +17,8 @@ MonoBehaviour:
   DisplayName_RU: "\u041C\u0438\u043B\u0430\u043D\u0430"
   ThemeColor: {r: 0.5754717, g: 0.4261748, b: 0.4261748, a: 1}
   DefaultSprite: {fileID: 21300000, guid: 598d9b41ecab1564f93919fbbe13f79b, type: 3}
-  Emotions: []
+  Emotions:
+  - EmotionName: NewEmotion
+    EmotionSprite: {fileID: 0}
   IsFavorite: 1
   InternalNotes: 

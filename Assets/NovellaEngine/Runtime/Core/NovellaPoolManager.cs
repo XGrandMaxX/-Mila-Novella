@@ -8,14 +8,14 @@ namespace NovellaEngine.Runtime
     {
         [Header("Containers")]
         private Transform _audioPoolsContainer;
-        //TODL: В будущем здесь появятся:
-        //private Transform _vfxPoolsContainer;
-        //private Transform _uiPoolsContainer;
 
         [Header("Audio Pools")]
         private AudioSource _bgmSource;
         private List<AudioSource> _sfxPool = new List<AudioSource>();
         private List<AudioSource> _voicePool = new List<AudioSource>();
+
+        [Header("UI Pools")]
+        private Dictionary<GameObject, GameObject> _uiFramePool = new Dictionary<GameObject, GameObject>();
 
         public void InitializePools()
         {
@@ -31,10 +31,6 @@ namespace NovellaEngine.Runtime
 
             for (int i = 0; i < 3; i++) CreateAudioSource("SFX", _sfxPool);
             for (int i = 0; i < 2; i++) CreateAudioSource("Voice", _voicePool);
-
-            //TODO: Место для будущих пулов
-            //InitVFXPools();
-            //InitUIPools();
         }
 
         private AudioSource CreateAudioSource(string prefix, List<AudioSource> pool)
@@ -93,6 +89,20 @@ namespace NovellaEngine.Runtime
             {
                 foreach (var s in _voicePool) s.Stop();
             }
+        }
+
+        public GameObject GetCustomUIFrame(GameObject prefab, Transform targetParent)
+        {
+            if (prefab == null) return null;
+
+            if (!_uiFramePool.ContainsKey(prefab))
+            {
+                GameObject instance = Instantiate(prefab, targetParent);
+                instance.SetActive(false);
+                _uiFramePool[prefab] = instance;
+            }
+
+            return _uiFramePool[prefab];
         }
     }
 }

@@ -5,20 +5,13 @@ using System.IO;
 using System.Linq;
 using System.Collections.Generic;
 using NovellaEngine.Data;
-
-using UnityEditor;
-using UnityEngine;
-using System;
-using System.IO;
-using System.Linq;
-using System.Collections.Generic;
-using NovellaEngine.Data;
+using NovellaEngine.Runtime;
 
 namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video, Prefab }
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI }
 
         private enum UndoType { Delete, Move, Copy }
 
@@ -65,11 +58,14 @@ namespace NovellaEngine.Editor
         private Texture2D _prefabIcon;
 
         private List<string> _selectedPaths = new List<string>();
+        private int _lastSelectedIndex = -1; // Для Shift-выделения
+
         private List<string> _clipboard = new List<string>();
         private bool _isCut = false;
         private string _searchQuery = "";
 
-        private Stack<UndoAction> _undoStack = new Stack<UndoAction>();
+        // ФИКС 1: Статическая корзина (очищается только при закрытии Unity)
+        private static Stack<UndoAction> _undoStack = new Stack<UndoAction>();
         private bool _showTrashPanel = false;
 
         private bool _needsRefresh = true;
@@ -91,11 +87,9 @@ namespace NovellaEngine.Editor
             window._onSelect = onSelect;
             window._filterMode = onSelect != null ? filter : EGalleryFilter.All;
 
-            // Если ищем префабы, сразу переключаемся на весь проект и идем в папку префабов
-            if (filter == EGalleryFilter.Prefab)
+            if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI)
             {
                 window._isProjectMode = true;
-                startDir = "Assets/NovellaEngine/Runtime/Prefabs";
             }
 
             window.minSize = new Vector2(900, 500);
@@ -104,7 +98,7 @@ namespace NovellaEngine.Editor
             if (!string.IsNullOrEmpty(startDir))
             {
                 if (Directory.Exists(startDir)) window._currentDir = startDir;
-                else window._currentDir = "Assets/NovellaEngine"; // Фолбэк, если папки еще нет
+                else window._currentDir = "Assets/NovellaEngine";
             }
 
             window.Show();
@@ -113,6 +107,18 @@ namespace NovellaEngine.Editor
         private void OnEnable()
         {
             if (string.IsNullOrEmpty(_currentDir)) Init();
+            EditorApplication.quitting -= EmptyTrashOnQuit;
+            EditorApplication.quitting += EmptyTrashOnQuit;
+        }
+
+        private static void EmptyTrashOnQuit()
+        {
+            var trashItems = _undoStack.Where(u => u.Type == UndoType.Delete).ToList();
+            foreach (var action in trashItems)
+                foreach (var tp in action.TargetPaths)
+                    if (File.Exists(tp) || Directory.Exists(tp)) AssetDatabase.DeleteAsset(tp);
+
+            _undoStack.Clear();
         }
 
         private void Init()
@@ -126,8 +132,6 @@ namespace NovellaEngine.Editor
             {
                 AssetDatabase.CreateFolder("Assets/NovellaEngine", "TrashBin");
             }
-
-            EmptyTrash();
 
             if (string.IsNullOrEmpty(_currentDir)) _currentDir = RootDir;
 
@@ -168,7 +172,6 @@ namespace NovellaEngine.Editor
 
         private void OnDestroy()
         {
-            EmptyTrash();
             CleanMediaPlayers();
         }
 
@@ -191,13 +194,12 @@ namespace NovellaEngine.Editor
 
             if (isSearching)
             {
-                // === ГЛОБАЛЬНЫЙ ПОИСК ===
                 string[] guids = AssetDatabase.FindAssets(_searchQuery, new[] { RootDir });
                 var paths = guids.Select(g => AssetDatabase.GUIDToAssetPath(g)).Distinct().ToList();
 
                 foreach (string path in paths)
                 {
-                    if (AssetDatabase.IsValidFolder(path)) continue; // В поиске показываем только файлы
+                    if (AssetDatabase.IsValidFolder(path)) continue;
                     if (path.Replace("\\", "/").StartsWith(_trashDir)) continue;
 
                     ProcessFileForCache(path);
@@ -205,7 +207,6 @@ namespace NovellaEngine.Editor
             }
             else
             {
-                // === ЛОКАЛЬНЫЙ ПРОСМОТР ===
                 if (!Directory.Exists(_currentDir)) return;
 
                 string[] directories = Directory.GetDirectories(_currentDir);
@@ -244,6 +245,13 @@ namespace NovellaEngine.Editor
             bool isAudio = ext == ".mp3" || ext == ".wav" || ext == ".ogg";
             bool isVideo = ext == ".mp4" || ext == ".mov" || ext == ".webm" || ext == ".avi" || ext == ".gif";
             bool isPrefab = ext == ".prefab";
+            bool isCustomUI = false;
+
+            if (isPrefab && _filterMode == EGalleryFilter.CustomUI)
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(formattedFile);
+                if (go != null && go.GetComponent<NovellaCustomUI>() != null) isCustomUI = true;
+            }
 
             if (!_isProjectMode || _onSelect != null)
             {
@@ -251,6 +259,7 @@ namespace NovellaEngine.Editor
                 if (_filterMode == EGalleryFilter.Audio && !isAudio) return;
                 if (_filterMode == EGalleryFilter.Video && !isVideo) return;
                 if (_filterMode == EGalleryFilter.Prefab && !isPrefab) return;
+                if (_filterMode == EGalleryFilter.CustomUI && !isCustomUI) return;
                 if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab)) return;
             }
 
@@ -266,7 +275,16 @@ namespace NovellaEngine.Editor
             else if (isScript) tex = _scriptIcon;
             else if (isAudio) tex = _audioIcon;
             else if (isVideo) tex = _videoIcon;
-            else if (isPrefab) tex = _prefabIcon ?? _fileIcon;
+            else if (isPrefab)
+            {
+                GameObject prefabObj = AssetDatabase.LoadAssetAtPath<GameObject>(formattedFile);
+                if (prefabObj != null)
+                {
+                    var firstImg = prefabObj.GetComponentInChildren<UnityEngine.UI.Image>();
+                    if (firstImg != null && firstImg.sprite != null) tex = firstImg.sprite.texture;
+                }
+                if (tex == null) tex = _prefabIcon ?? _fileIcon;
+            }
             else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D ?? _fileIcon;
 
             _cachedItems.Add(new CachedItem { Path = formattedFile, Name = Path.GetFileNameWithoutExtension(formattedFile), IsFolder = false, Icon = tex, SpriteAsset = spr, SubText = "" });
@@ -392,24 +410,34 @@ namespace NovellaEngine.Editor
                 RequestRefresh();
             }
 
-            GUILayout.FlexibleSpace();
-
             if (_filterMode != EGalleryFilter.All)
             {
+                GUILayout.Space(15);
                 GUIStyle filterStyle = new GUIStyle(EditorStyles.label)
                 {
                     fontStyle = FontStyle.Bold,
                     alignment = TextAnchor.MiddleLeft,
                     normal = { textColor = new Color(0.4f, 0.8f, 1f) }
                 };
-                GUILayout.Label($"[ TARGET: {_filterMode.ToString().ToUpper()} ]", filterStyle, GUILayout.Width(130));
+                GUILayout.Label($"[ {ToolLang.Get("TARGET", "ЦЕЛЬ")}: {_filterMode.ToString().ToUpper()} ]", filterStyle);
             }
 
-            string displayPath = !string.IsNullOrEmpty(_searchQuery) ? "Global Search..." : _currentDir;
-            if (!_isProjectMode && string.IsNullOrEmpty(_searchQuery)) displayPath = _currentDir.Replace(_galleryDir, "Gallery");
-            if (displayPath.Length > 40) displayPath = ".../" + displayPath.Substring(displayPath.Length - 35);
+            GUILayout.FlexibleSpace();
 
-            GUILayout.Label(displayPath, new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleLeft }, GUILayout.ExpandWidth(true));
+            // ФИКС 3: Красивый и яркий вывод пути
+            string displayPath = !string.IsNullOrEmpty(_searchQuery) ? ToolLang.Get("Global Search...", "Глобальный поиск...") : _currentDir;
+            if (!_isProjectMode && string.IsNullOrEmpty(_searchQuery)) displayPath = _currentDir.Replace(_galleryDir, "Gallery");
+            if (displayPath.Length > 50) displayPath = ".../" + displayPath.Substring(displayPath.Length - 45);
+
+            GUIStyle pathStyle = new GUIStyle(EditorStyles.helpBox)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontStyle = FontStyle.Bold,
+                fontSize = 12,
+                normal = { textColor = new Color(0.8f, 0.9f, 1f) }
+            };
+            GUILayout.Label(displayPath, pathStyle, GUILayout.ExpandWidth(true), GUILayout.Height(25));
+
             GUILayout.FlexibleSpace();
 
             if (GUILayout.Button("📁 " + ToolLang.Get("New Folder", "Новая папка"), EditorStyles.toolbarButton, GUILayout.Width(100)))
@@ -448,9 +476,9 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical();
             GUILayout.BeginHorizontal();
 
-            foreach (var item in _cachedItems)
+            for (int i = 0; i < _cachedItems.Count; i++)
             {
-                DrawItem(item);
+                DrawItem(_cachedItems[i], i);
                 current++;
                 if (current >= _cols) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); current = 0; }
             }
@@ -506,7 +534,7 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private void DrawItem(CachedItem item)
+        private void DrawItem(CachedItem item, int index)
         {
             Rect slotRect = GUILayoutUtility.GetRect(90, 110, GUILayout.Width(90), GUILayout.Height(110));
             Rect rect = new Rect(slotRect.x + 5, slotRect.y + 5, 80, 100);
@@ -524,17 +552,26 @@ namespace NovellaEngine.Editor
             {
                 GUI.FocusControl(null);
 
-                if (e.control || e.command)
+                // ФИКС 2: Логика Shift-Выделения
+                if (e.shift && _lastSelectedIndex != -1)
+                {
+                    int min = Mathf.Min(index, _lastSelectedIndex);
+                    int max = Mathf.Max(index, _lastSelectedIndex);
+                    _selectedPaths.Clear();
+                    for (int i = min; i <= max; i++) _selectedPaths.Add(_cachedItems[i].Path);
+                }
+                else if (e.control || e.command)
                 {
                     if (isSelected) _selectedPaths.Remove(item.Path);
-                    else { _selectedPaths.Add(item.Path); }
+                    else _selectedPaths.Add(item.Path);
+                    _lastSelectedIndex = index;
                 }
                 else
                 {
                     if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); StopMedia(); }
+                    _lastSelectedIndex = index;
                 }
 
-                // === ФИКС ОШИБКИ EndLayoutGroup ПРИ ДВОЙНОМ КЛИКЕ ===
                 if (e.clickCount == 2)
                 {
                     if (item.IsFolder)
@@ -564,7 +601,7 @@ namespace NovellaEngine.Editor
 
             if (e.type == EventType.ContextClick && rect.Contains(e.mousePosition))
             {
-                if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); }
+                if (!isSelected) { _selectedPaths.Clear(); _selectedPaths.Add(item.Path); _lastSelectedIndex = index; }
 
                 GenericMenu menu = new GenericMenu();
 
@@ -695,14 +732,30 @@ namespace NovellaEngine.Editor
                     _audioPreviewer.volume = EditorGUILayout.Slider("Volume", _audioPreviewer.volume, 0f, 1f);
                     GUILayout.EndVertical();
                 }
+                else if (asset != null && ext == ".prefab")
+                {
+                    Texture2D prefabPreview = null;
+                    GameObject go = asset as GameObject;
+                    if (go != null)
+                    {
+                        var img = go.GetComponentInChildren<UnityEngine.UI.Image>();
+                        if (img != null && img.sprite != null) prefabPreview = img.sprite.texture;
+                    }
+                    if (prefabPreview == null) prefabPreview = AssetPreview.GetAssetPreview(asset);
+                    if (prefabPreview == null) prefabPreview = AssetPreview.GetMiniThumbnail(asset);
+
+                    if (prefabPreview != null)
+                    {
+                        Rect r = GUILayoutUtility.GetRect(280, 280);
+                        GUI.Box(r, GUIContent.none, EditorStyles.helpBox);
+                        GUI.DrawTexture(r, prefabPreview, ScaleMode.ScaleToFit);
+
+                        if (AssetPreview.IsLoadingAssetPreview(asset.GetInstanceID())) Repaint();
+                    }
+                }
                 else if (asset is DefaultAsset && !AssetDatabase.IsValidFolder(path))
                 {
                     Texture2D icon = AssetDatabase.GetCachedIcon(path) as Texture2D;
-                    if (icon) { Rect r = GUILayoutUtility.GetRect(128, 128); GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit); }
-                }
-                else if (asset != null && ext == ".prefab")
-                {
-                    Texture2D icon = AssetDatabase.GetCachedIcon(path) as Texture2D ?? _prefabIcon;
                     if (icon) { Rect r = GUILayoutUtility.GetRect(128, 128); GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit); }
                 }
 
@@ -757,7 +810,7 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(250), GUILayout.ExpandHeight(true));
 
             GUILayout.Label("🗑 " + ToolLang.Get("Trash Bin", "Корзина"), EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(ToolLang.Get("Items here will be PERMANENTLY deleted when you close the gallery!", "Файлы будут УДАЛЕНЫ НАВСЕГДА при закрытии галереи!"), MessageType.Warning);
+            EditorGUILayout.HelpBox(ToolLang.Get("Items here will be PERMANENTLY deleted when you close Unity!", "Файлы будут УДАЛЕНЫ НАВСЕГДА при закрытии Unity!"), MessageType.Warning);
 
             _trashScroll = GUILayout.BeginScrollView(_trashScroll);
 
@@ -1110,7 +1163,8 @@ namespace NovellaEngine.Editor
             RequestRefresh();
         }
     }
-public class RenamePopup : EditorWindow
+
+    public class RenamePopup : EditorWindow
     {
         private string _newName;
         private Action<string> _onRename;

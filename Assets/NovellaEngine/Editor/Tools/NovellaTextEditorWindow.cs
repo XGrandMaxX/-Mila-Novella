@@ -35,7 +35,17 @@ namespace NovellaEngine.Editor
             win._onSavedCallback = onSaved;
 
             win._locSettings = NovellaLocalizationSettings.GetOrCreateSettings();
-            if (win._locSettings.Languages.Count > 0) win._selectedLang = win._locSettings.Languages[0];
+
+            // ФИКС: Считываем язык превью, который выбрал пользователь в графе
+            string savedLang = EditorPrefs.GetString("NovellaGraph_PreviewLang", "");
+            if (!string.IsNullOrEmpty(savedLang) && win._locSettings.Languages.Contains(savedLang))
+            {
+                win._selectedLang = savedLang;
+            }
+            else if (win._locSettings.Languages.Count > 0)
+            {
+                win._selectedLang = win._locSettings.Languages[0];
+            }
 
             win.minSize = new Vector2(1000, 500);
             win.ShowUtility(); win.BuildUI(); win.Focus();
