@@ -104,6 +104,22 @@ namespace NovellaEngine.Editor
                 c.renderMode = RenderMode.ScreenSpaceCamera;
                 c.worldCamera = _camera;
                 c.planeDistance = 5f;
+                c.sortingOrder = 100; // Обновляем сортировку главного канваса
+
+                // === ФИКС ДЛЯ СТАРЫХ СЦЕН ===
+                Transform bgTransform = c.transform.Find("Background");
+                if (bgTransform != null)
+                {
+                    Canvas bgCanvas = bgTransform.GetComponent<Canvas>();
+                    if (bgCanvas == null)
+                    {
+                        bgCanvas = bgTransform.gameObject.AddComponent<Canvas>();
+                        bgTransform.gameObject.AddComponent<GraphicRaycaster>();
+                    }
+                    bgCanvas.overrideSorting = true;
+                    bgCanvas.sortingOrder = -100; // Отправляем фон за персонажей
+                }
+
                 EditorUtility.SetDirty(c);
             }
         }

@@ -1,4 +1,8 @@
-﻿using UnityEditor;
+﻿/// <summary>
+/// Окно настройки зарезервированных цветов для системных нод графа.
+/// Сохраняет выбор пользователя в EditorPrefs.
+/// </summary>
+using UnityEditor;
 using UnityEngine;
 using NovellaEngine.Data;
 
@@ -11,9 +15,8 @@ namespace NovellaEngine.Editor
 
         public static void ShowWindow()
         {
-            // Убрали привязку typeof(NovellaGraphWindow)
             var window = GetWindow<NovellaColorSettingsWindow>("Node Colors");
-            window.minSize = new Vector2(500, 400);
+            window.minSize = new Vector2(500, 450);
             window.Show();
         }
 
@@ -26,15 +29,25 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
 
             // === ЛЕВАЯ ПАНЕЛЬ ===
-            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(200), GUILayout.ExpandHeight(true));
+            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(220), GUILayout.ExpandHeight(true));
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             DrawTabBtn(ENodeType.End, "🛑", ToolLang.Get("End Scene", "Конец Сцены"));
             DrawTabBtn(ENodeType.Branch, "🔀", ToolLang.Get("Branch", "Развилка"));
             DrawTabBtn(ENodeType.Condition, "❓", ToolLang.Get("Condition", "Условие (If/Else)"));
             DrawTabBtn(ENodeType.Random, "🎲", ToolLang.Get("Random", "Случайность"));
-            DrawTabBtn(ENodeType.Audio, "🎵", ToolLang.Get("Audio", "Аудио"));
             DrawTabBtn(ENodeType.Variable, "📊", ToolLang.Get("Variable", "Логика / Перем."));
+
+            GUILayout.Space(10);
+            GUILayout.Label(ToolLang.Get("Cinematography", "Режиссура"), EditorStyles.miniBoldLabel);
+            DrawTabBtn(ENodeType.Background, "🖼", ToolLang.Get("Background", "Фон / Сцена"));
+            DrawTabBtn(ENodeType.Audio, "🎵", ToolLang.Get("Audio", "Аудио"));
+            DrawTabBtn(ENodeType.Animation, "✨", ToolLang.Get("Animation", "Анимация"));
+            DrawTabBtn(ENodeType.Wait, "⏳", ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)"));
+
+            GUILayout.Space(10);
+            GUILayout.Label(ToolLang.Get("System", "Система"), EditorStyles.miniBoldLabel);
+            DrawTabBtn(ENodeType.EventBroadcast, "⚡", ToolLang.Get("Event Broadcast", "Вызов События"));
 
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
@@ -58,6 +71,7 @@ namespace NovellaEngine.Editor
 
             string title = _selectedType.ToString().ToUpper();
             if (_selectedType == ENodeType.Condition) title = "CONDITION (IF)";
+            else if (_selectedType == ENodeType.EventBroadcast) title = "EVENT BROADCAST";
 
             GUILayout.Label(title, new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white }, fontSize = 14 }, GUILayout.ExpandHeight(true));
 
@@ -120,6 +134,10 @@ namespace NovellaEngine.Editor
                 case ENodeType.Random: defaultHex = "#623B8A"; break;
                 case ENodeType.Audio: defaultHex = "#2A8272"; break;
                 case ENodeType.Variable: defaultHex = "#307D50"; break;
+                case ENodeType.Wait: defaultHex = "#455A64"; break;
+                case ENodeType.Background: defaultHex = "#3A5C74"; break;
+                case ENodeType.Animation: defaultHex = "#963E56"; break;
+                case ENodeType.EventBroadcast: defaultHex = "#A88522"; break;
             }
 
             string hex = EditorPrefs.GetString("NovellaColor_" + type.ToString(), defaultHex);
@@ -151,6 +169,10 @@ namespace NovellaEngine.Editor
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Random.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Audio.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Variable.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Wait.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Background.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Animation.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.EventBroadcast.ToString());
 
             UpdateGraphSafely();
         }

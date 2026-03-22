@@ -1,0 +1,1940 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7fd50bdf9114ce4498a7f22f486539a, type: 3}
+  m_Name: 01_StartHere
+  m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
+  RootNodeID: Dialogue_754eb
+  StartPosition: {x: 275, y: 299}
+  Nodes:
+  - rid: 6664540706653077595
+  - rid: 6664540706653077610
+  - rid: 6664540706653077609
+  - rid: 6664540706653077616
+  - rid: 6664540706653077611
+  - rid: 6664540706653077612
+  - rid: 6664540706653077617
+  - rid: 6664540706653077613
+  - rid: 6664540706653077624
+  - rid: 6664540706653077621
+  - rid: 6664540706653077625
+  - rid: 6664540706653077627
+  - rid: 6664540706653077622
+  - rid: 6664540706653077626
+  - rid: 6664540706653077637
+  - rid: 6664540706653077636
+  - rid: 6664540706653077629
+  - rid: 6664540706653077638
+  - rid: 6664540706653077641
+  - rid: 6664540706653077639
+  - rid: 6664540706653077640
+  - rid: 6664540706653077630
+  Groups:
+  - rid: 6664540706653077604
+  - rid: 6664540706653077614
+  - rid: 6664540706653077615
+  - rid: 6664540706653077623
+  - rid: 6664540706653077635
+  references:
+    version: 2
+    RefIds:
+    - rid: 6664540706653077595
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_099d0
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 43, y: -159}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 17
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 698
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u0414\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C
+              \u0432 <color=#FFCC66>Novella Engine</color>!\n\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439
+              \u043A\u043E\u043B\u0435\u0441\u0438\u043A\u043E \u043C\u044B\u0448\u0438
+              \u0434\u043B\u044F \u0437\u0443\u043C\u0430, \u0430 \u0441\u0440\u0435\u0434\u043D\u044E\u044E
+              \u043A\u043D\u043E\u043F\u043A\u0443 (\u0438\u043B\u0438 Alt + \u041B\u041A\u041C)
+              \u0434\u043B\u044F \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0438\u044F
+              \u043F\u043E \u0433\u0440\u0430\u0444\u0443.\n\n<i>\u041A\u0441\u0442\u0430\u0442\u0438,
+              \u0435\u0441\u043B\u0438 \u0432\u044B \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u0435
+              \u044F\u0437\u044B\u043A \u043F\u0440\u0435\u0432\u044C\u044E \u0441\u0432\u0435\u0440\u0445\u0443,
+              \u0432\u044B \u0441\u043C\u043E\u0436\u0435\u0442\u0435 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C
+              \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u0438 \u0434\u0438\u0430\u043B\u043E\u0433\u0438
+              \u043D\u0430 \u0430\u043D\u0433\u043B\u0438\u0439\u0441\u043A\u043E\u043C
+              \u044F\u0437\u044B\u043A\u0435!</i>\n\nBy the way, if you switch the
+              preview language at the top panel, you will be able to view these notes
+              and dialogues in English!"
+          - LanguageID: EN
+            Text: "Welcome to <color=#FFCC66>Novella Engine</color>!\nUse the mouse
+              wheel to zoom, and the middle mouse button (or Alt + LMB) to pan across
+              the graph.\n\n<i>If you switch the preview language at the top, you
+              will be able to view the notes and dialogues in Russian!</i>\n\n\u041A\u0441\u0442\u0430\u0442\u0438,
+              \u0435\u0441\u043B\u0438 \u0432\u044B \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u0435
+              \u044F\u0437\u044B\u043A \u043F\u0440\u0435\u0432\u044C\u044E \u043D\u0430
+              \u0432\u0435\u0440\u0445\u043D\u0435\u0439 \u043F\u0430\u043D\u0435\u043B\u0438,
+              \u0432\u044B \u0441\u043C\u043E\u0436\u0435\u0442\u0435 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C
+              \u044D\u0442\u0438 \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u0438
+              \u0434\u0438\u0430\u043B\u043E\u0433\u0438 \u043D\u0430 \u0440\u0443\u0441\u0441\u043A\u043E\u043C
+              \u044F\u0437\u044B\u043A\u0435!"
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 25
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077604
+      type: {class: NovellaGroupData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        GroupID: Group_0f6c1
+        Title: 
+        TitleColor: {r: 1, g: 1, b: 1, a: 1}
+        BorderColor: {r: 0.09109115, g: 0.8396226, b: 0.13394512, a: 1}
+        TitleFontSize: 21
+        BackgroundColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+        ContainedNodeIDs:
+        - Note_099d0
+        Position:
+          serializedVersion: 2
+          x: 18
+          y: -220
+          width: 748
+          height: 309
+    - rid: 6664540706653077609
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_754eb
+        NodeTitle: Dialogue 1
+        NodeType: 0
+        GraphPosition: {x: 534, y: 347}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Branch_36a36
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077610
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_b5dde
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 481, y: 281}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u0417\u0435\u043B\u0435\u043D\u0430\u044F \u043D\u043E\u0434\u0430
+              Start - \u0442\u043E\u0447\u043A\u0430 \u0432\u0445\u043E\u0434\u0430
+              \u0432 \u0441\u0446\u0435\u043D\u0443. \u041D\u043E\u0434\u0430 Dialogue
+              - \u043E\u0441\u043D\u043E\u0432\u0430 \u0441\u044E\u0436\u0435\u0442\u0430."
+          - LanguageID: EN
+            Text: 'The green Start node is the entry point. The Dialogue node is
+              the backbone of the story. '
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077611
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Branch_36a36
+        NodeTitle: Branch 1
+        NodeType: 1
+        GraphPosition: {x: 857, y: 371}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_52d2b
+          LocalizedText:
+            Translations: []
+          NextNodeID: Wait_ec648
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        - PortID: Choice_eec09
+          LocalizedText:
+            Translations: []
+          NextNodeID: Wait_ec648
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077612
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Wait_ec648
+        NodeTitle: Wait 1
+        NodeType: 10
+        GraphPosition: {x: 1078, y: 420}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Random_84417
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 2
+        WaitIsSkippable: 0
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077613
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Random_84417
+        NodeTitle: Random 1
+        NodeType: 9
+        GraphPosition: {x: 1294, y: 380}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_57b30
+          LocalizedText:
+            Translations: []
+          NextNodeID: Variable_32c77
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 100
+          ChanceModifiers: []
+        - PortID: Choice_dd731
+          LocalizedText:
+            Translations: []
+          NextNodeID: Variable_32c77
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 43
+          ChanceModifiers: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077614
+      type: {class: NovellaGroupData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        GroupID: Group_88ef0
+        Title: 1
+        TitleColor: {r: 1, g: 0.63600165, b: 0.3537736, a: 1}
+        BorderColor: {r: 0.20000002, g: 0.7019608, b: 0.3019608, a: 1}
+        TitleFontSize: 27
+        BackgroundColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+        ContainedNodeIDs:
+        - Dialogue_754eb
+        - Note_b5dde
+        Position:
+          serializedVersion: 2
+          x: 456
+          y: 217
+          width: 350
+          height: 256
+    - rid: 6664540706653077615
+      type: {class: NovellaGroupData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        GroupID: Group_ee21b
+        Title: 2
+        TitleColor: {r: 1, g: 0.63529414, b: 0.3529412, a: 1}
+        BorderColor: {r: 0.20000002, g: 0.7019608, b: 0.3019608, a: 1}
+        TitleFontSize: 27
+        BackgroundColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+        ContainedNodeIDs:
+        - Wait_ec648
+        - Random_84417
+        - Branch_36a36
+        - Note_91430
+        - Note_11b10
+        Position:
+          serializedVersion: 2
+          x: 819.9999
+          y: 210
+          width: 649
+          height: 345
+    - rid: 6664540706653077616
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_91430
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 845, y: 284}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 200
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "Branch \u0441\u043E\u0437\u0434\u0430\u0435\u0442 \u043A\u043B\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043A\u0438\u0435
+              \u0432\u0430\u0440\u0438\u0430\u043D\u0442\u044B \u043E\u0442\u0432\u0435\u0442\u043E\u0432.
+              \u041D\u043E \u0435\u0441\u043B\u0438 \u0432\u044B \u0445\u043E\u0442\u0438\u0442\u0435
+              \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0430\u0437\u0430\u0440\u0442\u0430,
+              \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435
+              Random!"
+          - LanguageID: EN
+            Text: Branch creates classic dialogue choices. But if you want to add
+              excitement, use Random!
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077617
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_11b10
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 1072, y: 274}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 200
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043D\u043E\u0434\u0443
+              Wait (\u041E\u0436\u0438\u0434\u0430\u043D\u0438\u0435) \u043D\u0430
+              2 \u0441\u0435\u043A\u0443\u043D\u0434\u044B \u043F\u0435\u0440\u0435\u0434
+              \u043D\u043E\u0434\u043E\u0439 Random. \u0418\u0433\u0440\u043E\u043A
+              \u0441\u0434\u0435\u043B\u0430\u0435\u0442 \u0432\u044B\u0431\u043E\u0440,
+              \u0438\u0433\u0440\u0430 \u0437\u0430\u043C\u0440\u0435\u0442 \u043D\u0430
+              \u043F\u0430\u0440\u0443 \u0441\u0435\u043A\u0443\u043D\u0434 (\u0441\u043E\u0437\u0434\u0430\u0432\u0430\u044F
+              \u043D\u0430\u043F\u0440\u044F\u0436\u0435\u043D\u0438\u0435), \u0430
+              \u0437\u0430\u0442\u0435\u043C Random \u0440\u0435\u0448\u0438\u0442:
+              \u043F\u043E\u0432\u0435\u0437\u043B\u043E \u0438\u0433\u0440\u043E\u043A\u0443
+              (\u0443\u0441\u043F\u0435\u0445 70%) \u0438\u043B\u0438 \u043D\u0435\u0442
+              (\u043F\u0440\u043E\u0432\u0430\u043B 30%)."
+          - LanguageID: EN
+            Text: 'Place a Wait node for 2 seconds before the Random node. The player
+              makes a choice, the game pauses for a moment (building suspense), and
+              then Random decides: success (70%) or failure (30%).'
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077621
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_dee70
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 1557, y: 321}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 200
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "Variable \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442
+              \u043D\u0430\u0447\u0438\u0441\u043B\u044F\u0442\u044C \u043E\u0447\u043A\u0438
+              (\u041A\u0430\u0440\u043C\u0430, \u0417\u043E\u043B\u043E\u0442\u043E,
+              \u041E\u0442\u043D\u043E\u0448\u0435\u043D\u0438\u044F) \u0438 \u043F\u0440\u0435\u043C\u0438\u0443\u043C
+              \u0432\u0430\u043B\u044E\u0442\u0443, \u0430 Condition - \u043F\u0440\u043E\u0432\u0435\u0440\u044F\u0442\u044C
+              \u0438\u0445."
+          - LanguageID: EN
+            Text: Variable allows you to grant points (Karma, Gold, Relationships)
+              and premium currency, while Condition is used to check them.
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077622
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_a21fe
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 1806, y: 282}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 293
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u0421\u0434\u0435\u043B\u0430\u0439\u0442\u0435 \u0442\u0430\u043A,
+              \u0447\u0442\u043E\u0431\u044B \u043E\u0431\u044B\u0447\u043D\u044B\u0439
+              \u0434\u0438\u0430\u043B\u043E\u0433 \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0430\u043B\u0441\u044F
+              \u043A\u0430\u043A \u043E\u0431\u044B\u0447\u043D\u043E, \u043D\u043E
+              \u043F\u0430\u0440\u0430\u043B\u043B\u0435\u043B\u044C\u043D\u043E
+              \u0434\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443
+              Condition (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440: \u0435\u0441\u043B\u0438
+              \u0410\u043B\u043C\u0430\u0437\u043E\u0432 \u2265 1). \u0415\u0441\u043B\u0438
+              \u0443\u0441\u043B\u043E\u0432\u0438\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E,
+              \u0441\u0432\u044F\u0436\u0438\u0442\u0435 \u043D\u043E\u0434\u0443
+              \u0441 \u0441\u0435\u043A\u0440\u0435\u0442\u043D\u044B\u043C \u0434\u0438\u0430\u043B\u043E\u0433\u043E\u043C,
+              \u043A\u043E\u0442\u043E\u0440\u044B\u0439 \u0438\u0433\u0440\u043E\u043A
+              \u0438\u043D\u0430\u0447\u0435 \u043D\u0438\u043A\u043E\u0433\u0434\u0430
+              \u0431\u044B \u043D\u0435 \u0443\u0432\u0438\u0434\u0435\u043B!"
+          - LanguageID: EN
+            Text: "Let the normal dialogue progress as usual, but add a Condition
+              check in parallel (for example: if Diamonds \u2265 1). If the condition
+              is met, connect the node to a secret dialogue that the player would
+              otherwise never see!"
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 21
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077623
+      type: {class: NovellaGroupData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        GroupID: Group_b3c53
+        Title: 3
+        TitleColor: {r: 1, g: 0.63529414, b: 0.3529412, a: 1}
+        BorderColor: {r: 0.20000002, g: 0.7019608, b: 0.3019608, a: 1}
+        TitleFontSize: 27
+        BackgroundColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+        ContainedNodeIDs:
+        - Note_dee70
+        - Note_a21fe
+        - Variable_32c77
+        - Dialogue_da2f9
+        - Condition_5091e
+        - Dialogue_db284
+        Position:
+          serializedVersion: 2
+          x: 1531.9999
+          y: 218
+          width: 750
+          height: 412
+    - rid: 6664540706653077624
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Variable_32c77
+        NodeTitle: Variable 1
+        NodeType: 6
+        GraphPosition: {x: 1558, y: 423}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Condition_5091e
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables:
+        - VariableName: DIAMOND
+          VarOperation: 0
+          VarValue: 1
+          VarBool: 1
+          VarString: 
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077625
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Condition_5091e
+        NodeTitle: Condition 1
+        NodeType: 7
+        GraphPosition: {x: 1796, y: 403}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices:
+        - PortID: Choice_8b708
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: True
+            - LanguageID: RU
+              Text: "\u0418\u0441\u0442\u0438\u043D\u0430"
+          NextNodeID: Dialogue_da2f9
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        - PortID: Choice_85006
+          LocalizedText:
+            Translations:
+            - LanguageID: EN
+              Text: False
+            - LanguageID: RU
+              Text: "\u041B\u043E\u0436\u044C"
+          NextNodeID: Dialogue_db284
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        UnlockChoiceLimit: 0
+        Conditions:
+        - Variable: DIAMOND
+          Operator: 4
+          Value: 1
+          ValueBool: 1
+          ValueString: 
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077626
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_da2f9
+        NodeTitle: Secret Dialogue 1
+        NodeType: 0
+        GraphPosition: {x: 2080, y: 346}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Audio_788b8
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077627
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_db284
+        NodeTitle: Dialogue 3
+        NodeType: 0
+        GraphPosition: {x: 1945, y: 504}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Audio_788b8
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077629
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_9430d
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 2322, y: 386}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 200
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u0417\u0432\u0443\u043A (Audio) \u043F\u043E\u0437\u0432\u043E\u043B\u044F\u0435\u0442
+              \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u043C\u0443\u0437\u044B\u043A\u0443
+              \u0438 \u0440\u0430\u0437\u043D\u044B\u0435 \u0437\u0432\u0443\u043A\u0438,
+              \u0442\u0430\u043A-\u0436\u0435 \u0435\u0433\u043E \u043C\u043E\u0436\u043D\u043E
+              \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C
+              \u0432 \u0441\u0432\u044F\u0437\u043A\u0435 \u0441 \u043D\u043E\u0434\u043E\u0439
+              \u0434\u0438\u0430\u043B\u043E\u0433\u0430 \u0432 \u0433\u043D\u0435\u0437\u0434\u0435
+              \u0410\u0443\u0434\u0438\u043E \u0421\u0438\u043D\u0445\u0440."
+          - LanguageID: EN
+            Text: Audio allows you to play music and various sound effects. It can
+              also be used together with a dialogue node via the Audio Sync slot.
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077630
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_a1b55
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 2606, y: 414}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 293
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u0421\u043E\u0435\u0434\u0438\u043D\u0438\u0442\u0435 Audio \u0441
+              Dialogue \u0447\u0435\u0440\u0435\u0437 \u0444\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439
+              \u043F\u043E\u0440\u0442 Audio Sync. \u0422\u0435\u043F\u0435\u0440\u044C
+              \u0437\u0432\u0443\u043A \u0448\u0430\u0433\u043E\u0432 \u0438\u043B\u0438
+              \u043E\u0437\u0432\u0443\u0447\u043A\u0430 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u044E\u0442
+              \u0440\u043E\u0432\u043D\u043E \u043D\u0430 \u043D\u0443\u0436\u043D\u043E\u0439
+              \u0440\u0435\u043F\u043B\u0438\u043A\u0435!\n\n\u0412 \u043A\u043E\u043D\u0446\u0435
+              \u0441\u0446\u0435\u043D\u044B \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435
+              Wait \u0432 \u0440\u0435\u0436\u0438\u043C\u0435 \"\u041F\u043E \u043A\u043B\u0438\u043A\u0443\",
+              \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 Hide Dialogue Frame
+              (\u0421\u043A\u0440\u044B\u0442\u044C \u0440\u0430\u043C\u043A\u0443)
+              \u0438 \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043F\u0440\u0430\u0439\u0442\u044B.
+              \u041F\u043E\u043B\u0443\u0447\u0438\u0442\u0441\u044F \u0447\u0438\u0441\u0442\u044B\u0439
+              \u044D\u043A\u0440\u0430\u043D \u0441 \u0444\u043E\u043D\u043E\u0432\u044B\u043C
+              \u0430\u0440\u0442\u043E\u043C (CG), \u043A\u043E\u0442\u043E\u0440\u044B\u043C
+              \u0438\u0433\u0440\u043E\u043A \u0441\u043C\u043E\u0436\u0435\u0442
+              \u043F\u043E\u043B\u044E\u0431\u043E\u0432\u0430\u0442\u044C\u0441\u044F
+              \u043F\u0435\u0440\u0435\u0434 \u0442\u0435\u043C, \u043A\u0430\u043A
+              \u043D\u043E\u0434\u0430 End \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442
+              \u0443\u0440\u043E\u0432\u0435\u043D\u044C."
+          - LanguageID: EN
+            Text: At the end of the scene, place a Wait node in "User Click" mode,
+              check Hide Dialogue Frame, and hide the sprites. You'll get a clean
+              screen with background art (CG) for the player to admire before the
+              End node switches the level.
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 21
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077635
+      type: {class: NovellaGroupData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        GroupID: Group_76f6c
+        Title: 3
+        TitleColor: {r: 1, g: 0.63529414, b: 0.3529412, a: 1}
+        BorderColor: {r: 0.20000002, g: 0.7019608, b: 0.3019608, a: 1}
+        TitleFontSize: 27
+        BackgroundColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.5}
+        ContainedNodeIDs:
+        - Note_9430d
+        - Note_a1b55
+        - Audio_788b8
+        - Dialogue_79544
+        - Wait_67e31
+        - End_d78fc
+        - Note_9bec5
+        - Audio_1f39c
+        Position:
+          serializedVersion: 2
+          x: 2297
+          y: 322
+          width: 894
+          height: 374
+    - rid: 6664540706653077636
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Audio_788b8
+        NodeTitle: Audio 1
+        NodeType: 5
+        GraphPosition: {x: 2328, y: 486}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Dialogue_79544
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077637
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_79544
+        NodeTitle: Dialogue 4
+        NodeType: 0
+        GraphPosition: {x: 2491, y: 561}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: Wait_67e31
+        AudioSyncNodeID: Audio_1f39c
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077638
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Wait_67e31
+        NodeTitle: Wait 2
+        NodeType: 10
+        GraphPosition: {x: 2763, y: 561}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: End_d78fc
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 1
+        WaitTime: 3
+        WaitIsSkippable: 0
+        WaitClearText: 1
+        WaitHideFrame: 1
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077639
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: End_d78fc
+        NodeTitle: End 1
+        NodeType: 3
+        GraphPosition: {x: 2972, y: 493}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 1
+        NextChapter: {fileID: 0}
+        TargetSceneName: Menu
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077640
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Note_9bec5
+        NodeTitle: ...
+        NodeType: 8
+        GraphPosition: {x: 2966, y: 417}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 11
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 0
+        AudioEvents: []
+        Variables: []
+        NoteWidth: 200
+        LocalizedNoteText:
+          Translations:
+          - LanguageID: RU
+            Text: "\u041D\u043E\u0434\u0430 End \u0437\u0430\u0432\u0435\u0440\u0448\u0430\u0435\u0442
+              \u0442\u0435\u043A\u0443\u0449\u0443\u044E \u043B\u043E\u043A\u0430\u0446\u0438\u044E
+              \u0438 \u0433\u0440\u0443\u0437\u0438\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0443\u044E. "
+          - LanguageID: EN
+            Text: 'The End node finishes the current location and loads the next
+              one. '
+        ShowBackground: 0
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+    - rid: 6664540706653077641
+      type: {class: NovellaNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Audio_1f39c
+        NodeTitle: Audio 2
+        NodeType: 5
+        GraphPosition: {x: 2681, y: 532}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines: []
+        UnlockDialogueLimit: 0
+        Speaker: {fileID: 0}
+        Mood: 
+        LocalizedPhrase:
+          Translations: []
+        NextNodeID: 
+        AudioSyncNodeID: 
+        FontSize: 32
+        Choices: []
+        UnlockChoiceLimit: 0
+        Conditions: []
+        OverrideChoiceButtonPrefab: {fileID: 0}
+        EndAction: 0
+        NextChapter: {fileID: 0}
+        TargetSceneName: 
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 1
+        AudioEvents:
+        - LineIndex: 0
+          TriggerType: 0
+          TimeDelay: 0
+          AudioAsset: {fileID: 0}
+          AudioAction: 0
+          AudioChannel: 1
+          Volume: 1
+        - LineIndex: -1
+          TriggerType: 3
+          TimeDelay: 0
+          AudioAsset: {fileID: 0}
+          AudioAction: 0
+          AudioChannel: 1
+          Volume: 1
+        Variables: []
+        NoteWidth: 300
+        LocalizedNoteText:
+          Translations: []
+        ShowBackground: 1
+        NoteURL: 
+        NoteTitleColor: {r: 1, g: 0.8, b: 0.4, a: 1}
+        NoteTextColor: {r: 1, g: 1, b: 1, a: 1}
+        NoteTitleFontSize: 18
+        NoteImages: []
+        NoteLinks: []
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35

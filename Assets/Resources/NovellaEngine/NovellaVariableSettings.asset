@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaVariableSettings
   Variables:
   - Name: DIAMOND
-    Category: Default
+    Category: Currency
     Description: 
     Type: 0
     Scope: 1
@@ -26,8 +26,8 @@ MonoBehaviour:
     DefaultString: 
     IsPremiumCurrency: 1
     Icon: {fileID: 0}
-  - Name: NEW_VARIABLE
-    Category: Default
+  - Name: COINS
+    Category: Currency
     Description: 
     Type: 0
     Scope: 0

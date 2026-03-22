@@ -16,9 +16,9 @@ MonoBehaviour:
   DisplayName_EN: Milana
   DisplayName_RU: "\u041C\u0438\u043B\u0430\u043D\u0430"
   ThemeColor: {r: 0.5754717, g: 0.4261748, b: 0.4261748, a: 1}
-  DefaultSprite: {fileID: 21300000, guid: 598d9b41ecab1564f93919fbbe13f79b, type: 3}
+  DefaultSprite: {fileID: 21300000, guid: a3cd6bf0c72f70c438f4fe01808ced50, type: 3}
   Emotions:
   - EmotionName: NewEmotion
-    EmotionSprite: {fileID: 0}
+    EmotionSprite: {fileID: 21300000, guid: 6c5e46b9acda6e2499ab6888085cc557, type: 3}
   IsFavorite: 1
   InternalNotes: 

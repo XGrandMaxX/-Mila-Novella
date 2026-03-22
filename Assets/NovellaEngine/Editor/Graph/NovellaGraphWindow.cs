@@ -126,7 +126,6 @@ namespace NovellaEngine.Editor
             rootVisualElement.Add(mainContainer);
 
             var graphContainer = new VisualElement { style = { flexGrow = 1 } };
-
             graphContainer.Add(_graphView);
 
             if (!_isTutorialMode)
@@ -177,6 +176,27 @@ namespace NovellaEngine.Editor
                 ioRow.Add(btnExport);
                 ioRow.Add(btnImport);
                 _leftPanel.Add(ioRow);
+
+                // === НОВОЕ: КНОПКИ JSON ===
+                var jsonLabel = new Label(ToolLang.Get("JSON Backup (Graph Data):", "Бэкап JSON (Весь Граф):"))
+                {
+                    style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
+                };
+                _leftPanel.Add(jsonLabel);
+
+                var jsonRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
+
+                var btnExportJson = new Button(() => ExportGraphToJSON())
+                { text = "📤 " + ToolLang.Get("Export", "Экспорт") + " JSON", tooltip = ToolLang.Get("Export entire graph to JSON backup.", "Сохранить весь граф в JSON.") };
+                btnExportJson.style.flexGrow = 1; btnExportJson.style.height = 35; btnExportJson.style.marginRight = 2;
+
+                var btnImportJson = new Button(() => ImportGraphFromJSON())
+                { text = "📥 " + ToolLang.Get("Import", "Импорт") + " JSON", tooltip = ToolLang.Get("Restore graph from JSON backup.", "Восстановить граф из JSON.") };
+                btnImportJson.style.flexGrow = 1; btnImportJson.style.height = 35; btnImportJson.style.marginLeft = 2;
+
+                jsonRow.Add(btnExportJson);
+                jsonRow.Add(btnImportJson);
+                _leftPanel.Add(jsonRow);
 
                 mainContainer.Add(_leftPanel);
 
@@ -229,6 +249,33 @@ namespace NovellaEngine.Editor
 
             _needsFocusFrame = true;
             _focusFramesDelay = 3;
+        }
+
+        private void ExportGraphToJSON()
+        {
+            string path = EditorUtility.SaveFilePanel("Export Novella Graph", "", _currentTree.name + "_Backup", "json");
+            if (string.IsNullOrEmpty(path)) return;
+
+            string json = EditorJsonUtility.ToJson(_currentTree, true);
+            System.IO.File.WriteAllText(path, json);
+            EditorUtility.DisplayDialog("Success", ToolLang.Get("Graph exported to JSON successfully!", "Граф успешно сохранен в JSON!"), "OK");
+        }
+
+        private void ImportGraphFromJSON()
+        {
+            string path = EditorUtility.OpenFilePanel("Import Novella Graph", "", "json");
+            if (string.IsNullOrEmpty(path)) return;
+
+            if (EditorUtility.DisplayDialog(ToolLang.Get("Warning", "Внимание"), ToolLang.Get("This will overwrite the current graph. Are you sure?", "Это перезапишет текущий граф. Вы уверены?"), ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена")))
+            {
+                Undo.RecordObject(_currentTree, "Import JSON");
+                string json = System.IO.File.ReadAllText(path);
+                EditorJsonUtility.FromJsonOverwrite(json, _currentTree);
+                EditorUtility.SetDirty(_currentTree);
+                AssetDatabase.SaveAssets();
+                ConstructGraph();
+                EditorUtility.DisplayDialog("Success", ToolLang.Get("Graph imported successfully!", "Граф успешно загружен!"), "OK");
+            }
         }
 
         private void AddSidebarButton(string icon, string text, string tooltip, System.Action onClick)

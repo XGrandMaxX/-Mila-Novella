@@ -49,7 +49,13 @@ namespace NovellaEngine.Runtime
         private TMP_Text _defaultSpeakerNameText;
         private TMP_Text _defaultDialogueBodyText;
 
-        private GameObject _currentCustomFrame; // Ссылка на активную в данный момент кастомную рамку
+        private GameObject _currentCustomFrame;
+
+        // === ОЖИДАНИЕ И ИНДИКАТОР КЛИКА ===
+        private bool _isWaitNodeActive = false;
+        private Coroutine _waitNodeCoroutine;
+        private GameObject _clickIndicator;
+        private Coroutine _clickIndicatorCoroutine;
 
         private void Start()
         {
@@ -60,10 +66,15 @@ namespace NovellaEngine.Runtime
             if (_poolManager == null) _poolManager = gameObject.AddComponent<NovellaPoolManager>();
             _poolManager.InitializePools();
 
-            // Сохраняем дефолтные элементы UI
             _defaultDialoguePanel = DialoguePanel;
             _defaultSpeakerNameText = SpeakerNameText;
             _defaultDialogueBodyText = DialogueBodyText;
+
+            if (DialoguePanel != null)
+            {
+                Transform tempWait = DialoguePanel.transform.parent.Find("TempWaitIndicator_Preview");
+                if (tempWait != null) Destroy(tempWait.gameObject);
+            }
 
             InitializeVariables();
 
@@ -208,9 +219,165 @@ namespace NovellaEngine.Runtime
                 case ENodeType.Variable:
                     ProcessVariables();
                     break;
+                case ENodeType.Wait:
+                    ProcessWaitNode();
+                    break;
                 case ENodeType.End:
                     ProcessEndNode();
                     break;
+            }
+        }
+
+        private void ProcessWaitNode()
+        {
+            if (_currentNode.WaitClearText && DialogueBodyText != null)
+            {
+                DialogueBodyText.text = "";
+                if (SpeakerNameText != null) SpeakerNameText.text = "";
+            }
+
+            if (_currentNode.WaitHideFrame)
+            {
+                if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
+                if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
+            }
+
+            ShowClickIndicator();
+            _isWaitNodeActive = true;
+
+            if (_currentNode.WaitMode == EWaitMode.Time)
+            {
+                if (_waitNodeCoroutine != null) StopCoroutine(_waitNodeCoroutine);
+                _waitNodeCoroutine = StartCoroutine(WaitTimeRoutine(_currentNode.WaitTime, _currentNode.WaitIsSkippable));
+            }
+        }
+
+        private IEnumerator WaitTimeRoutine(float time, bool skippable)
+        {
+            float t = 0;
+            while (t < time)
+            {
+                t += Time.deltaTime;
+                if (!_isWaitNodeActive && skippable) break;
+                yield return null;
+            }
+            _isWaitNodeActive = false;
+            HideClickIndicator();
+            PlayNode(_currentNode.NextNodeID);
+        }
+
+        // === ВИЗУАЛЬНЫЙ ИНДИКАТОР КЛИКА ===
+        private void ShowClickIndicator()
+        {
+            if (_clickIndicator == null) CreateClickIndicator();
+
+            _clickIndicator.SetActive(true);
+            _clickIndicator.transform.SetAsLastSibling();
+
+            var img = _clickIndicator.GetComponent<Image>();
+            var rt = _clickIndicator.GetComponent<RectTransform>();
+            var txt = _clickIndicator.GetComponentInChildren<TextMeshProUGUI>(true);
+            var txtRt = txt.GetComponent<RectTransform>();
+
+            // Настройка пресетов якорей (Anchors)
+            if (_currentNode.WaitIndicatorPreset == EFramePosition.Top) { rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f); }
+            else if (_currentNode.WaitIndicatorPreset == EFramePosition.Center) { rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f); }
+            else if (_currentNode.WaitIndicatorPreset == EFramePosition.Bottom || _currentNode.WaitIndicatorPreset == EFramePosition.Default) { rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f); }
+            else { rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f); }
+
+            // Базовая позиция (от которой будем прыгать)
+            Vector2 startBasePos = new Vector2(_currentNode.WaitIndicatorPosX, _currentNode.WaitIndicatorPosY);
+            rt.anchoredPosition = startBasePos;
+            rt.sizeDelta = new Vector2(_currentNode.WaitIndicatorSize, _currentNode.WaitIndicatorSize);
+
+            // Обработка спрайта и вращения (если нет спрайта - вращаем на 45 градусов)
+            if (_currentNode.WaitIndicatorSprite != null)
+            {
+                img.sprite = _currentNode.WaitIndicatorSprite;
+                rt.localRotation = Quaternion.identity;
+                txtRt.localRotation = Quaternion.identity;
+            }
+            else
+            {
+                img.sprite = null;
+                rt.localRotation = Quaternion.Euler(0, 0, 45);
+                txtRt.localRotation = Quaternion.Euler(0, 0, -45); // Крутим текст обратно, чтобы не был кривым
+            }
+            img.color = _currentNode.WaitIndicatorColor;
+
+            // Обработка Текста
+            if (!string.IsNullOrWhiteSpace(_currentNode.WaitText))
+            {
+                txt.gameObject.SetActive(true);
+                txt.text = _currentNode.WaitText;
+                txt.color = _currentNode.WaitTextColor;
+                txt.fontSize = _currentNode.WaitTextSize;
+                txtRt.anchoredPosition = new Vector2(_currentNode.WaitTextPosX, _currentNode.WaitTextPosY);
+            }
+            else
+            {
+                txt.gameObject.SetActive(false);
+            }
+
+            if (_clickIndicatorCoroutine != null) StopCoroutine(_clickIndicatorCoroutine);
+            _clickIndicatorCoroutine = StartCoroutine(ClickIndicatorPulse(_currentNode.WaitIndicatorAnimSpeed, _currentNode.WaitIndicatorAmplitude, _currentNode.WaitIndicatorColor, startBasePos, txt));
+        }
+
+        private void HideClickIndicator()
+        {
+            if (_clickIndicator != null) _clickIndicator.SetActive(false);
+            if (_clickIndicatorCoroutine != null) { StopCoroutine(_clickIndicatorCoroutine); _clickIndicatorCoroutine = null; }
+        }
+
+        private void CreateClickIndicator()
+        {
+            GameObject go = new GameObject("NovellaClickIndicator");
+            Canvas canvas = DialoguePanel != null ? DialoguePanel.GetComponentInParent<Canvas>() : FindFirstObjectByType<Canvas>();
+            if (canvas != null) go.transform.SetParent(canvas.transform, false);
+
+            var rt = go.AddComponent<RectTransform>();
+            rt.pivot = new Vector2(0.5f, 0.5f);
+
+            go.AddComponent<Image>();
+
+            GameObject txtGo = new GameObject("Text");
+            txtGo.transform.SetParent(go.transform, false);
+            var trt = txtGo.AddComponent<RectTransform>();
+            trt.anchorMin = trt.anchorMax = new Vector2(0.5f, 0.5f);
+            trt.sizeDelta = new Vector2(800, 100);
+
+            var txt = txtGo.AddComponent<TextMeshProUGUI>();
+            txt.alignment = TextAlignmentOptions.Center;
+
+            _clickIndicator = go;
+        }
+
+        private IEnumerator ClickIndicatorPulse(float speed, float amplitude, Color baseColor, Vector2 basePos, TextMeshProUGUI txt)
+        {
+            if (_clickIndicator == null) yield break;
+            RectTransform rt = _clickIndicator.GetComponent<RectTransform>();
+            Image img = _clickIndicator.GetComponent<Image>();
+            Color textBaseColor = _currentNode.WaitTextColor;
+
+            float t = 0;
+
+            while (true)
+            {
+                t += Time.deltaTime;
+
+                float offset = Mathf.Sin(t * speed) * amplitude;
+                float alpha = 0.4f + (Mathf.Sin(t * speed * 0.8f) + 1f) * 0.3f;
+                float textAlpha = 0.3f + (Mathf.Sin(t * _currentNode.WaitTextBlinkSpeed) + 1f) * 0.35f;
+
+                rt.anchoredPosition = basePos + new Vector2(0, offset);
+                img.color = new Color(baseColor.r, baseColor.g, baseColor.b, alpha * baseColor.a);
+
+                if (txt != null && txt.gameObject.activeSelf)
+                {
+                    txt.color = new Color(textBaseColor.r, textBaseColor.g, textBaseColor.b, textAlpha * textBaseColor.a);
+                }
+
+                yield return null;
             }
         }
 
@@ -298,7 +465,24 @@ namespace NovellaEngine.Runtime
 
             if (advance)
             {
-                if (_isTyping)
+                if (_isWaitNodeActive)
+                {
+                    if (_currentNode != null && _currentNode.NodeType == ENodeType.Wait)
+                    {
+                        if (_currentNode.WaitMode == EWaitMode.UserClick)
+                        {
+                            _isWaitNodeActive = false;
+                            HideClickIndicator();
+                            PlayNode(_currentNode.NextNodeID);
+                        }
+                        else if (_currentNode.WaitMode == EWaitMode.Time && _currentNode.WaitIsSkippable)
+                        {
+                            _isWaitNodeActive = false;
+                            HideClickIndicator();
+                        }
+                    }
+                }
+                else if (_isTyping)
                 {
                     if (_typewriterCoroutine != null) StopCoroutine(_typewriterCoroutine);
 
@@ -354,17 +538,13 @@ namespace NovellaEngine.Runtime
 
         private void ShowLineData(DialogueLine line)
         {
-            // === ПОДМЕНА РАМКИ ЧЕРЕЗ POOL MANAGER ===
             if (line.OverrideDialogueFrame != null)
             {
                 if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
 
                 Transform parent = _defaultDialoguePanel != null ? _defaultDialoguePanel.transform.parent : transform;
-
-                // Запрашиваем рамку из пула
                 GameObject requestedFrame = _poolManager.GetCustomUIFrame(line.OverrideDialogueFrame, parent);
 
-                // Если нужно сменить текущую кастомную на другую кастомную
                 if (_currentCustomFrame != null && _currentCustomFrame != requestedFrame)
                 {
                     _currentCustomFrame.SetActive(false);
@@ -392,6 +572,31 @@ namespace NovellaEngine.Runtime
 
                 SpeakerNameText = _defaultSpeakerNameText;
                 DialogueBodyText = _defaultDialogueBodyText;
+            }
+
+            RectTransform activeRect = null;
+            if (line.OverrideDialogueFrame != null && _currentCustomFrame != null) activeRect = _currentCustomFrame.GetComponent<RectTransform>();
+            else if (_defaultDialoguePanel != null) activeRect = _defaultDialoguePanel.GetComponent<RectTransform>();
+
+            if (activeRect != null)
+            {
+                if (line.CustomizeFrameLayout)
+                {
+                    float targetY = 0f;
+                    float targetX = 0f;
+
+                    if (line.FramePositionPreset == EFramePosition.Top) targetY = 600f;
+                    else if (line.FramePositionPreset == EFramePosition.Center) targetY = 300f;
+                    else if (line.FramePositionPreset == EFramePosition.Custom) { targetX = line.FramePosX; targetY = line.FramePosY; }
+
+                    activeRect.anchoredPosition = new Vector2(targetX, targetY);
+                    activeRect.localScale = Vector3.one * line.FrameScale;
+                }
+                else
+                {
+                    activeRect.anchoredPosition = Vector2.zero;
+                    activeRect.localScale = Vector3.one;
+                }
             }
 
             if (SpeakerNameText != null)
@@ -459,7 +664,6 @@ namespace NovellaEngine.Runtime
             if (CharactersContainer == null) return;
 
             var entities = CharactersContainer.GetComponentsInChildren<NovellaSceneEntity>(true).ToList();
-
             Dictionary<string, CharacterInDialogue> charConfigs = new Dictionary<string, CharacterInDialogue>();
 
             foreach (var ac in nodeData.ActiveCharacters)
@@ -478,7 +682,8 @@ namespace NovellaEngine.Runtime
                         Scale = 1.0f,
                         Emotion = "Default",
                         PosX = 0f,
-                        PosY = 0f
+                        PosY = 0f,
+                        PositionPreset = ECharacterPosition.Center
                     };
                 }
             }
@@ -501,6 +706,11 @@ namespace NovellaEngine.Runtime
                     Sprite targetSprite = config.CharacterAsset.DefaultSprite;
                     string emotionToSet = config.Emotion;
 
+                    float baseX = 0f;
+                    if (config.PositionPreset == ECharacterPosition.Left) baseX = -5.5f;
+                    else if (config.PositionPreset == ECharacterPosition.Right) baseX = 5.5f;
+                    else if (config.PositionPreset == ECharacterPosition.Custom) baseX = config.PosX;
+
                     if (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID)
                     {
                         emotionToSet = currentLine.Mood;
@@ -508,21 +718,27 @@ namespace NovellaEngine.Runtime
                         if (currentLine.CustomizeSpeakerLayout)
                         {
                             renderer.sortingOrder = (int)currentLine.SpeakerPlane;
-                            entity.transform.localScale = Vector3.one * currentLine.SpeakerScale;
-                            entity.transform.localPosition = new Vector3(currentLine.SpeakerPosX, currentLine.SpeakerPosY, 0);
+
+                            float activeX = 0f;
+                            if (currentLine.SpeakerPositionPreset == ECharacterPosition.Left) activeX = -5.5f;
+                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Right) activeX = 5.5f;
+                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Custom) activeX = currentLine.SpeakerPosX;
+
+                            entity.transform.localScale = Vector3.one * (config.Scale * currentLine.SpeakerScale);
+                            entity.transform.localPosition = new Vector3(baseX + activeX, config.PosY + currentLine.SpeakerPosY, 0);
                         }
                         else
                         {
                             renderer.sortingOrder = (int)ECharacterPlane.Speaker;
                             entity.transform.localScale = Vector3.one * config.Scale;
-                            entity.transform.localPosition = new Vector3(config.PosX, config.PosY, 0);
+                            entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
                         }
                     }
                     else
                     {
                         renderer.sortingOrder = (int)config.Plane;
                         entity.transform.localScale = Vector3.one * config.Scale;
-                        entity.transform.localPosition = new Vector3(config.PosX, config.PosY, 0);
+                        entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
                     }
 
                     if (emotionToSet != "Default")

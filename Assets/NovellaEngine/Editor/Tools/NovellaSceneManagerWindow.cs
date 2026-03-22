@@ -404,7 +404,7 @@ namespace NovellaEngine.Editor
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = mainCam;
             canvas.planeDistance = 5f;
-            canvas.sortingOrder = -10;
+            canvas.sortingOrder = 100; // Весь основной UI теперь гарантированно поверх массовки
 
             var scaler = canvas.GetComponent<UnityEngine.UI.CanvasScaler>();
             if (scaler == null) scaler = canvas.gameObject.AddComponent<UnityEngine.UI.CanvasScaler>();
@@ -421,6 +421,12 @@ namespace NovellaEngine.Editor
                 var bgRect = bgObj.GetComponent<RectTransform>();
                 bgRect.anchorMin = Vector2.zero; bgRect.anchorMax = Vector2.one;
                 bgRect.offsetMin = Vector2.zero; bgRect.offsetMax = Vector2.zero;
+
+                // === ФИКС: Изолируем фон от сортировки главного канваса ===
+                var bgCanvas = bgObj.AddComponent<Canvas>();
+                bgCanvas.overrideSorting = true;
+                bgCanvas.sortingOrder = -100; // Отправляем фон глубоко назад, за персонажей
+                bgObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             }
 
             return canvas;

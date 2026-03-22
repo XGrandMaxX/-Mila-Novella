@@ -12,6 +12,7 @@ namespace NovellaEngine.Editor
         public Port InputPort;
         public Port OutputPort;
         public Port AudioSyncPort;
+        public Port AnimSyncPort;
 
         private readonly NovellaGraphView _graphView;
         private readonly Label _pinLabel;
@@ -33,9 +34,14 @@ namespace NovellaEngine.Editor
                     AudioSyncPort.portName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
                     AudioSyncPort.portColor = new Color(0.8f, 0.4f, 0.8f);
                     outputContainer.Add(AudioSyncPort);
+
+                    AnimSyncPort = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
+                    AnimSyncPort.portName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
+                    AnimSyncPort.portColor = new Color(1f, 0.6f, 0.2f);
+                    outputContainer.Add(AnimSyncPort);
                 }
 
-                if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Variable)
+                if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Variable || Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.Background || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast)
                 {
                     OutputPort = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
                     OutputPort.portName = ToolLang.Get("Next ➡", "Далее ➡");
@@ -74,6 +80,16 @@ namespace NovellaEngine.Editor
             }
         }
 
+        public void ToggleAnimNextPort(bool isSynced)
+        {
+            if (Data.NodeType == ENodeType.Animation && OutputPort != null)
+            {
+                OutputPort.style.display = isSynced ? DisplayStyle.None : DisplayStyle.Flex;
+                RefreshExpandedState();
+                this.MarkDirtyRepaint();
+            }
+        }
+
         public void DrawBranchPorts()
         {
             if (Data.NodeType != ENodeType.Branch && Data.NodeType != ENodeType.Condition && Data.NodeType != ENodeType.Random) return;
@@ -103,16 +119,24 @@ namespace NovellaEngine.Editor
             else if (Data.NodeType == ENodeType.Branch || Data.NodeType == ENodeType.Condition) hasText = Data.Choices.Any(c => c.LocalizedText.Translations.Any(t => !string.IsNullOrEmpty(t.Text)));
 
             string titlePrefix = hasText ? "💬 " : "";
+            if (Data.NodeType == ENodeType.Wait) titlePrefix = "⏳ ";
+            else if (Data.NodeType == ENodeType.Background) titlePrefix = "🖼 ";
+            else if (Data.NodeType == ENodeType.Animation) titlePrefix = "✨ ";
+            else if (Data.NodeType == ENodeType.EventBroadcast) titlePrefix = "⚡ ";
+
             title = titlePrefix + (string.IsNullOrEmpty(Data.NodeTitle) ? Data.NodeID : Data.NodeTitle);
 
             _pinLabel.style.display = Data.IsPinned ? DisplayStyle.Flex : DisplayStyle.None;
 
             titleContainer.style.borderBottomWidth = 0;
 
-            // ЗАРЕЗЕРВИРОВАННЫЕ ЦВЕТА ИЗ НОВОГО ОКНА
             if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Note)
             {
                 titleContainer.style.backgroundColor = new StyleColor(Data.NodeCustomColor);
+            }
+            else if (Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.Background || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast)
+            {
+                titleContainer.style.backgroundColor = new StyleColor(NovellaColorSettingsWindow.GetNodeColor(Data.NodeType));
             }
             else
             {
@@ -127,7 +151,28 @@ namespace NovellaEngine.Editor
             extensionContainer.Clear();
             bool hasExtensionData = false;
 
-            if (Data.NodeType == ENodeType.Note)
+            if (Data.NodeType == ENodeType.Wait)
+            {
+                string secStr = ToolLang.Get("sec", "сек");
+                string waitText = Data.WaitMode == EWaitMode.Time ? $"{Data.WaitTime} {secStr}" : ToolLang.Get("Click to continue", "Ожидание клика");
+                var waitBlock = new Label($"⏳ {waitText}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter } };
+                extensionContainer.Add(waitBlock);
+                hasExtensionData = true;
+            }
+            else if (Data.NodeType == ENodeType.Background)
+            {
+                string bgName = Data.BgSprite != null ? Data.BgSprite.name : ToolLang.Get("Color", "Цвет");
+                var bgBlock = new Label($"🖼 {bgName}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter } };
+                extensionContainer.Add(bgBlock);
+                hasExtensionData = true;
+            }
+            else if (Data.NodeType == ENodeType.EventBroadcast)
+            {
+                var evBlock = new Label($"⚡ {Data.BroadcastEventName}") { style = { color = new Color(1f, 0.8f, 0.4f), paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter, unityFontStyleAndWeight = FontStyle.Bold } };
+                extensionContainer.Add(evBlock);
+                hasExtensionData = true;
+            }
+            else if (Data.NodeType == ENodeType.Note)
             {
                 this.style.width = Data.NoteWidth;
 
@@ -216,7 +261,10 @@ namespace NovellaEngine.Editor
                     }
                 }
 
-                var textLabel = new Label(Data.NoteText)
+                string previewNoteText = Data.LocalizedNoteText.GetText(_graphView.Window.PreviewLanguage);
+                if (string.IsNullOrEmpty(previewNoteText)) previewNoteText = "...";
+
+                var textLabel = new Label(previewNoteText)
                 {
                     style = {
                         whiteSpace = WhiteSpace.Normal,
@@ -284,6 +332,29 @@ namespace NovellaEngine.Editor
                     string act = Data.AudioAction == EAudioAction.Play ? "▶" : "⏸";
                     var audioBlock = new Label($"{act} [{Data.AudioChannel}] {audioName}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8 } };
                     extensionContainer.Add(audioBlock); hasExtensionData = true;
+                }
+            }
+            else if (Data.NodeType == ENodeType.Animation)
+            {
+                bool isSynced = false;
+                if (InputPort != null && InputPort.connected)
+                {
+                    foreach (var edge in InputPort.connections)
+                    {
+                        if (edge.output.portName == ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр."))
+                        {
+                            isSynced = true;
+                            break;
+                        }
+                    }
+                }
+
+                Data.SyncWithDialogue = isSynced;
+
+                if (!isSynced)
+                {
+                    var animBlock = new Label($"✨ {Data.AnimEvents.Count} Animations") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8 } };
+                    extensionContainer.Add(animBlock); hasExtensionData = true;
                 }
             }
             else if (Data.NodeType == ENodeType.Variable)
@@ -360,6 +431,11 @@ namespace NovellaEngine.Editor
                     Data.AudioSyncNodeID = (AudioSyncPort.connections.First().input.node as NovellaNodeView).Data.NodeID;
                 else
                     Data.AudioSyncNodeID = "";
+
+                if (AnimSyncPort != null && AnimSyncPort.connected && AnimSyncPort.connections.Any())
+                    Data.AnimSyncNodeID = (AnimSyncPort.connections.First().input.node as NovellaNodeView).Data.NodeID;
+                else
+                    Data.AnimSyncNodeID = "";
 
                 if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
                     Data.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";

@@ -4,7 +4,11 @@ using UnityEngine;
 
 namespace NovellaEngine.Data
 {
-    public enum ENodeType { Dialogue, Branch, Event, End, Character, Audio, Variable, Condition, Note, Random }
+    public enum ENodeType { Dialogue, Branch, Event, End, Character, Audio, Variable, Condition, Note, Random, Wait, Background, Animation, EventBroadcast }
+    public enum EBgTransition { None, Fade, SlideLeft, SlideRight, FlashWhite, FlashBlack }
+    public enum EAnimTarget { Camera, Background, DialogueFrame, Character }
+    public enum EAnimType { Shake, Punch, FadeIn, FadeOut, MoveTo, Scale }
+
     public enum ECharacterPlane { BackSlot1 = 0, BackSlot2 = 1, BackSlot3 = 2, Speaker = 20 }
     public enum EEndAction { ReturnToMainMenu, LoadNextChapter, LoadSpecificScene, QuitGame }
 
@@ -17,6 +21,11 @@ namespace NovellaEngine.Data
 
     public enum ENoteImageShape { Normal, Square, Circle }
     public enum ENoteImageAlignment { Background, TopLeft, TopCenter, TopRight, Left, Right, BottomLeft, BottomCenter, BottomRight }
+
+    public enum ECharacterPosition { Center, Left, Right, Custom }
+    public enum EFramePosition { Default, Top, Center, Bottom, Custom }
+
+    public enum EWaitMode { Time, UserClick }
 
     [Serializable]
     public class NoteImageData
@@ -70,10 +79,26 @@ namespace NovellaEngine.Data
     }
 
     [Serializable]
+    public class NovellaAnimEvent
+    {
+        public int LineIndex = 0;
+        public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart;
+        public float TimeDelay = 0f;
+
+        public EAnimTarget Target = EAnimTarget.Character;
+        public NovellaCharacter TargetCharacter;
+        public EAnimType AnimType = EAnimType.Shake;
+        public float Duration = 0.5f;
+        public float Strength = 10f;
+        public Vector2 EndVector = Vector2.one;
+    }
+
+    [Serializable]
     public class CharacterInDialogue
     {
         public NovellaCharacter CharacterAsset;
         public ECharacterPlane Plane = ECharacterPlane.BackSlot1;
+        public ECharacterPosition PositionPreset = ECharacterPosition.Center;
         public float Scale = 1.0f;
         public string Emotion = "Default";
         public float PosX = 0f;
@@ -94,12 +119,12 @@ namespace NovellaEngine.Data
         public bool HideSpeakerSprite = false;
 
         public bool CustomizeSpeakerLayout = false;
+        public ECharacterPosition SpeakerPositionPreset = ECharacterPosition.Center;
         public float SpeakerPosX = 0f;
         public float SpeakerPosY = 0f;
         public float SpeakerScale = 1f;
         public ECharacterPlane SpeakerPlane = ECharacterPlane.Speaker;
 
-        // === ÕŒ¬Œ≈:  ¿—“ŒÃÕ¿ﬂ –¿Ã ¿ ===
         public GameObject OverrideDialogueFrame;
 
         public float DelayBefore = 0f;
@@ -109,6 +134,12 @@ namespace NovellaEngine.Data
         public float BaseSpeed = 40f;
         public bool UseCustomPacing = false;
         public AnimationCurve PacingCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 1f));
+
+        public bool CustomizeFrameLayout = false;
+        public EFramePosition FramePositionPreset = EFramePosition.Default;
+        public float FramePosX = 0f;
+        public float FramePosY = 0f;
+        public float FrameScale = 1f;
     }
 
     [Serializable]
@@ -165,6 +196,8 @@ namespace NovellaEngine.Data
         public List<CharacterInDialogue> ActiveCharacters = new List<CharacterInDialogue>();
         public List<DialogueLine> DialogueLines = new List<DialogueLine>();
 
+        public bool UnlockDialogueLimit = false;
+
         public NovellaCharacter Speaker;
 
         public string Mood;
@@ -177,7 +210,6 @@ namespace NovellaEngine.Data
         public bool UnlockChoiceLimit = false;
         public List<ChoiceCondition> Conditions = new List<ChoiceCondition>();
 
-        // === ÕŒ¬Œ≈:  ¿—“ŒÃÕ¿ﬂ  ÕŒœ ¿ (ƒÎˇ Branch) ===
         public GameObject OverrideChoiceButtonPrefab;
 
         public EEndAction EndAction = EEndAction.ReturnToMainMenu;
@@ -194,7 +226,7 @@ namespace NovellaEngine.Data
         public List<VariableUpdate> Variables = new List<VariableUpdate>();
 
         public float NoteWidth = 300f;
-        public string NoteText = "“ÂÍÒÚ Á‡ÏÂÚÍË...";
+        public LocalizedString LocalizedNoteText = new LocalizedString();
         public bool ShowBackground = true;
         public string NoteURL = "";
         public Color NoteTitleColor = new Color(1f, 0.8f, 0.4f, 1f);
@@ -202,5 +234,40 @@ namespace NovellaEngine.Data
         public int NoteTitleFontSize = 18;
         public List<NoteImageData> NoteImages = new List<NoteImageData>();
         public List<NoteLinkData> NoteLinks = new List<NoteLinkData>();
+
+        public EWaitMode WaitMode = EWaitMode.Time;
+        public float WaitTime = 1f;
+        public bool WaitIsSkippable = true;
+        public bool WaitClearText = false;
+        public bool WaitHideFrame = false;
+
+        public EFramePosition WaitIndicatorPreset = EFramePosition.Bottom;
+        public float WaitIndicatorPosX = 0f;
+        public float WaitIndicatorPosY = 80f;
+        public Sprite WaitIndicatorSprite;
+        public Color WaitIndicatorColor = Color.white;
+        public float WaitIndicatorSize = 25f;
+        public float WaitIndicatorAnimSpeed = 4f;
+        public float WaitIndicatorAmplitude = 10f;
+
+        public string WaitText = "";
+        public Color WaitTextColor = new Color(1f, 1f, 1f, 0.7f);
+        public int WaitTextSize = 24;
+        public float WaitTextBlinkSpeed = 2f;
+        public float WaitTextPosX = 0f;
+        public float WaitTextPosY = -35f;
+
+        public Sprite BgSprite;
+        public Color BgColor = Color.white;
+        public EBgTransition BgTransition = EBgTransition.Fade;
+        public float BgTransitionTime = 1f;
+        public bool BgClearCharacters = true;
+
+        public string BroadcastEventName = "MyCustomEvent";
+        public string BroadcastEventParam = "";
+
+        public string AnimSyncNodeID;
+        public bool UnlockAnimLimit = false;
+        public List<NovellaAnimEvent> AnimEvents = new List<NovellaAnimEvent>();
     }
 }
