@@ -15,4 +15,4 @@ MonoBehaviour:
   Title: My Epic Visual Novel
   Description: A story about choices, consequences, and debugging C# code.
   CoverImage: {fileID: 21300000, guid: 7622cdde430ed6445aa7679d72c4bb20, type: 3}
-  StartingChapter: {fileID: 11400000, guid: 4e8e40dc85dfc504696b5de3e88a9386, type: 2}
+  StartingChapter: {fileID: 11400000, guid: 0caa7463688c459449af854eccc9cd61, type: 2}

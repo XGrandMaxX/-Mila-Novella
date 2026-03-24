@@ -224,6 +224,38 @@ namespace NovellaEngine.Editor
             DrawTextEditor(ToolLang.Get("Dialogue Text", "Текст Диалога"), _player.DialogueBodyText);
             DrawLayoutContainerEditor(ToolLang.Get("Choices Container", "Контейнер Кнопок"), _player.ChoiceContainer.GetComponent<RectTransform>());
 
+            if (_player.SaveNotification != null)
+            {
+                GUILayout.Space(10);
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+                GUILayout.BeginHorizontal();
+
+                GUILayout.Label("💾 " + ToolLang.Get("Save Notification", "Уведомление о сохранении"), EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+
+                EditorGUI.BeginChangeCheck();
+                bool isSaveNotifActive = GUILayout.Toggle(_player.SaveNotification.activeSelf, ToolLang.Get("Show in Scene", "Показать на сцене"), EditorStyles.toolbarButton, GUILayout.Width(130));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_player.SaveNotification, "Toggle Save Notification");
+                    _player.SaveNotification.SetActive(isSaveNotifActive);
+                    EditorUtility.SetDirty(_player.SaveNotification);
+                    if (!Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+                }
+
+                GUILayout.EndHorizontal();
+
+                DrawRectTransformEditor(ToolLang.Get("Notification Panel", "Панель Уведомления"), _player.SaveNotification.GetComponent<RectTransform>());
+
+                TMP_Text notifText = _player.SaveNotification.GetComponentInChildren<TMP_Text>(true);
+                if (notifText != null)
+                {
+                    DrawTextEditor(ToolLang.Get("Notification Text", "Текст уведомления"), notifText);
+                }
+
+                GUILayout.EndVertical();
+            }
+
             GUILayout.Space(15);
             DrawSectionHeader("✨", ToolLang.Get("Custom Scene Elements", "Кастомные элементы сцены"));
 

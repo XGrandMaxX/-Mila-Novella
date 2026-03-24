@@ -1,4 +1,11 @@
-﻿using NovellaEngine.Data;
+﻿/// <summary>
+/// ОТВЕЧАЕТ ЗА:
+/// 1. Отображение списка сцен проекта (из Build Settings).
+/// 2. Автоматическую генерацию интерфейса (Canvas) для Игры и Главного Меню.
+/// 3. Идеальное разделение Background Canvas (для фонов) и Novella Canvas (для UI).
+/// 4. Удаление и переименование сцен.
+/// </summary>
+using NovellaEngine.Data;
 using NovellaEngine.Runtime;
 using System;
 using System.Collections.Generic;
@@ -374,6 +381,7 @@ namespace NovellaEngine.Editor
             }
         }
 
+        // === ИСПРАВЛЕНИЕ: ВОЗВРАЩАЕМ 2 КАНВАСА (Background отдельно, UI отдельно) ===
         private Canvas SetupCoreCanvas()
         {
             GameObject rootGO = GameObject.Find("[NovellaEngine]");
@@ -393,43 +401,57 @@ namespace NovellaEngine.Editor
 
             SetupInputSystem(uiTransform);
 
-            Canvas canvas = uiTransform.GetComponentInChildren<Canvas>();
-            if (canvas == null)
+            // 1. ИЗОЛИРОВАННЫЙ КАНВАС ДЛЯ ФОНА
+            Transform bgCanvasTr = uiTransform.Find("Background Canvas");
+            if (bgCanvasTr == null)
             {
-                GameObject canvasGO = new GameObject("Novella Canvas");
-                canvasGO.transform.SetParent(uiTransform, false);
-                canvas = canvasGO.AddComponent<Canvas>();
-            }
+                GameObject bgCanvasGO = new GameObject("Background Canvas");
+                bgCanvasGO.transform.SetParent(uiTransform, false);
+                Canvas bgCanvas = bgCanvasGO.AddComponent<Canvas>();
+                bgCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+                bgCanvas.worldCamera = mainCam;
+                bgCanvas.planeDistance = 10f; // Отодвигаем дальше от камеры
+                bgCanvas.sortingOrder = -100; // Позади всех
 
-            canvas.renderMode = RenderMode.ScreenSpaceCamera;
-            canvas.worldCamera = mainCam;
-            canvas.planeDistance = 5f;
-            canvas.sortingOrder = 100; // Весь основной UI теперь гарантированно поверх массовки
+                var scalerBg = bgCanvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scalerBg.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scalerBg.referenceResolution = new Vector2(1920, 1080);
+                scalerBg.matchWidthOrHeight = 0.5f;
 
-            var scaler = canvas.GetComponent<UnityEngine.UI.CanvasScaler>();
-            if (scaler == null) scaler = canvas.gameObject.AddComponent<UnityEngine.UI.CanvasScaler>();
-            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080); scaler.matchWidthOrHeight = 0.5f;
-
-            if (canvas.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null) canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-
-            if (canvas.transform.Find("Background") == null)
-            {
+                // Сам фон
                 GameObject bgObj = new GameObject("Background");
-                bgObj.transform.SetParent(canvas.transform, false); bgObj.transform.SetAsFirstSibling();
+                bgObj.transform.SetParent(bgCanvasGO.transform, false);
                 var bgImg = bgObj.AddComponent<UnityEngine.UI.Image>(); bgImg.color = new Color(0.1f, 0.1f, 0.1f, 1f);
                 var bgRect = bgObj.GetComponent<RectTransform>();
                 bgRect.anchorMin = Vector2.zero; bgRect.anchorMax = Vector2.one;
                 bgRect.offsetMin = Vector2.zero; bgRect.offsetMax = Vector2.zero;
-
-                // === ФИКС: Изолируем фон от сортировки главного канваса ===
-                var bgCanvas = bgObj.AddComponent<Canvas>();
-                bgCanvas.overrideSorting = true;
-                bgCanvas.sortingOrder = -100; // Отправляем фон глубоко назад, за персонажей
-                bgObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             }
 
-            return canvas;
+            // 2. ОСНОВНОЙ КАНВАС ДЛЯ UI И ПЕРСОНАЖЕЙ
+            Canvas mainCanvas = null;
+            Transform mainCanvasTr = uiTransform.Find("Novella Canvas");
+            if (mainCanvasTr == null)
+            {
+                GameObject canvasGO = new GameObject("Novella Canvas");
+                canvasGO.transform.SetParent(uiTransform, false);
+                mainCanvas = canvasGO.AddComponent<Canvas>();
+                mainCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+                mainCanvas.worldCamera = mainCam;
+                mainCanvas.planeDistance = 5f; // Ближе к камере
+                mainCanvas.sortingOrder = 100; // Поверх фона
+
+                var scaler = canvasGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920, 1080);
+                scaler.matchWidthOrHeight = 0.5f;
+                canvasGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+            }
+            else
+            {
+                mainCanvas = mainCanvasTr.GetComponent<Canvas>();
+            }
+
+            return mainCanvas;
         }
 
         private void PerformMainMenuSetup()
@@ -561,7 +583,6 @@ namespace NovellaEngine.Editor
                 bodyObj.transform.SetParent(dpTransform, false);
                 var bodyText = bodyObj.AddComponent<TMPro.TextMeshProUGUI>();
 
-                // === ИСПРАВЛЕНО ПРЕДУПРЕЖДЕНИЕ enableWordWrapping ===
                 bodyText.textWrappingMode = TMPro.TextWrappingModes.Normal;
 
                 bodyText.text = "Dialogue text goes here..."; bodyText.fontSize = 32; bodyText.color = Color.white; bodyText.alignment = TMPro.TextAlignmentOptions.TopLeft; bodyText.richText = true; bodyText.raycastTarget = false;
@@ -628,6 +649,39 @@ namespace NovellaEngine.Editor
                 charsHolder = charsObj.transform;
             }
             player.CharactersContainer = charsHolder;
+
+            // ГЕНЕРАЦИЯ UI ДЛЯ СОХРАНЕНИЯ
+            Transform saveNotifTransform = canvas.transform.Find("Save Notification");
+            if (saveNotifTransform == null)
+            {
+                GameObject notifObj = new GameObject("Save Notification");
+                notifObj.transform.SetParent(canvas.transform, false);
+                var notifRect = notifObj.AddComponent<RectTransform>();
+                notifRect.anchorMin = new Vector2(1f, 0f); notifRect.anchorMax = new Vector2(1f, 0f);
+                notifRect.pivot = new Vector2(1f, 0f);
+                notifRect.anchoredPosition = new Vector2(-20, 20);
+                notifRect.sizeDelta = new Vector2(180, 50);
+
+                var img = notifObj.AddComponent<UnityEngine.UI.Image>();
+                img.color = new Color(0.1f, 0.1f, 0.1f, 0.9f);
+
+                GameObject textObj = new GameObject("Text");
+                textObj.transform.SetParent(notifObj.transform, false);
+                var trt = textObj.AddComponent<RectTransform>();
+                trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+                trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
+
+                var txt = textObj.AddComponent<TMPro.TextMeshProUGUI>();
+                txt.text = ToolLang.Get("💾 Game Saved", "💾 Игра сохранена");
+                txt.color = new Color(0.6f, 1f, 0.6f);
+                txt.alignment = TMPro.TextAlignmentOptions.Center;
+                txt.fontSize = 20;
+
+                notifObj.AddComponent<CanvasGroup>().alpha = 0;
+                notifObj.SetActive(false);
+                saveNotifTransform = notifObj.transform;
+            }
+            player.SaveNotification = saveNotifTransform.gameObject;
 
             EditorUtility.SetDirty(player);
             _sceneTagsCache.Clear();

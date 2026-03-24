@@ -7,10 +7,10 @@ using UnityEditor;
 using UnityEngine;
 
 namespace NovellaEngine.Data
-
-{    /// <summary>
-     /// ћаленький помощник дл€ перевода самого интерфейса редактора
-     /// </summary>
+{
+    /// <summary>
+    /// ћаленький помощник дл€ перевода самого интерфейса редактора
+    /// </summary>
     public static class ToolLang
     {
         public static bool IsRU => EditorPrefs.GetBool("NovellaGraph_IsRU", true);
@@ -88,13 +88,42 @@ namespace NovellaEngine.Data
 
             foreach (var node in tree.Nodes)
             {
-                if (node.NodeType == ENodeType.Dialogue || node.NodeType == ENodeType.Event)
-                    sb.AppendLine(CreateCSVRow(node.NodeID, "Phrase", node.LocalizedPhrase, langs));
-
-                if (node.NodeType == ENodeType.Branch)
+                // Ёкспорт реплик диалога
+                if (node is DialogueNodeData dialData)
                 {
-                    for (int i = 0; i < node.Choices.Count; i++)
-                        sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", node.Choices[i].LocalizedText, langs));
+                    for (int i = 0; i < dialData.DialogueLines.Count; i++)
+                    {
+                        sb.AppendLine(CreateCSVRow(node.NodeID, $"Line_{i}", dialData.DialogueLines[i].LocalizedPhrase, langs));
+                    }
+                }
+                // Ёкспорт вариантов выбора ветвлени€
+                else if (node is BranchNodeData branchData)
+                {
+                    for (int i = 0; i < branchData.Choices.Count; i++)
+                    {
+                        sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", branchData.Choices[i].LocalizedText, langs));
+                    }
+                }
+                // Ёкспорт вариантов (»стина/Ћожь) услови€
+                else if (node is ConditionNodeData condData)
+                {
+                    for (int i = 0; i < condData.Choices.Count; i++)
+                    {
+                        sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", condData.Choices[i].LocalizedText, langs));
+                    }
+                }
+                // Ёкспорт вариантов рандома
+                else if (node is RandomNodeData rndData)
+                {
+                    for (int i = 0; i < rndData.Choices.Count; i++)
+                    {
+                        sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", rndData.Choices[i].LocalizedText, langs));
+                    }
+                }
+                // Ёкспорт текста заметок
+                else if (node is NoteNodeData noteData)
+                {
+                    sb.AppendLine(CreateCSVRow(node.NodeID, "NoteText", noteData.LocalizedNoteText, langs));
                 }
             }
 
@@ -125,11 +154,37 @@ namespace NovellaEngine.Data
                 if (node == null) continue;
 
                 LocalizedString targetString = null;
-                if (fieldType == "Phrase") targetString = node.LocalizedPhrase;
-                else if (fieldType.StartsWith("Choice_"))
+
+                if (node is DialogueNodeData dialData)
                 {
-                    int choiceIdx = int.Parse(fieldType.Split('_')[1]);
-                    if (choiceIdx < node.Choices.Count) targetString = node.Choices[choiceIdx].LocalizedText;
+                    if (fieldType.StartsWith("Line_"))
+                    {
+                        if (int.TryParse(fieldType.Split('_')[1], out int lineIdx) && lineIdx < dialData.DialogueLines.Count)
+                            targetString = dialData.DialogueLines[lineIdx].LocalizedPhrase;
+                    }
+                    else if (fieldType == "Phrase") // ƒл€ совместимости со старыми файлами экспорта
+                    {
+                        if (dialData.DialogueLines.Count > 0) targetString = dialData.DialogueLines[0].LocalizedPhrase;
+                    }
+                }
+                else if (node is BranchNodeData bnd && fieldType.StartsWith("Choice_"))
+                {
+                    if (int.TryParse(fieldType.Split('_')[1], out int choiceIdx) && choiceIdx < bnd.Choices.Count)
+                        targetString = bnd.Choices[choiceIdx].LocalizedText;
+                }
+                else if (node is ConditionNodeData cnd && fieldType.StartsWith("Choice_"))
+                {
+                    if (int.TryParse(fieldType.Split('_')[1], out int choiceIdx) && choiceIdx < cnd.Choices.Count)
+                        targetString = cnd.Choices[choiceIdx].LocalizedText;
+                }
+                else if (node is RandomNodeData rnd && fieldType.StartsWith("Choice_"))
+                {
+                    if (int.TryParse(fieldType.Split('_')[1], out int choiceIdx) && choiceIdx < rnd.Choices.Count)
+                        targetString = rnd.Choices[choiceIdx].LocalizedText;
+                }
+                else if (node is NoteNodeData noteD && fieldType == "NoteText")
+                {
+                    targetString = noteD.LocalizedNoteText;
                 }
 
                 if (targetString != null)

@@ -9,6 +9,10 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGraphWindow : EditorWindow
     {
+        public const string DISCORD_LINK = "https://discord.com/users/384220331188944896"; //TODO: заменить на серверню ссылку.
+        public const string TELEGRAM_LINK = "https://t.me/pbgj241";
+        public const string ASSET_STORE_LINK = "https://assetstore.unity.com/"; //TODO: заменить на ссылку на ассет стор.
+
         private NovellaTree _currentTree;
         private NovellaGraphView _graphView;
         private NovellaNodeInspectorUI _inspectorUI;
@@ -138,30 +142,37 @@ namespace NovellaEngine.Editor
                         backgroundColor = new StyleColor(new Color(0.15f, 0.15f, 0.15f)),
                         borderRightColor = new StyleColor(Color.black),
                         borderRightWidth = 1,
-                        overflow = Overflow.Hidden
+                        overflow = Overflow.Hidden,
+                        flexDirection = FlexDirection.Column
                     }
                 };
+
+                var scrollContainer = new ScrollView(ScrollViewMode.Vertical);
+                scrollContainer.style.flexGrow = 1;
+                _leftPanel.Add(scrollContainer);
 
                 var toolsLabel = new Label("🛠 " + ToolLang.Get("Workspace Tools", "Инструменты"))
                 {
                     style = { color = new Color(0.6f, 0.8f, 1f), unityFontStyleAndWeight = FontStyle.Bold, fontSize = 16, marginTop = 15, marginBottom = 10, alignSelf = Align.Center }
                 };
-                _leftPanel.Add(toolsLabel);
+                scrollContainer.Add(toolsLabel);
 
-                AddSidebarButton("🎓", ToolLang.Get("Tutorial", "Обучение"), ToolLang.Get("Open interactive tutorials.", "Открыть интерактивные уроки."), () => NovellaWelcomeWindow.ShowWindow());
+                AddSidebarButton("🎓", ToolLang.Get("Tutorial", "Обучение"), ToolLang.Get("Open interactive tutorials.", "Открыть интерактивные уроки."), () => NovellaWelcomeWindow.ShowWindow(), scrollContainer);
 
                 var separator = new VisualElement { style = { height = 1, backgroundColor = new Color(0.25f, 0.25f, 0.25f), marginTop = 15, marginBottom = 10, marginLeft = 15, marginRight = 15 } };
-                _leftPanel.Add(separator);
+                scrollContainer.Add(separator);
 
-                AddSidebarButton("🎨", ToolLang.Get("Node Colors", "Цвета Нод"), ToolLang.Get("Change reserved node colors.", "Настроить системные цвета нод."), () => NovellaColorSettingsWindow.ShowWindow());
+                AddSidebarButton("🎨", ToolLang.Get("Node Colors", "Цвета Нод"), ToolLang.Get("Change reserved node colors.", "Настроить системные цвета нод."), () => NovellaColorSettingsWindow.ShowWindow(), scrollContainer);
 
-                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorWindow.ShowWindow());
+                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorWindow.ShowWindow(), scrollContainer);
+
+                AddSidebarButton("🧩", ToolLang.Get("DLC Modules", "Модули DLC"), ToolLang.Get("Manage installed DLCs.", "Управление установленными модулями DLC."), () => NovellaDLCManagerWindow.ShowWindow(), scrollContainer);
 
                 var ioLabel = new Label(ToolLang.Get("CSV Localization (Text Data):", "CSV Локализация (Весь текст):"))
                 {
                     style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
                 };
-                _leftPanel.Add(ioLabel);
+                scrollContainer.Add(ioLabel);
 
                 var ioRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
 
@@ -175,14 +186,13 @@ namespace NovellaEngine.Editor
 
                 ioRow.Add(btnExport);
                 ioRow.Add(btnImport);
-                _leftPanel.Add(ioRow);
+                scrollContainer.Add(ioRow);
 
-                // === НОВОЕ: КНОПКИ JSON ===
                 var jsonLabel = new Label(ToolLang.Get("JSON Backup (Graph Data):", "Бэкап JSON (Весь Граф):"))
                 {
                     style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
                 };
-                _leftPanel.Add(jsonLabel);
+                scrollContainer.Add(jsonLabel);
 
                 var jsonRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
 
@@ -196,7 +206,29 @@ namespace NovellaEngine.Editor
 
                 jsonRow.Add(btnExportJson);
                 jsonRow.Add(btnImportJson);
-                _leftPanel.Add(jsonRow);
+                scrollContainer.Add(jsonRow);
+
+                var supportContainer = new VisualElement { style = { backgroundColor = new Color(0.12f, 0.12f, 0.12f), paddingBottom = 10, paddingTop = 10, borderTopWidth = 1, borderTopColor = Color.black } };
+
+                var suppTitle = new Label("💬 " + ToolLang.Get("Support & Community", "Поддержка и Комьюнити")) { style = { color = Color.white, unityFontStyleAndWeight = FontStyle.Bold, alignSelf = Align.Center, marginBottom = 5 } };
+                supportContainer.Add(suppTitle);
+
+                var linksRow = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.Center } };
+
+                var btnDiscord = new Button(() => Application.OpenURL(DISCORD_LINK)) { text = "Discord" };
+                btnDiscord.style.backgroundColor = new StyleColor(new Color(0.34f, 0.4f, 0.95f)); btnDiscord.style.color = Color.white; btnDiscord.style.unityFontStyleAndWeight = FontStyle.Bold; btnDiscord.style.height = 25; btnDiscord.style.width = 100;
+
+                var btnTg = new Button(() => Application.OpenURL(TELEGRAM_LINK)) { text = "Telegram" };
+                btnTg.style.backgroundColor = new StyleColor(new Color(0.13f, 0.62f, 0.85f)); btnTg.style.color = Color.white; btnTg.style.unityFontStyleAndWeight = FontStyle.Bold; btnTg.style.height = 25; btnTg.style.width = 100;
+
+                linksRow.Add(btnDiscord); linksRow.Add(btnTg);
+                supportContainer.Add(linksRow);
+
+                var btnStore = new Button(() => Application.OpenURL(ASSET_STORE_LINK)) { text = "🛒 " + ToolLang.Get("More Assets", "Больше Ассетов") };
+                btnStore.style.backgroundColor = new StyleColor(new Color(0.2f, 0.6f, 0.3f)); btnStore.style.color = Color.white; btnStore.style.unityFontStyleAndWeight = FontStyle.Bold; btnStore.style.height = 30; btnStore.style.marginLeft = 15; btnStore.style.marginRight = 15; btnStore.style.marginTop = 10;
+                supportContainer.Add(btnStore);
+
+                _leftPanel.Add(supportContainer);
 
                 mainContainer.Add(_leftPanel);
 
@@ -278,7 +310,7 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private void AddSidebarButton(string icon, string text, string tooltip, System.Action onClick)
+        private void AddSidebarButton(string icon, string text, string tooltip, System.Action onClick, VisualElement container)
         {
             var btn = new Button(onClick) { tooltip = tooltip };
             btn.style.flexDirection = FlexDirection.Row;
@@ -298,7 +330,7 @@ namespace NovellaEngine.Editor
 
             btn.Add(iconLabel);
             btn.Add(textLabel);
-            _leftPanel.Add(btn);
+            container.Add(btn);
         }
 
         private void GenerateToolbar(VisualElement container)
@@ -358,8 +390,25 @@ namespace NovellaEngine.Editor
         {
             if (_inspectorUI != null)
             {
-                if (_selectedGroupView != null) _inspectorUI.DrawGroupInspector(_selectedGroupView);
-                else _inspectorUI.DrawInspector(_selectedNodeView, _isStartNodeSelected);
+                if (_selectedGroupView != null)
+                {
+                    _inspectorUI.DrawGroupInspector(_selectedGroupView);
+                }
+                else
+                {
+                    bool isDisabledDLC = false;
+                    if (_selectedNodeView != null && _selectedNodeView.Data != null && _selectedNodeView.Data.NodeType == ENodeType.CustomDLC)
+                    {
+                        var settings = NovellaDLCSettings.GetOrCreateSettings();
+                        isDisabledDLC = !settings.IsDLCEnabled(_selectedNodeView.Data.GetType().FullName);
+                    }
+
+                    if (isDisabledDLC) EditorGUI.BeginDisabledGroup(true);
+
+                    _inspectorUI.DrawInspector(_selectedNodeView, _isStartNodeSelected);
+
+                    if (isDisabledDLC) EditorGUI.EndDisabledGroup();
+                }
             }
         }
 

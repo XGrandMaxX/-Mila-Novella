@@ -46,23 +46,33 @@ namespace NovellaEngine.Editor
                         bool isUsed = false;
                         string context = "";
 
-                        if (node.NodeType == ENodeType.Variable && node.Variables.Any(v => v.VariableName == _targetVariable))
+                        // Проверка ноды Variable (Изменение переменной)
+                        if (node is VariableNodeData varData && varData.Variables.Any(v => v.VariableName == _targetVariable))
                         {
                             isUsed = true; context = ToolLang.Get("Variable Update", "Обновление значения");
                         }
-                        else if (node.Conditions.Any(c => c.Variable == _targetVariable))
+                        // Проверка ноды Condition (If/Else Условие)
+                        else if (node is ConditionNodeData condData && condData.Conditions.Any(c => c.Variable == _targetVariable))
                         {
                             isUsed = true; context = ToolLang.Get("Condition Check", "Проверка условия");
                         }
-                        else
+                        // Проверка ветвлений (Branch) на блокировку вариантов ответа
+                        else if (node is BranchNodeData branchData)
                         {
-                            foreach (var choice in node.Choices)
+                            foreach (var choice in branchData.Choices)
                             {
                                 if (choice.Conditions.Any(c => c.Variable == _targetVariable))
                                 {
                                     isUsed = true; context = ToolLang.Get("Choice Lock", "Блокировка выбора");
                                     break;
                                 }
+                            }
+                        }
+                        // Проверка рандома (Random) на модификаторы шанса
+                        else if (node is RandomNodeData rndData)
+                        {
+                            foreach (var choice in rndData.Choices)
+                            {
                                 if (choice.ChanceModifiers.Any(m => m.Variable == _targetVariable))
                                 {
                                     isUsed = true; context = ToolLang.Get("Chance Modifier", "Модификатор шанса");

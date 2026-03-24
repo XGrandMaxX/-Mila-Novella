@@ -1,23 +1,32 @@
-﻿/// <summary>
-/// Окно настройки зарезервированных цветов для системных нод графа.
-/// Сохраняет выбор пользователя в EditorPrefs.
-/// </summary>
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 using NovellaEngine.Data;
+using System.Linq;
+using System.Collections.Generic;
+using System;
 
 namespace NovellaEngine.Editor
 {
     public class NovellaColorSettingsWindow : EditorWindow
     {
         private ENodeType _selectedType = ENodeType.End;
+        private string _selectedDLC_ID = "";
         private Vector2 _scrollPos;
+
+        private List<Type> _dlcTypes = new List<Type>();
 
         public static void ShowWindow()
         {
             var window = GetWindow<NovellaColorSettingsWindow>("Node Colors");
             window.minSize = new Vector2(500, 450);
             window.Show();
+        }
+
+        private void OnEnable()
+        {
+            _dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
+                .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0)
+                .ToList();
         }
 
         private void OnGUI()
@@ -28,7 +37,6 @@ namespace NovellaEngine.Editor
 
             GUILayout.BeginHorizontal();
 
-            // === ЛЕВАЯ ПАНЕЛЬ ===
             GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(220), GUILayout.ExpandHeight(true));
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
@@ -40,7 +48,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(10);
             GUILayout.Label(ToolLang.Get("Cinematography", "Режиссура"), EditorStyles.miniBoldLabel);
-            DrawTabBtn(ENodeType.Background, "🖼", ToolLang.Get("Background", "Фон / Сцена"));
+            DrawTabBtn(ENodeType.SceneSettings, "🖼", ToolLang.Get("Background", "Фон / Сцена"));
             DrawTabBtn(ENodeType.Audio, "🎵", ToolLang.Get("Audio", "Аудио"));
             DrawTabBtn(ENodeType.Animation, "✨", ToolLang.Get("Animation", "Анимация"));
             DrawTabBtn(ENodeType.Wait, "⏳", ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)"));
@@ -49,15 +57,31 @@ namespace NovellaEngine.Editor
             GUILayout.Label(ToolLang.Get("System", "Система"), EditorStyles.miniBoldLabel);
             DrawTabBtn(ENodeType.EventBroadcast, "⚡", ToolLang.Get("Event Broadcast", "Вызов События"));
 
+            if (_dlcTypes.Count > 0)
+            {
+                GUILayout.Space(20);
+                GUILayout.Label(ToolLang.Get("🧩 DLC Modules", "🧩 Модули DLC"), EditorStyles.centeredGreyMiniLabel);
+
+                foreach (var dlc in _dlcTypes)
+                {
+                    var attr = DLCCache.GetNodeAttribute(dlc);
+                    if (attr != null)
+                    {
+                        DrawDLCTabBtn(dlc.FullName, "🧩", attr.MenuName);
+                    }
+                }
+            }
+
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
 
-            // === ПРАВАЯ ПАНЕЛЬ ===
             GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandHeight(true));
             GUILayout.Label(ToolLang.Get("Node Preview", "Предпросмотр Ноды"), EditorStyles.boldLabel);
             GUILayout.Space(20);
 
-            Color currentColor = GetNodeColor(_selectedType);
+            Color currentColor = string.IsNullOrEmpty(_selectedDLC_ID)
+                ? GetNodeColor(_selectedType)
+                : GetDLCNodeColor(_selectedDLC_ID);
 
             GUILayout.BeginHorizontal(GUILayout.Height(40));
             GUILayout.FlexibleSpace();
@@ -69,15 +93,28 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical(nodeStyle, GUILayout.Height(40), GUILayout.Width(200));
             GUI.backgroundColor = Color.white;
 
-            string title = _selectedType.ToString().ToUpper();
-            if (_selectedType == ENodeType.Condition) title = "CONDITION (IF)";
-            else if (_selectedType == ENodeType.EventBroadcast) title = "EVENT BROADCAST";
+            string title = "";
+            if (string.IsNullOrEmpty(_selectedDLC_ID))
+            {
+                title = _selectedType.ToString().ToUpper();
+                if (_selectedType == ENodeType.Condition) title = "CONDITION (IF)";
+                else if (_selectedType == ENodeType.EventBroadcast) title = "EVENT BROADCAST";
+            }
+            else
+            {
+                var dlcType = _dlcTypes.FirstOrDefault(t => t.FullName == _selectedDLC_ID);
+                if (dlcType != null)
+                {
+                    var attr = DLCCache.GetNodeAttribute(dlcType);
+                    title = attr != null ? attr.MenuName.ToUpper() : "DLC NODE";
+                }
+            }
 
             GUILayout.Label(title, new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white }, fontSize = 14 }, GUILayout.ExpandHeight(true));
 
             GUILayout.EndVertical();
 
-            if (_selectedType == ENodeType.Condition)
+            if (string.IsNullOrEmpty(_selectedDLC_ID) && _selectedType == ENodeType.Condition)
             {
                 Rect lastRect = GUILayoutUtility.GetLastRect();
                 Rect lineRect = new Rect(lastRect.x, lastRect.yMax - 3, lastRect.width, 3);
@@ -93,7 +130,9 @@ namespace NovellaEngine.Editor
             Color newColor = EditorGUILayout.ColorField(new GUIContent(ToolLang.Get("Edit Color", "Изменить цвет")), currentColor, true, true, false);
             if (EditorGUI.EndChangeCheck())
             {
-                SetNodeColor(_selectedType, newColor);
+                if (string.IsNullOrEmpty(_selectedDLC_ID)) SetNodeColor(_selectedType, newColor);
+                else SetDLCNodeColor(_selectedDLC_ID, newColor);
+
                 UpdateGraphSafely();
             }
 
@@ -109,7 +148,7 @@ namespace NovellaEngine.Editor
 
         private void DrawTabBtn(ENodeType type, string icon, string label)
         {
-            bool isSelected = _selectedType == type;
+            bool isSelected = string.IsNullOrEmpty(_selectedDLC_ID) && _selectedType == type;
             GUI.backgroundColor = isSelected ? new Color(0.4f, 0.6f, 1f) : Color.white;
 
             GUIStyle btnStyle = new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft, fontSize = 13, fixedHeight = 25 };
@@ -118,6 +157,23 @@ namespace NovellaEngine.Editor
             if (GUILayout.Button($"{icon} {label}", btnStyle))
             {
                 _selectedType = type;
+                _selectedDLC_ID = "";
+                GUI.FocusControl(null);
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
+        private void DrawDLCTabBtn(string dlcID, string icon, string label)
+        {
+            bool isSelected = _selectedDLC_ID == dlcID;
+            GUI.backgroundColor = isSelected ? new Color(0.4f, 0.6f, 1f) : Color.white;
+
+            GUIStyle btnStyle = new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft, fontSize = 13, fixedHeight = 25 };
+            if (isSelected) btnStyle.normal.textColor = Color.white;
+
+            if (GUILayout.Button($"{icon} {label}", btnStyle))
+            {
+                _selectedDLC_ID = dlcID;
                 GUI.FocusControl(null);
             }
             GUI.backgroundColor = Color.white;
@@ -135,7 +191,7 @@ namespace NovellaEngine.Editor
                 case ENodeType.Audio: defaultHex = "#2A8272"; break;
                 case ENodeType.Variable: defaultHex = "#307D50"; break;
                 case ENodeType.Wait: defaultHex = "#455A64"; break;
-                case ENodeType.Background: defaultHex = "#3A5C74"; break;
+                case ENodeType.SceneSettings: defaultHex = "#3A5C74"; break;
                 case ENodeType.Animation: defaultHex = "#963E56"; break;
                 case ENodeType.EventBroadcast: defaultHex = "#A88522"; break;
             }
@@ -145,10 +201,31 @@ namespace NovellaEngine.Editor
             return Color.gray;
         }
 
+        public static Color GetDLCNodeColor(string dlcFullName)
+        {
+            string defaultHex = "#4A4A4A";
+            var dlcType = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>().FirstOrDefault(t => t.FullName == dlcFullName);
+            if (dlcType != null)
+            {
+                var attr = DLCCache.GetNodeAttribute(dlcType);
+                if (attr != null && !string.IsNullOrEmpty(attr.HexColor)) defaultHex = attr.HexColor;
+            }
+
+            string hex = EditorPrefs.GetString("NovellaColor_" + dlcFullName, defaultHex);
+            if (ColorUtility.TryParseHtmlString(hex, out Color c)) return c;
+            return Color.gray;
+        }
+
         private void SetNodeColor(ENodeType type, Color color)
         {
             string hex = "#" + ColorUtility.ToHtmlStringRGBA(color);
             EditorPrefs.SetString("NovellaColor_" + type.ToString(), hex);
+        }
+
+        private void SetDLCNodeColor(string dlcFullName, Color color)
+        {
+            string hex = "#" + ColorUtility.ToHtmlStringRGBA(color);
+            EditorPrefs.SetString("NovellaColor_" + dlcFullName, hex);
         }
 
         private void UpdateGraphSafely()
@@ -170,9 +247,18 @@ namespace NovellaEngine.Editor
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Audio.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Variable.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Wait.ToString());
-            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Background.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.SceneSettings.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Animation.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.EventBroadcast.ToString());
+
+
+            if (_dlcTypes != null)
+            {
+                foreach (var dlc in _dlcTypes)
+                {
+                    EditorPrefs.DeleteKey("NovellaColor_" + dlc.FullName);
+                }
+            }
 
             UpdateGraphSafely();
         }

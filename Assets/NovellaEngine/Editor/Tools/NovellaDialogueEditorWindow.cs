@@ -1,4 +1,11 @@
-﻿using UnityEditor;
+﻿/// <summary>
+/// ОТВЕЧАЕТ ЗА:
+/// 1. Отдельное окно для удобного редактирования реплик внутри Dialogue Node.
+/// 2. Позволяет добавлять/удалять/менять местами реплики.
+/// 3. Настройка эмоций спикеров, флип персонажей, задержки тайпрайтера.
+/// 4. Работа с буфером обмена (Ctrl+C, Ctrl+V).
+/// </summary>
+using UnityEditor;
 using UnityEngine;
 using NovellaEngine.Data;
 using System;
@@ -10,7 +17,7 @@ namespace NovellaEngine.Editor
     public class NovellaDialogueEditorWindow : EditorWindow
     {
         private NovellaTree _tree;
-        private NovellaNodeData _nodeData;
+        private DialogueNodeData _nodeData;
         private Action<int> _onLineSelected;
         private Action _onMarkUnsaved;
         private Action _onRepaintRequest;
@@ -23,7 +30,7 @@ namespace NovellaEngine.Editor
 
         private static DialogueLine _clipboardLine = null;
 
-        public static void OpenWindow(NovellaTree tree, NovellaNodeData nodeData, string lang, Action<int> onLineSelected, Action onMarkUnsaved, Action onRepaintRequest)
+        public static void OpenWindow(NovellaTree tree, DialogueNodeData nodeData, string lang, Action<int> onLineSelected, Action onMarkUnsaved, Action onRepaintRequest)
         {
             var win = GetWindow<NovellaDialogueEditorWindow>(ToolLang.Get("Dialogue Storyboard", "Раскадровка Диалогов"));
             win._tree = tree;
@@ -101,34 +108,26 @@ namespace NovellaEngine.Editor
                     }
                     Event.current.Use();
                 }
-                // === КОПИРОВАНИЕ (CTRL+C) ===
                 else if (Event.current.keyCode == KeyCode.C && isActionKey)
                 {
                     if (_activeLineIndex >= 0 && _activeLineIndex < _nodeData.DialogueLines.Count)
                     {
-                        // Глубокое копирование через JSON
                         string json = JsonUtility.ToJson(_nodeData.DialogueLines[_activeLineIndex]);
                         _clipboardLine = JsonUtility.FromJson<DialogueLine>(json);
-
                         this.ShowNotification(new GUIContent(ToolLang.Get("Line Copied!", "Реплика скопирована!")));
                     }
                     Event.current.Use();
                 }
-                // === ВСТАВКА (CTRL+V) ===
                 else if (Event.current.keyCode == KeyCode.V && isActionKey)
                 {
                     if (_clipboardLine != null && _activeLineIndex >= 0 && _activeLineIndex < _nodeData.DialogueLines.Count)
                     {
                         Undo.RecordObject(_tree, "Paste Dialogue Line");
-
-                        // Вставляем данные поверх текущей реплики
                         string json = JsonUtility.ToJson(_clipboardLine);
                         JsonUtility.FromJsonOverwrite(json, _nodeData.DialogueLines[_activeLineIndex]);
-
                         EditorUtility.SetDirty(_tree);
                         _onMarkUnsaved?.Invoke();
                         TriggerLiveSync(true);
-
                         this.ShowNotification(new GUIContent(ToolLang.Get("Line Pasted!", "Реплика вставлена!")));
                     }
                     Event.current.Use();
@@ -150,8 +149,6 @@ namespace NovellaEngine.Editor
             GUILayout.Label($"🎞 {ToolLang.Get("Storyboard Node:", "Раскадровка Ноды:")} {(_nodeData.NodeTitle == "" ? _nodeData.NodeID : _nodeData.NodeTitle)}", EditorStyles.boldLabel);
             GUILayout.FlexibleSpace();
             GUILayout.Label(ToolLang.Get("Use Left/Right Arrows to navigate", "Стрелки Влево/Вправо для быстрой навигации"), EditorStyles.miniLabel);
-            GUILayout.Space(20);
-            GUILayout.Label($"{ToolLang.Get("Lang:", "Язык:")} {_previewLanguage}", EditorStyles.miniBoldLabel);
             GUILayout.EndHorizontal();
 
             if (GetAvailableSpeakers().Count == 0)
@@ -216,7 +213,6 @@ namespace NovellaEngine.Editor
                 EditorGUI.EndDisabledGroup();
                 GUILayout.EndHorizontal();
 
-                // Имя Спикера с поддержкой Rich Text
                 GUILayout.Space(5);
                 string displayName = line.Speaker != null ? line.Speaker.name : ToolLang.Get("No Speaker", "Без спикера");
                 if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName)) displayName = line.CustomName;
@@ -234,7 +230,6 @@ namespace NovellaEngine.Editor
 
                 GUILayout.Space(5);
 
-                // Отрисовка Спрайта с золотой рамкой
                 Rect imgRect = GUILayoutUtility.GetRect(200, 230, GUILayout.ExpandHeight(true));
 
                 if (isSelected)
@@ -260,7 +255,17 @@ namespace NovellaEngine.Editor
                 if (targetSprite != null && targetSprite.texture != null)
                 {
                     if (!isSelected) GUI.color = new Color(0.6f, 0.6f, 0.6f, 1f);
+
+                    Matrix4x4 oldMatrix = GUI.matrix;
+                    if (line.FlipX || line.FlipY)
+                    {
+                        Vector2 pivot = new Vector2(imgRect.x + imgRect.width / 2f, imgRect.y + imgRect.height / 2f);
+                        GUIUtility.ScaleAroundPivot(new Vector2(line.FlipX ? -1 : 1, line.FlipY ? -1 : 1), pivot);
+                    }
+
                     GUI.DrawTexture(imgRect, targetSprite.texture, ScaleMode.ScaleToFit);
+
+                    GUI.matrix = oldMatrix;
                     GUI.color = Color.white;
                 }
                 else
@@ -271,7 +276,6 @@ namespace NovellaEngine.Editor
                     GUI.color = Color.white;
                 }
 
-                // Текст
                 GUILayout.Space(10);
                 GUILayout.Label($"✏ {ToolLang.Get("Text", "Текст")} [{_previewLanguage}]:", EditorStyles.miniBoldLabel);
 
@@ -283,7 +287,7 @@ namespace NovellaEngine.Editor
                     Undo.RecordObject(_tree, "Edit Phrase");
                     line.LocalizedPhrase.SetText(_previewLanguage, newPhrase);
                     EditorUtility.SetDirty(_tree);
-                    TriggerLiveSync(false); // Сохраняем фокус в текстовом поле
+                    TriggerLiveSync(false);
                 }
 
                 GUILayout.Space(5);
@@ -297,7 +301,7 @@ namespace NovellaEngine.Editor
                 if (Event.current.type == EventType.MouseDown && cardRect.Contains(Event.current.mousePosition))
                 {
                     _activeLineIndex = i;
-                    TriggerLiveSync(true); // Сброс фокуса при клике
+                    TriggerLiveSync(true);
                     Event.current.Use();
                 }
 
@@ -399,6 +403,7 @@ namespace NovellaEngine.Editor
             {
                 Undo.RecordObject(_tree, "Reset Line Settings");
                 line.HideSpeakerName = false; line.HideSpeakerSprite = false; line.CustomizeSpeakerLayout = false;
+                line.FlipX = false; line.FlipY = false;
                 line.CustomizeFrameLayout = false; line.OverrideDialogueFrame = null;
                 line.FrameScale = 1f; line.SpeakerScale = 1f;
                 line.FramePosX = 0f; line.FramePosY = 0f; line.SpeakerPosX = 0f; line.SpeakerPosY = 0f;
@@ -465,11 +470,20 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(10);
                 GUILayout.Label(ToolLang.Get("Visual Overrides", "Переопределение визуала на сцене"), EditorStyles.miniBoldLabel);
 
+                EditorGUI.BeginChangeCheck();
                 GUILayout.BeginHorizontal();
                 line.HideSpeakerName = GUILayout.Toggle(line.HideSpeakerName, new GUIContent(" 👁 " + ToolLang.Get("Fake Name", "Фейк Имя"), "Заменяет имя в окне UI."), EditorStyles.miniButton);
                 line.HideSpeakerSprite = GUILayout.Toggle(line.HideSpeakerSprite, new GUIContent(" 👻 " + ToolLang.Get("Hide Sprite", "Скрыть Спрайт"), "Убирает персонажа со сцены."), EditorStyles.miniButton);
                 line.CustomizeSpeakerLayout = GUILayout.Toggle(line.CustomizeSpeakerLayout, new GUIContent(" ⚙ " + ToolLang.Get("Override Pos", "Сдвиг Поз."), "Изменить координаты/размер."), EditorStyles.miniButton);
                 GUILayout.EndHorizontal();
+
+                GUILayout.Space(5);
+                GUILayout.BeginHorizontal();
+                line.FlipX = GUILayout.Toggle(line.FlipX, new GUIContent(" ↔ Flip X"), EditorStyles.miniButton);
+                line.FlipY = GUILayout.Toggle(line.FlipY, new GUIContent(" ↕ Flip Y"), EditorStyles.miniButton);
+                GUILayout.EndHorizontal();
+
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Change Toggles"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
 
                 if (line.HideSpeakerName)
                 {
@@ -505,9 +519,9 @@ namespace NovellaEngine.Editor
                     GUILayout.Space(5);
                     GUILayout.BeginHorizontal();
                     GUILayout.Label(ToolLang.Get("Scale:", "Масшт:"), GUILayout.Width(45));
-                    if (line.SpeakerScale <= 0f) line.SpeakerScale = 1f; // Защита от скейла <= 0
+                    if (line.SpeakerScale <= 0f) line.SpeakerScale = 1f;
                     line.SpeakerScale = EditorGUILayout.FloatField(line.SpeakerScale, GUILayout.Width(50));
-                    line.SpeakerScale = Mathf.Max(0.1f, line.SpeakerScale); // Жесткий лимит
+                    line.SpeakerScale = Mathf.Max(0.1f, line.SpeakerScale);
 
                     GUILayout.Space(5);
                     GUILayout.Label(ToolLang.Get("Layer:", "Слой:"), GUILayout.Width(40));
@@ -619,9 +633,9 @@ namespace NovellaEngine.Editor
                 GUILayout.Label(ToolLang.Get("💡 Text appears letter by letter.", "💡 Текст будет печататься по буквам."), EditorStyles.miniLabel);
                 GUILayout.Space(5);
                 GUILayout.BeginHorizontal();
-                GUILayout.Label("⚡ " + ToolLang.Get("Speed:", "Скорость:"), GUILayout.Width(70));
+                GUILayout.Label("⚡ " + ToolLang.Get("Speed:", "Скорость:"), GUILayout.Width(90));
                 line.BaseSpeed = EditorGUILayout.FloatField(line.BaseSpeed, GUILayout.Width(50));
-                GUILayout.Label(ToolLang.Get("chars/s", "симв/с"), EditorStyles.miniLabel);
+                GUILayout.Label(ToolLang.Get("chars/s", "симв/с"), EditorStyles.miniLabel, GUILayout.MinWidth(45));
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(5);

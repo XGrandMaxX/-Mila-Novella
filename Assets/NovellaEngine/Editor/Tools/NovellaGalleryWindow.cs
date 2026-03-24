@@ -1,4 +1,12 @@
-﻿using UnityEditor;
+﻿/// <summary>
+/// ОТВЕЧАЕТ ЗА:
+/// 1. Отображение кастомного файлового менеджера (Галереи) поверх Unity Project.
+/// 2. Фильтрацию файлов (только картинки, аудио, UI префабы и т.д.).
+/// 3. Превью файлов (прослушивание аудио, просмотр текстур) перед выбором.
+/// 4. Безопасное удаление в локальную "Корзину" и систему Undo (Ctrl+Z).
+/// 5. Навигацию "Хлебные крошки" (интерактивный путь).
+/// </summary>
+using UnityEditor;
 using UnityEngine;
 using System;
 using System.IO;
@@ -58,13 +66,12 @@ namespace NovellaEngine.Editor
         private Texture2D _prefabIcon;
 
         private List<string> _selectedPaths = new List<string>();
-        private int _lastSelectedIndex = -1; // Для Shift-выделения
+        private int _lastSelectedIndex = -1;
 
         private List<string> _clipboard = new List<string>();
         private bool _isCut = false;
         private string _searchQuery = "";
 
-        // ФИКС 1: Статическая корзина (очищается только при закрытии Unity)
         private static Stack<UndoAction> _undoStack = new Stack<UndoAction>();
         private bool _showTrashPanel = false;
 
@@ -90,6 +97,13 @@ namespace NovellaEngine.Editor
             if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI)
             {
                 window._isProjectMode = true;
+
+                if (filter == EGalleryFilter.CustomUI)
+                {
+                    string targetFolder = "Assets/NovellaEngine/Runtime/Prefabs/CustomUI";
+                    if (!Directory.Exists(targetFolder)) Directory.CreateDirectory(targetFolder);
+                    window._currentDir = targetFolder;
+                }
             }
 
             window.minSize = new Vector2(900, 500);
@@ -424,22 +438,6 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
-            // ФИКС 3: Красивый и яркий вывод пути
-            string displayPath = !string.IsNullOrEmpty(_searchQuery) ? ToolLang.Get("Global Search...", "Глобальный поиск...") : _currentDir;
-            if (!_isProjectMode && string.IsNullOrEmpty(_searchQuery)) displayPath = _currentDir.Replace(_galleryDir, "Gallery");
-            if (displayPath.Length > 50) displayPath = ".../" + displayPath.Substring(displayPath.Length - 45);
-
-            GUIStyle pathStyle = new GUIStyle(EditorStyles.helpBox)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                fontStyle = FontStyle.Bold,
-                fontSize = 12,
-                normal = { textColor = new Color(0.8f, 0.9f, 1f) }
-            };
-            GUILayout.Label(displayPath, pathStyle, GUILayout.ExpandWidth(true), GUILayout.Height(25));
-
-            GUILayout.FlexibleSpace();
-
             if (GUILayout.Button("📁 " + ToolLang.Get("New Folder", "Новая папка"), EditorStyles.toolbarButton, GUILayout.Width(100)))
                 EditorApplication.delayCall += () => CreateFolder();
 
@@ -456,6 +454,47 @@ namespace NovellaEngine.Editor
             }
             GUI.backgroundColor = Color.white;
 
+            GUILayout.EndHorizontal();
+
+            // === ФИКС ХЛЕБНЫХ КРОШЕК: ИНТЕРАКТИВНАЯ НАВИГАЦИЯ ПО ПУТИ ===
+            GUILayout.BeginHorizontal(EditorStyles.toolbar);
+            if (!string.IsNullOrEmpty(_searchQuery))
+            {
+                GUILayout.Label("🔍 " + ToolLang.Get("Global Search...", "Глобальный поиск..."), new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold, normal = { textColor = new Color(0.6f, 0.8f, 1f) } });
+            }
+            else
+            {
+                GUILayout.Label("📍 ", new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft });
+
+                string[] pathParts = _currentDir.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                string currentBuiltPath = "";
+
+                for (int i = 0; i < pathParts.Length; i++)
+                {
+                    currentBuiltPath += (i == 0 ? "" : "/") + pathParts[i];
+
+                    GUIStyle breadcrumbStyle = new GUIStyle(EditorStyles.toolbarButton);
+                    breadcrumbStyle.fontStyle = (i == pathParts.Length - 1) ? FontStyle.Bold : FontStyle.Normal;
+                    breadcrumbStyle.normal.textColor = (i == pathParts.Length - 1) ? new Color(0.6f, 0.8f, 1f) : Color.white;
+
+                    string targetDir = currentBuiltPath;
+                    if (GUILayout.Button(pathParts[i], breadcrumbStyle))
+                    {
+                        EditorApplication.delayCall += () => {
+                            _currentDir = targetDir;
+                            _selectedPaths.Clear();
+                            StopMedia();
+                            RequestRefresh();
+                        };
+                    }
+
+                    if (i < pathParts.Length - 1)
+                    {
+                        GUILayout.Label("▸", new GUIStyle(EditorStyles.toolbarButton) { normal = { textColor = Color.gray } }, GUILayout.Width(15));
+                    }
+                }
+                GUILayout.FlexibleSpace();
+            }
             GUILayout.EndHorizontal();
         }
 
@@ -552,7 +591,6 @@ namespace NovellaEngine.Editor
             {
                 GUI.FocusControl(null);
 
-                // ФИКС 2: Логика Shift-Выделения
                 if (e.shift && _lastSelectedIndex != -1)
                 {
                     int min = Mathf.Min(index, _lastSelectedIndex);

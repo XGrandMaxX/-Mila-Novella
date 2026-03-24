@@ -10,7 +10,9 @@ namespace NovellaEngine.Editor
 {
     public class NovellaClipboard : ScriptableObject
     {
-        public List<NovellaNodeData> Nodes = new List<NovellaNodeData>();
+        [SerializeReference]
+        public List<NovellaNodeBase> Nodes = new List<NovellaNodeBase>();
+        [SerializeReference]
         public List<NovellaGroupData> Groups = new List<NovellaGroupData>();
     }
 
@@ -90,6 +92,7 @@ namespace NovellaEngine.Editor
 
             string audioPortName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
             string animPortName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
+            string scenePortName = ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр.");
 
             if (port.portName == audioPortName)
             {
@@ -98,6 +101,10 @@ namespace NovellaEngine.Editor
             else if (port.portName == animPortName)
             {
                 menu.AddItem(new GUIContent(ToolLang.Get("Animation / Tween", "Анимация / Эффект")), false, () => _graphView.CreateNode(localPos, ENodeType.Animation, port));
+            }
+            else if (port.portName == scenePortName)
+            {
+                menu.AddItem(new GUIContent(ToolLang.Get("Scene Settings", "Настройки Сцены")), false, () => _graphView.CreateNode(localPos, ENodeType.SceneSettings, port));
             }
             else
             {
@@ -114,15 +121,32 @@ namespace NovellaEngine.Editor
                 menu.AddItem(new GUIContent(logicCat + ToolLang.Get("Random (Chance)", "Случайность (Шанс)")), false, () => _graphView.CreateNode(localPos, ENodeType.Random, port));
                 menu.AddItem(new GUIContent(logicCat + ToolLang.Get("Variable / Logic", "Переменная / Логика")), false, () => _graphView.CreateNode(localPos, ENodeType.Variable, port));
 
-                menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Background / CG", "Фон / Сцена")), false, () => _graphView.CreateNode(localPos, ENodeType.Background, port));
+                menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Scene Settings (Bg & Chars)", "Настройки Сцены (Фон/Актеры)")), false, () => _graphView.CreateNode(localPos, ENodeType.SceneSettings, port));
                 menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Audio / BGM", "Аудио / Музыка")), false, () => _graphView.CreateNode(localPos, ENodeType.Audio, port));
                 menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Animation / Tween", "Анимация / Эффект")), false, () => _graphView.CreateNode(localPos, ENodeType.Animation, port));
                 menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)")), false, () => _graphView.CreateNode(localPos, ENodeType.Wait, port));
 
                 menu.AddItem(new GUIContent(sysCat + ToolLang.Get("Event Broadcast", "Вызов События")), false, () => _graphView.CreateNode(localPos, ENodeType.EventBroadcast, port));
-
-                if (!(port.node is NovellaStartNodeView))
+                
+                if (!(port.node is NovellaStartNodeView)) 
                     menu.AddItem(new GUIContent(sysCat + ToolLang.Get("END Node", "Конец Сцены")), false, () => _graphView.CreateNode(localPos, ENodeType.End, port));
+
+                var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
+                    .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0);
+
+                if (dlcTypes.Any())
+                {
+                    menu.AddSeparator("");
+                    foreach (var type in dlcTypes)
+                    {
+                        var settings = NovellaDLCSettings.GetOrCreateSettings();
+                        bool isEnabled = settings.IsDLCEnabled(type.FullName);
+                        if (!isEnabled) continue;
+
+                        var attr = (NovellaDLCNodeAttribute)type.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).First();
+                        menu.AddItem(new GUIContent("🧩 DLC/ " + attr.MenuName), false, () => _graphView.CreateNode(localPos, ENodeType.CustomDLC, port, type));
+                    }
+                }
             }
 
             menu.ShowAsContext();
@@ -156,12 +180,12 @@ namespace NovellaEngine.Editor
 
             serializeGraphElements = OnSerializeGraphElements;
             unserializeAndPaste = OnUnserializeAndPaste;
-            canPasteSerializedData = (data) => !string.IsNullOrEmpty(data);
+            canPasteSerializedData = (data) => !string.IsNullOrEmpty(data); 
         }
 
         private string OnSerializeGraphElements(IEnumerable<GraphElement> elements)
         {
-            if (elements == null) return "";
+            if (elements == null) return ""; 
 
             var nodesToCopy = elements.OfType<NovellaNodeView>().Select(n => n.Data).ToList();
             var groupsToCopy = elements.OfType<NovellaGroupView>().Select(g => g.Data).ToList();
@@ -193,34 +217,70 @@ namespace NovellaEngine.Editor
             Undo.RegisterCompleteObjectUndo(Tree, "Paste Elements");
             ClearSelection();
 
-            var idMap = new Dictionary<string, string>();
+            var idMap = new Dictionary<string, string>(); 
 
             foreach (var node in clipboard.Nodes)
             {
+                if (node == null) continue;
                 string oldId = node.NodeID;
                 string newId = node.NodeType.ToString() + "_" + System.Guid.NewGuid().ToString().Substring(0, 5);
                 node.NodeID = newId; idMap[oldId] = newId;
                 node.GraphPosition += new Vector2(50, 50);
 
-                foreach (var choice in node.Choices) choice.PortID = "Choice_" + System.Guid.NewGuid().ToString().Substring(0, 5);
+                if (node is BranchNodeData bnd)
+                    foreach (var choice in bnd.Choices) choice.PortID = "Choice_" + System.Guid.NewGuid().ToString().Substring(0, 5);
+                else if (node is ConditionNodeData cnd)
+                    foreach (var choice in cnd.Choices) choice.PortID = "Choice_" + System.Guid.NewGuid().ToString().Substring(0, 5);
+                else if (node is RandomNodeData rnd)
+                    foreach (var choice in rnd.Choices) choice.PortID = "Choice_" + System.Guid.NewGuid().ToString().Substring(0, 5);
             }
 
             foreach (var node in clipboard.Nodes)
             {
-                if (idMap.ContainsKey(node.NextNodeID)) node.NextNodeID = idMap[node.NextNodeID];
-                else node.NextNodeID = "";
-
-                if (node.AudioSyncNodeID != null && idMap.ContainsKey(node.AudioSyncNodeID)) node.AudioSyncNodeID = idMap[node.AudioSyncNodeID];
-                else node.AudioSyncNodeID = "";
-
-                if (node.AnimSyncNodeID != null && idMap.ContainsKey(node.AnimSyncNodeID)) node.AnimSyncNodeID = idMap[node.AnimSyncNodeID];
-                else node.AnimSyncNodeID = "";
-
-                foreach (var choice in node.Choices)
+                if (node == null) continue;
+                if (node is DialogueNodeData dialData)
                 {
-                    if (idMap.ContainsKey(choice.NextNodeID)) choice.NextNodeID = idMap[choice.NextNodeID];
-                    else choice.NextNodeID = "";
+                    if (idMap.ContainsKey(dialData.NextNodeID)) dialData.NextNodeID = idMap[dialData.NextNodeID];
+                    else dialData.NextNodeID = "";
+
+                    if (dialData.AudioSyncNodeID != null && idMap.ContainsKey(dialData.AudioSyncNodeID)) dialData.AudioSyncNodeID = idMap[dialData.AudioSyncNodeID];
+                    else dialData.AudioSyncNodeID = "";
+
+                    if (dialData.AnimSyncNodeID != null && idMap.ContainsKey(dialData.AnimSyncNodeID)) dialData.AnimSyncNodeID = idMap[dialData.AnimSyncNodeID];
+                    else dialData.AnimSyncNodeID = "";
+                    
+                    if (dialData.SceneSyncNodeID != null && idMap.ContainsKey(dialData.SceneSyncNodeID)) dialData.SceneSyncNodeID = idMap[dialData.SceneSyncNodeID];
+                    else dialData.SceneSyncNodeID = "";
                 }
+                else if (node is BranchNodeData bnd)
+                {
+                    foreach (var choice in bnd.Choices) { if (idMap.ContainsKey(choice.NextNodeID)) choice.NextNodeID = idMap[choice.NextNodeID]; else choice.NextNodeID = ""; }
+                }
+                else if (node is ConditionNodeData cnd)
+                {
+                    foreach (var choice in cnd.Choices) { if (idMap.ContainsKey(choice.NextNodeID)) choice.NextNodeID = idMap[choice.NextNodeID]; else choice.NextNodeID = ""; }
+                }
+                else if (node is RandomNodeData rnd)
+                {
+                    foreach (var choice in rnd.Choices) { if (idMap.ContainsKey(choice.NextNodeID)) choice.NextNodeID = idMap[choice.NextNodeID]; else choice.NextNodeID = ""; }
+                }
+                else
+                {
+                    var nextNodeField = node.GetType().GetField("NextNodeID");
+                    if (nextNodeField != null && nextNodeField.FieldType == typeof(string))
+                    {
+                        string currentNextId = (string)nextNodeField.GetValue(node);
+                        if (!string.IsNullOrEmpty(currentNextId) && idMap.ContainsKey(currentNextId))
+                        {
+                            nextNodeField.SetValue(node, idMap[currentNextId]);
+                        }
+                        else
+                        {
+                            nextNodeField.SetValue(node, "");
+                        }
+                    }
+                }
+
                 Tree.Nodes.Add(node);
             }
 
@@ -236,13 +296,13 @@ namespace NovellaEngine.Editor
             }
 
             var newIds = idMap.Values.ToList();
-
-            EditorApplication.delayCall += () =>
-            {
+            
+            EditorApplication.delayCall += () => 
+            { 
                 if (this == null || Window == null) return;
                 LoadGraph(); ClearSelection();
-                foreach (var nv in nodes.ToList().OfType<NovellaNodeView>()) if (newIds.Contains(nv.Data.NodeID)) AddToSelection(nv);
-                foreach (var gv in graphElements.ToList().OfType<NovellaGroupView>()) if (newGroupIds.Contains(gv.Data.GroupID)) AddToSelection(gv);
+                foreach(var nv in nodes.ToList().OfType<NovellaNodeView>()) if (newIds.Contains(nv.Data.NodeID)) AddToSelection(nv);
+                foreach(var gv in graphElements.ToList().OfType<NovellaGroupView>()) if (newGroupIds.Contains(gv.Data.GroupID)) AddToSelection(gv);
                 Window.MarkUnsaved();
             };
 
@@ -288,28 +348,66 @@ namespace NovellaEngine.Editor
                             {
                                 if (outNode.AudioSyncPort != null && edge.output == outNode.AudioSyncPort)
                                 {
-                                    outNode.Data.AudioSyncNodeID = "";
-                                    inNode.Data.SyncWithDialogue = false;
+                                    if (outNode.Data is DialogueNodeData odnd) odnd.AudioSyncNodeID = "";
+                                    if (inNode.Data is AudioNodeData iand) iand.SyncWithDialogue = false;
                                     inNode.ToggleAudioNextPort(false);
                                     inNode.RefreshVisuals();
                                     EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
                                 }
                                 else if (outNode.AnimSyncPort != null && edge.output == outNode.AnimSyncPort)
                                 {
-                                    outNode.Data.AnimSyncNodeID = "";
-                                    inNode.Data.SyncWithDialogue = false;
+                                    if (outNode.Data is DialogueNodeData odnd) odnd.AnimSyncNodeID = "";
+                                    if (inNode.Data is AnimationNodeData iand) iand.SyncWithDialogue = false;
                                     inNode.ToggleAnimNextPort(false);
+                                    inNode.RefreshVisuals();
+                                    EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
+                                }
+                                else if (outNode.Data is DialogueNodeData dnd3 && outNode.outputContainer.IndexOf(edge.output) == 2)
+                                {
+                                    dnd3.SceneSyncNodeID = "";
+                                    if (inNode.Data is SceneSettingsNodeData isnd) isnd.SyncWithDialogue = false;
+                                    inNode.ToggleSceneNextPort(false);
                                     inNode.RefreshVisuals();
                                     EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
                                 }
                                 else
                                 {
-                                    if (outNode.Data.NodeType == ENodeType.Dialogue || outNode.Data.NodeType == ENodeType.Event || outNode.Data.NodeType == ENodeType.Audio || outNode.Data.NodeType == ENodeType.Variable || outNode.Data.NodeType == ENodeType.Wait || outNode.Data.NodeType == ENodeType.Background || outNode.Data.NodeType == ENodeType.Animation || outNode.Data.NodeType == ENodeType.EventBroadcast)
-                                        outNode.Data.NextNodeID = "";
-                                    else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition || outNode.Data.NodeType == ENodeType.Random)
+                                    if (outNode.Data is BranchNodeData bnd)
                                     {
                                         int portIdx = outNode.outputContainer.IndexOf(edge.output);
-                                        if (portIdx >= 0 && portIdx < outNode.Data.Choices.Count) outNode.Data.Choices[portIdx].NextNodeID = "";
+                                        if (portIdx >= 0 && portIdx < bnd.Choices.Count) bnd.Choices[portIdx].NextNodeID = "";
+                                    }
+                                    else if (outNode.Data is ConditionNodeData cnd)
+                                    {
+                                        int portIdx = outNode.outputContainer.IndexOf(edge.output);
+                                        if (portIdx >= 0 && portIdx < cnd.Choices.Count) cnd.Choices[portIdx].NextNodeID = "";
+                                    }
+                                    else if (outNode.Data is RandomNodeData rnd)
+                                    {
+                                        int portIdx = outNode.outputContainer.IndexOf(edge.output);
+                                        if (portIdx >= 0 && portIdx < rnd.Choices.Count) rnd.Choices[portIdx].NextNodeID = "";
+                                    }
+                                    else if (outNode.Data.NodeType == ENodeType.CustomDLC)
+                                    {
+                                        var outFields = DLCCache.GetOutputFields(outNode.Data.GetType());
+                                        if (outFields.Count > 0)
+                                        {
+                                            var targetField = outFields.FirstOrDefault(f => ((NovellaDLCOutputAttribute)f.GetCustomAttributes(typeof(NovellaDLCOutputAttribute), false).First()).PortName == edge.output.portName) ?? outFields.First();
+                                            targetField.SetValue(outNode.Data, "");
+                                        }
+                                        else
+                                        {
+                                            var nextNodeField = outNode.Data.GetType().GetField("NextNodeID");
+                                            if (nextNodeField != null && nextNodeField.FieldType == typeof(string)) nextNodeField.SetValue(outNode.Data, "");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        var nextNodeField = outNode.Data.GetType().GetField("NextNodeID");
+                                        if (nextNodeField != null && nextNodeField.FieldType == typeof(string))
+                                        {
+                                            nextNodeField.SetValue(outNode.Data, "");
+                                        }
                                     }
                                 }
                             }
@@ -325,10 +423,12 @@ namespace NovellaEngine.Editor
                         var inNode = edge.input?.node as NovellaNodeView;
                         if (outNode != null && inNode != null)
                         {
+                            string sceneSyncName = ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр.");
+
                             if (outNode.AudioSyncPort != null && edge.output == outNode.AudioSyncPort)
                             {
-                                outNode.Data.AudioSyncNodeID = inNode.Data.NodeID;
-                                inNode.Data.SyncWithDialogue = true;
+                                if (outNode.Data is DialogueNodeData odnd) odnd.AudioSyncNodeID = inNode.Data.NodeID;
+                                if (inNode.Data is AudioNodeData iand) iand.SyncWithDialogue = true;
                                 inNode.ToggleAudioNextPort(true);
 
                                 if (inNode.OutputPort != null && inNode.OutputPort.connected)
@@ -341,9 +441,23 @@ namespace NovellaEngine.Editor
                             }
                             else if (outNode.AnimSyncPort != null && edge.output == outNode.AnimSyncPort)
                             {
-                                outNode.Data.AnimSyncNodeID = inNode.Data.NodeID;
-                                inNode.Data.SyncWithDialogue = true;
+                                if (outNode.Data is DialogueNodeData odnd) odnd.AnimSyncNodeID = inNode.Data.NodeID;
+                                if (inNode.Data is AnimationNodeData iand) iand.SyncWithDialogue = true;
                                 inNode.ToggleAnimNextPort(true);
+
+                                if (inNode.OutputPort != null && inNode.OutputPort.connected)
+                                {
+                                    var connections = inNode.OutputPort.connections.ToList();
+                                    EditorApplication.delayCall += () => { DeleteElements(connections); };
+                                }
+                                EditorApplication.delayCall += () => { if (inNode != null) inNode.RefreshVisuals(); };
+                                EditorApplication.delayCall += () => { if (Window != null) Window.Repaint(); };
+                            }
+                            else if (edge.output.portName == sceneSyncName)
+                            {
+                                if (outNode.Data is DialogueNodeData odnd) odnd.SceneSyncNodeID = inNode.Data.NodeID;
+                                if (inNode.Data is SceneSettingsNodeData isnd) isnd.SyncWithDialogue = true;
+                                inNode.ToggleSceneNextPort(true);
 
                                 if (inNode.OutputPort != null && inNode.OutputPort.connected)
                                 {
@@ -355,12 +469,42 @@ namespace NovellaEngine.Editor
                             }
                             else
                             {
-                                if (outNode.Data.NodeType == ENodeType.Dialogue || outNode.Data.NodeType == ENodeType.Event || outNode.Data.NodeType == ENodeType.Audio || outNode.Data.NodeType == ENodeType.Variable || outNode.Data.NodeType == ENodeType.Wait || outNode.Data.NodeType == ENodeType.Background || outNode.Data.NodeType == ENodeType.Animation || outNode.Data.NodeType == ENodeType.EventBroadcast)
-                                    outNode.Data.NextNodeID = inNode.Data.NodeID;
-                                else if (outNode.Data.NodeType == ENodeType.Branch || outNode.Data.NodeType == ENodeType.Condition || outNode.Data.NodeType == ENodeType.Random)
+                                if (outNode.Data is BranchNodeData bnd)
                                 {
                                     int portIdx = outNode.outputContainer.IndexOf(edge.output);
-                                    if (portIdx >= 0 && portIdx < outNode.Data.Choices.Count) outNode.Data.Choices[portIdx].NextNodeID = inNode.Data.NodeID;
+                                    if (portIdx >= 0 && portIdx < bnd.Choices.Count) bnd.Choices[portIdx].NextNodeID = inNode.Data.NodeID;
+                                }
+                                else if (outNode.Data is ConditionNodeData cnd)
+                                {
+                                    int portIdx = outNode.outputContainer.IndexOf(edge.output);
+                                    if (portIdx >= 0 && portIdx < cnd.Choices.Count) cnd.Choices[portIdx].NextNodeID = inNode.Data.NodeID;
+                                }
+                                else if (outNode.Data is RandomNodeData rnd)
+                                {
+                                    int portIdx = outNode.outputContainer.IndexOf(edge.output);
+                                    if (portIdx >= 0 && portIdx < rnd.Choices.Count) rnd.Choices[portIdx].NextNodeID = inNode.Data.NodeID;
+                                }
+                                else if (outNode.Data.NodeType == ENodeType.CustomDLC)
+                                {
+                                    var outFields = DLCCache.GetOutputFields(outNode.Data.GetType());
+                                    if (outFields.Count > 0)
+                                    {
+                                        var targetField = outFields.FirstOrDefault(f => ((NovellaDLCOutputAttribute)f.GetCustomAttributes(typeof(NovellaDLCOutputAttribute), false).First()).PortName == edge.output.portName) ?? outFields.First();
+                                        targetField.SetValue(outNode.Data, inNode.Data.NodeID);
+                                    }
+                                    else
+                                    {
+                                        var nextNodeField = outNode.Data.GetType().GetField("NextNodeID");
+                                        if (nextNodeField != null && nextNodeField.FieldType == typeof(string)) nextNodeField.SetValue(outNode.Data, inNode.Data.NodeID);
+                                    }
+                                }
+                                else
+                                {
+                                    var nextNodeField = outNode.Data.GetType().GetField("NextNodeID");
+                                    if (nextNodeField != null && nextNodeField.FieldType == typeof(string))
+                                    {
+                                        nextNodeField.SetValue(outNode.Data, inNode.Data.NodeID);
+                                    }
                                 }
                             }
                         }
@@ -446,15 +590,34 @@ namespace NovellaEngine.Editor
             evt.menu.AppendAction(logicCat + ToolLang.Get("Random (Chance)", "Случайность (Шанс)"), (a) => CreateNode(pos, ENodeType.Random));
             evt.menu.AppendAction(logicCat + ToolLang.Get("Variable / Logic", "Переменная / Логика"), (a) => CreateNode(pos, ENodeType.Variable));
 
-            evt.menu.AppendAction(cineCat + ToolLang.Get("Background / CG", "Фон / Сцена"), (a) => CreateNode(pos, ENodeType.Background));
+            evt.menu.AppendAction(cineCat + ToolLang.Get("Scene Settings (Bg & Chars)", "Настройки Сцены (Фон/Актеры)"), (a) => CreateNode(pos, ENodeType.SceneSettings));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Audio / BGM", "Аудио / Музыка"), (a) => CreateNode(pos, ENodeType.Audio));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Animation / Tween", "Анимация / Эффект"), (a) => CreateNode(pos, ENodeType.Animation));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)"), (a) => CreateNode(pos, ENodeType.Wait));
 
             evt.menu.AppendAction(sysCat + ToolLang.Get("Event Broadcast", "Вызов События"), (a) => CreateNode(pos, ENodeType.EventBroadcast));
-
-            if (!selection.OfType<NovellaStartNodeView>().Any())
+            
+            if (!selection.OfType<NovellaStartNodeView>().Any()) 
                 evt.menu.AppendAction(sysCat + ToolLang.Get("END Node", "Конец Сцены"), (a) => CreateNode(pos, ENodeType.End));
+
+            var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
+                .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0);
+
+            if (dlcTypes.Any())
+            {
+                evt.menu.AppendSeparator("");
+                foreach (var type in dlcTypes)
+                {
+                    // ИСПОЛЬЗУЕМ ВАШ DLCSettings ВМЕСТО EditorPrefs
+                    var settings = NovellaDLCSettings.GetOrCreateSettings();
+                    bool isEnabled = settings.IsDLCEnabled(type.FullName);
+
+                    if (!isEnabled) continue;
+
+                    var attr = (NovellaDLCNodeAttribute)type.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).First();
+                    evt.menu.AppendAction("🧩 DLC/ " + attr.MenuName, (a) => CreateDLCNode(pos, type, attr));
+                }
+            }
 
             base.BuildContextualMenu(evt);
         }
@@ -502,86 +665,158 @@ namespace NovellaEngine.Editor
             Window.MarkUnsaved();
         }
 
-        public void CreateNode(Vector2 position, ENodeType type, Port autoConnectPort = null)
+        public void CreateNode(Vector2 position, ENodeType type, Port autoConnectPort = null, System.Type dlcType = null)
         {
-            Undo.RegisterCompleteObjectUndo(Tree, "Create Node");
-            int count = Tree.Nodes.Count(n => n.NodeType == type) + 1;
+            if (Tree == null || Tree.Nodes == null) return;
 
-            var nodeData = new NovellaNodeData
+            Undo.RegisterCompleteObjectUndo(Tree, "Create Node");
+            int count = Tree.Nodes.Count(n => n != null && n.NodeType == type) + 1;
+
+            NovellaNodeBase nodeData = null;
+
+            switch (type)
             {
-                NodeID = type.ToString() + "_" + System.Guid.NewGuid().ToString().Substring(0, 5),
-                NodeTitle = $"{type} {count}",
-                NodeType = type,
-                GraphPosition = position
-            };
+                case ENodeType.Dialogue:
+                case ENodeType.Event: nodeData = new DialogueNodeData(); break;
+                case ENodeType.Branch: nodeData = new BranchNodeData(); break;
+                case ENodeType.Condition: nodeData = new ConditionNodeData(); break;
+                case ENodeType.Random: nodeData = new RandomNodeData(); break;
+                case ENodeType.Variable: nodeData = new VariableNodeData(); break;
+                case ENodeType.Audio: nodeData = new AudioNodeData(); break;
+                case ENodeType.Wait: nodeData = new WaitNodeData(); break;
+                case ENodeType.SceneSettings: nodeData = new SceneSettingsNodeData(); break;
+                case ENodeType.Animation: nodeData = new AnimationNodeData(); break;
+                case ENodeType.EventBroadcast: nodeData = new EventBroadcastNodeData(); break;
+                case ENodeType.Note: nodeData = new NoteNodeData(); break;
+                case ENodeType.End: nodeData = new EndNodeData(); break;
+                case ENodeType.CustomDLC:
+                    if (dlcType != null)
+                    {
+                        nodeData = (NovellaNodeBase)System.Activator.CreateInstance(dlcType);
+                        var attr = DLCCache.GetNodeAttribute(dlcType);
+                        if (attr != null) ColorUtility.TryParseHtmlString(attr.HexColor, out nodeData.NodeCustomColor);
+                    }
+                    break;
+                default: nodeData = new DialogueNodeData(); break;
+            }
+
+            if (nodeData == null) return;
+
+            nodeData.NodeID = type.ToString() + "_" + System.Guid.NewGuid().ToString().Substring(0, 5);
+            nodeData.NodeTitle = type == ENodeType.CustomDLC && dlcType != null ? DLCCache.GetNodeAttribute(dlcType)?.NodeTitle : $"{type} {count}";
+            nodeData.GraphPosition = position;
 
             if (autoConnectPort != null && autoConnectPort.node is NovellaNodeView parentNode)
             {
-                foreach (var charInPrev in parentNode.Data.ActiveCharacters)
+                if (nodeData is DialogueNodeData dnd && parentNode.Data is DialogueNodeData pDnd)
                 {
-                    nodeData.ActiveCharacters.Add(new CharacterInDialogue { CharacterAsset = charInPrev.CharacterAsset, Plane = charInPrev.Plane, Scale = charInPrev.Scale, Emotion = charInPrev.Emotion, PosX = charInPrev.PosX, PosY = charInPrev.PosY });
+                    foreach (var charInPrev in pDnd.ActiveCharacters)
+                    {
+                        dnd.ActiveCharacters.Add(new CharacterInDialogue { CharacterAsset = charInPrev.CharacterAsset, Plane = charInPrev.Plane, Scale = charInPrev.Scale, Emotion = charInPrev.Emotion, PosX = charInPrev.PosX, PosY = charInPrev.PosY });
+                    }
                 }
             }
 
-            if (type == ENodeType.Branch) { nodeData.Choices.Add(new NovellaChoice()); nodeData.Choices.Add(new NovellaChoice()); }
-            else if (type == ENodeType.Condition)
+            if (nodeData is BranchNodeData bnd) { bnd.Choices.Add(new NovellaChoice()); bnd.Choices.Add(new NovellaChoice()); }
+            else if (nodeData is ConditionNodeData cnd)
             {
                 var trueChoice = new NovellaChoice(); trueChoice.LocalizedText.SetText("EN", "True"); trueChoice.LocalizedText.SetText("RU", "Истина");
                 var falseChoice = new NovellaChoice(); falseChoice.LocalizedText.SetText("EN", "False"); falseChoice.LocalizedText.SetText("RU", "Ложь");
-                nodeData.Choices.Add(trueChoice); nodeData.Choices.Add(falseChoice);
+                cnd.Choices.Add(trueChoice); cnd.Choices.Add(falseChoice);
             }
-            else if (type == ENodeType.Random)
+            else if (nodeData is RandomNodeData rnd)
             {
-                nodeData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 }); nodeData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 });
+                rnd.Choices.Add(new NovellaChoice() { ChanceWeight = 50 }); rnd.Choices.Add(new NovellaChoice() { ChanceWeight = 50 });
             }
 
             Tree.Nodes.Add(nodeData);
             var view = new NovellaNodeView(nodeData, this);
             view.SetPosition(new Rect(position, new Vector2(200, 150))); AddElement(view);
 
-            if (autoConnectPort != null && type != ENodeType.Character && type != ENodeType.Note)
-            {
-                string audioSyncName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
-                string animSyncName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
+            HandleAutoConnect(view, autoConnectPort, type);
+            Window.MarkUnsaved();
+        }
+        public void CreateDLCNode(Vector2 position, System.Type dlcType, NovellaDLCNodeAttribute attr)
+        {
+            Undo.RegisterCompleteObjectUndo(Tree, "Create DLC Node");
+            
+            NovellaNodeBase nodeData = (NovellaNodeBase)System.Activator.CreateInstance(dlcType);
+            nodeData.NodeID = "DLC_" + System.Guid.NewGuid().ToString().Substring(0, 5);
+            nodeData.NodeTitle = attr.NodeTitle;
+            nodeData.GraphPosition = position;
+            
+            ColorUtility.TryParseHtmlString(attr.HexColor, out Color customCol);
+            nodeData.NodeCustomColor = customCol;
 
-                if (autoConnectPort.direction == Direction.Output)
+            Tree.Nodes.Add(nodeData);
+            var view = new NovellaNodeView(nodeData, this);
+            view.SetPosition(new Rect(position, new Vector2(200, 150))); 
+            AddElement(view);
+            
+            Window.MarkUnsaved();
+        }
+
+        private void HandleAutoConnect(NovellaNodeView view, Port autoConnectPort, ENodeType type)
+        {
+            if (autoConnectPort == null || type == ENodeType.Character || type == ENodeType.Note) return;
+
+            string audioSyncName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
+            string animSyncName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
+            string sceneSyncName = ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр.");
+
+            if (autoConnectPort.direction == Direction.Output)
+            {
+                if (autoConnectPort.portName == audioSyncName && type == ENodeType.Audio)
                 {
-                    if (autoConnectPort.portName == audioSyncName && type == ENodeType.Audio)
+                    if (autoConnectPort.connected)
                     {
-                        if (autoConnectPort.connected)
-                        {
-                            var oldEdges = autoConnectPort.connections.ToList();
-                            foreach (var e in oldEdges) { if (e.input.node is NovellaNodeView oldIn) { oldIn.Data.SyncWithDialogue = false; oldIn.ToggleAudioNextPort(false); oldIn.RefreshVisuals(); } }
-                            DeleteElements(oldEdges);
-                        }
-                        AddElement(ConnectPorts(autoConnectPort, view.InputPort));
-                        if (autoConnectPort.node is NovellaNodeView sourceNode) sourceNode.Data.AudioSyncNodeID = view.Data.NodeID;
-                        view.Data.SyncWithDialogue = true; view.ToggleAudioNextPort(true); view.RefreshVisuals();
+                        var oldEdges = autoConnectPort.connections.ToList();
+                        foreach (var e in oldEdges) { if (e.input.node is NovellaNodeView oldIn && oldIn.Data is AudioNodeData oauD) { oauD.SyncWithDialogue = false; oldIn.ToggleAudioNextPort(false); oldIn.RefreshVisuals(); } }
+                        DeleteElements(oldEdges);
                     }
-                    else if (autoConnectPort.portName == animSyncName && type == ENodeType.Animation)
-                    {
-                        if (autoConnectPort.connected)
-                        {
-                            var oldEdges = autoConnectPort.connections.ToList();
-                            foreach (var e in oldEdges) { if (e.input.node is NovellaNodeView oldIn) { oldIn.Data.SyncWithDialogue = false; oldIn.ToggleAnimNextPort(false); oldIn.RefreshVisuals(); } }
-                            DeleteElements(oldEdges);
-                        }
-                        AddElement(ConnectPorts(autoConnectPort, view.InputPort));
-                        if (autoConnectPort.node is NovellaNodeView sourceNode) sourceNode.Data.AnimSyncNodeID = view.Data.NodeID;
-                        view.Data.SyncWithDialogue = true; view.ToggleAnimNextPort(true); view.RefreshVisuals();
-                    }
-                    else if (view.InputPort != null && autoConnectPort.portName != audioSyncName && autoConnectPort.portName != animSyncName)
-                    {
-                        if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections);
-                        AddElement(ConnectPorts(autoConnectPort, view.InputPort));
-                    }
+                    AddElement(ConnectPorts(autoConnectPort, view.InputPort));
+                    if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.AudioSyncNodeID = view.Data.NodeID;
+                    if (view.Data is AudioNodeData vAuD) vAuD.SyncWithDialogue = true; 
+                    view.ToggleAudioNextPort(true); view.RefreshVisuals();
                 }
-                else if (autoConnectPort.direction == Direction.Input)
+                else if (autoConnectPort.portName == animSyncName && type == ENodeType.Animation)
                 {
-                    if (view.OutputPort != null) { if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections); AddElement(ConnectPorts(view.OutputPort, autoConnectPort)); }
+                    if (autoConnectPort.connected)
+                    {
+                        var oldEdges = autoConnectPort.connections.ToList();
+                        foreach (var e in oldEdges) { if (e.input.node is NovellaNodeView oldIn && oldIn.Data is AnimationNodeData oAnD) { oAnD.SyncWithDialogue = false; oldIn.ToggleAnimNextPort(false); oldIn.RefreshVisuals(); } }
+                        DeleteElements(oldEdges);
+                    }
+                    AddElement(ConnectPorts(autoConnectPort, view.InputPort));
+                    if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.AnimSyncNodeID = view.Data.NodeID;
+                    if (view.Data is AnimationNodeData vAnD) vAnD.SyncWithDialogue = true; 
+                    view.ToggleAnimNextPort(true); view.RefreshVisuals();
+                }
+                else if (autoConnectPort.portName == sceneSyncName && type == ENodeType.SceneSettings)
+                {
+                    if (autoConnectPort.connected)
+                    {
+                        var oldEdges = autoConnectPort.connections.ToList();
+                        foreach (var e in oldEdges) { if (e.input.node is NovellaNodeView oldIn && oldIn.Data is SceneSettingsNodeData oScD) { oScD.SyncWithDialogue = false; oldIn.RefreshVisuals(); } }
+                        DeleteElements(oldEdges);
+                    }
+                    AddElement(ConnectPorts(autoConnectPort, view.InputPort));
+                    if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.SceneSyncNodeID = view.Data.NodeID;
+                    if (view.Data is SceneSettingsNodeData vScD) vScD.SyncWithDialogue = true; 
+                    
+                    if (view.OutputPort != null) view.OutputPort.style.display = DisplayStyle.None;
+                    view.RefreshVisuals();
+                }
+                else if (view.InputPort != null && autoConnectPort.portName != audioSyncName && autoConnectPort.portName != animSyncName && autoConnectPort.portName != sceneSyncName)
+                {
+                    if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections);
+                    AddElement(ConnectPorts(autoConnectPort, view.InputPort));
                 }
             }
-            Window.MarkUnsaved();
+            else if (autoConnectPort.direction == Direction.Input)
+            {
+                if (view.OutputPort != null) { if (autoConnectPort.capacity == Port.Capacity.Single && autoConnectPort.connected) DeleteElements(autoConnectPort.connections); AddElement(ConnectPorts(view.OutputPort, autoConnectPort)); }
+            }
         }
 
         public Port GeneratePort(Node node, Direction portDirection, Port.Capacity capacity = Port.Capacity.Single)
@@ -595,6 +830,7 @@ namespace NovellaEngine.Editor
             var compPorts = new List<Port>();
             string audioSyncName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
             string animSyncName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
+            string sceneSyncName = ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр.");
 
             ports.ForEach(port => {
                 if (startPort != port && startPort.node != port.node && startPort.direction != port.direction)
@@ -605,25 +841,38 @@ namespace NovellaEngine.Editor
                     bool isStartAnimOut = (startPort.portName == animSyncName && startPort.direction == Direction.Output);
                     bool isPortAnimOut = (port.portName == animSyncName && port.direction == Direction.Output);
 
+                    bool isStartSceneOut = (startPort.portName == sceneSyncName && startPort.direction == Direction.Output);
+                    bool isPortSceneOut = (port.portName == sceneSyncName && port.direction == Direction.Output);
+
                     if (isStartAudioOut)
                     {
-                        if (port.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Audio)
+                        if (port.node is NovellaNodeView targetNode && targetNode.Data is AudioNodeData)
                             if (!port.connections.Any(e => e.output.portName == audioSyncName)) compPorts.Add(port);
                     }
                     else if (isPortAudioOut)
                     {
-                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Audio)
+                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data is AudioNodeData)
                             if (!startPort.connections.Any(e => e.output.portName == audioSyncName)) compPorts.Add(port);
                     }
                     else if (isStartAnimOut)
                     {
-                        if (port.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Animation)
+                        if (port.node is NovellaNodeView targetNode && targetNode.Data is AnimationNodeData)
                             if (!port.connections.Any(e => e.output.portName == animSyncName)) compPorts.Add(port);
                     }
                     else if (isPortAnimOut)
                     {
-                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data.NodeType == ENodeType.Animation)
+                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data is AnimationNodeData)
                             if (!startPort.connections.Any(e => e.output.portName == animSyncName)) compPorts.Add(port);
+                    }
+                    else if (isStartSceneOut)
+                    {
+                        if (port.node is NovellaNodeView targetNode && targetNode.Data is SceneSettingsNodeData)
+                            if (!port.connections.Any(e => e.output.portName == sceneSyncName)) compPorts.Add(port);
+                    }
+                    else if (isPortSceneOut)
+                    {
+                        if (startPort.node is NovellaNodeView targetNode && targetNode.Data is SceneSettingsNodeData)
+                            if (!startPort.connections.Any(e => e.output.portName == sceneSyncName)) compPorts.Add(port);
                     }
                     else
                     {
@@ -649,7 +898,7 @@ namespace NovellaEngine.Editor
                 else Tree.RootNodeID = "";
             }
 
-            var updatedNodes = new List<NovellaNodeData>();
+            var updatedNodes = new List<NovellaNodeBase>();
             foreach (var nodeView in nodes.OfType<NovellaNodeView>()) { nodeView.SaveNodeData(); updatedNodes.Add(nodeView.Data); }
             Tree.Nodes = updatedNodes;
 
@@ -660,7 +909,7 @@ namespace NovellaEngine.Editor
 
         public void LoadGraph()
         {
-            if (Tree == null) return;
+            if (Tree == null || Tree.Nodes == null) return;
             var existingNodes = nodes.ToList().OfType<NovellaNodeView>().ToList();
             foreach (var n in existingNodes) RemoveElement(n);
             foreach (var e in edges.ToList()) RemoveElement(e);
@@ -669,6 +918,7 @@ namespace NovellaEngine.Editor
             var nodeDict = new Dictionary<string, NovellaNodeView>();
             foreach (var data in Tree.Nodes)
             {
+                if (data == null) continue;
                 var view = new NovellaNodeView(data, this);
                 view.SetPosition(new Rect(data.GraphPosition, new Vector2(200, 150))); AddElement(view); nodeDict.Add(data.NodeID, view);
             }
@@ -689,45 +939,103 @@ namespace NovellaEngine.Editor
             {
                 if (nodeView.Data.NodeType == ENodeType.End || nodeView.Data.NodeType == ENodeType.Character || nodeView.Data.NodeType == ENodeType.Note) continue;
 
-                if ((nodeView.Data.NodeType == ENodeType.Dialogue || nodeView.Data.NodeType == ENodeType.Event) && !string.IsNullOrEmpty(nodeView.Data.AudioSyncNodeID))
+                if (nodeView.Data is DialogueNodeData dnd)
                 {
-                    if (nodeDict.TryGetValue(nodeView.Data.AudioSyncNodeID, out var audioNode))
+                    if (!string.IsNullOrEmpty(dnd.AudioSyncNodeID) && nodeDict.TryGetValue(dnd.AudioSyncNodeID, out var audioNode))
                     {
                         if (nodeView.AudioSyncPort != null && audioNode.InputPort != null)
                         {
                             AddElement(ConnectPorts(nodeView.AudioSyncPort, audioNode.InputPort));
-                            audioNode.Data.SyncWithDialogue = true; audioNode.ToggleAudioNextPort(true); audioNode.RefreshVisuals();
+                            if (audioNode.Data is AudioNodeData audD) audD.SyncWithDialogue = true; 
+                            audioNode.ToggleAudioNextPort(true); audioNode.RefreshVisuals();
                         }
                     }
-                }
-
-                if ((nodeView.Data.NodeType == ENodeType.Dialogue || nodeView.Data.NodeType == ENodeType.Event) && !string.IsNullOrEmpty(nodeView.Data.AnimSyncNodeID))
-                {
-                    if (nodeDict.TryGetValue(nodeView.Data.AnimSyncNodeID, out var animNode))
+                    if (!string.IsNullOrEmpty(dnd.AnimSyncNodeID) && nodeDict.TryGetValue(dnd.AnimSyncNodeID, out var animNode))
                     {
                         if (nodeView.AnimSyncPort != null && animNode.InputPort != null)
                         {
                             AddElement(ConnectPorts(nodeView.AnimSyncPort, animNode.InputPort));
-                            animNode.Data.SyncWithDialogue = true; animNode.ToggleAnimNextPort(true); animNode.RefreshVisuals();
+                            if (animNode.Data is AnimationNodeData anD) anD.SyncWithDialogue = true;
+                            animNode.ToggleAnimNextPort(true); animNode.RefreshVisuals();
                         }
                     }
+                    if (!string.IsNullOrEmpty(dnd.SceneSyncNodeID) && nodeDict.TryGetValue(dnd.SceneSyncNodeID, out var sceneNode))
+                    {
+                        var scenePort = nodeView.outputContainer.Query<Port>().ToList().FirstOrDefault(p => p.portName == ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр."));
+                        if (scenePort != null && sceneNode.InputPort != null)
+                        {
+                            AddElement(ConnectPorts(scenePort, sceneNode.InputPort));
+                            if (sceneNode.Data is SceneSettingsNodeData scD) scD.SyncWithDialogue = true;
+                            if (sceneNode.OutputPort != null) sceneNode.OutputPort.style.display = DisplayStyle.None;
+                            sceneNode.RefreshVisuals();
+                        }
+                    }
+
                 }
 
-                if (nodeView.Data.NodeType == ENodeType.Branch || nodeView.Data.NodeType == ENodeType.Condition || nodeView.Data.NodeType == ENodeType.Random)
+                if (nodeView.Data is BranchNodeData bnd)
                 {
                     var ports = nodeView.outputContainer.Query<Port>().ToList();
-                    for (int i = 0; i < nodeView.Data.Choices.Count; i++)
+                    for (int i = 0; i < bnd.Choices.Count; i++) { if (i < ports.Count && !string.IsNullOrEmpty(bnd.Choices[i].NextNodeID) && nodeDict.TryGetValue(bnd.Choices[i].NextNodeID, out var targetNode)) { if (targetNode.InputPort != null) AddElement(ConnectPorts(ports[i], targetNode.InputPort)); } }
+                }
+                else if (nodeView.Data is ConditionNodeData cnd)
+                {
+                    var ports = nodeView.outputContainer.Query<Port>().ToList();
+                    for (int i = 0; i < cnd.Choices.Count; i++) { if (i < ports.Count && !string.IsNullOrEmpty(cnd.Choices[i].NextNodeID) && nodeDict.TryGetValue(cnd.Choices[i].NextNodeID, out var targetNode)) { if (targetNode.InputPort != null) AddElement(ConnectPorts(ports[i], targetNode.InputPort)); } }
+                }
+                else if (nodeView.Data is RandomNodeData rnd)
+                {
+                    var ports = nodeView.outputContainer.Query<Port>().ToList();
+                    for (int i = 0; i < rnd.Choices.Count; i++) { if (i < ports.Count && !string.IsNullOrEmpty(rnd.Choices[i].NextNodeID) && nodeDict.TryGetValue(rnd.Choices[i].NextNodeID, out var targetNode)) { if (targetNode.InputPort != null) AddElement(ConnectPorts(ports[i], targetNode.InputPort)); } }
+                }
+                else if (nodeView.Data.NodeType == ENodeType.CustomDLC)
+                {
+                    var outFields = DLCCache.GetOutputFields(nodeView.Data.GetType());
+                    if (outFields.Count > 0)
                     {
-                        if (i < ports.Count && !string.IsNullOrEmpty(nodeView.Data.Choices[i].NextNodeID) && nodeDict.TryGetValue(nodeView.Data.Choices[i].NextNodeID, out var targetNode))
+                        foreach (var field in outFields)
                         {
-                            if (targetNode.InputPort != null) AddElement(ConnectPorts(ports[i], targetNode.InputPort));
+                            string targetId = (string)field.GetValue(nodeView.Data);
+                            if (!string.IsNullOrEmpty(targetId) && nodeDict.TryGetValue(targetId, out var tNode))
+                            {
+                                var attr = (NovellaDLCOutputAttribute)field.GetCustomAttributes(typeof(NovellaDLCOutputAttribute), false).First();
+                                var outPort = nodeView.outputContainer.Query<Port>().ToList().FirstOrDefault(p => p.portName == attr.PortName);
+
+                                if (outPort == null) outPort = nodeView.outputContainer.Q<Port>();
+
+                                if (outPort != null && tNode.InputPort != null) AddElement(ConnectPorts(outPort, tNode.InputPort));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var nextNodeField = nodeView.Data.GetType().GetField("NextNodeID");
+                        if (nextNodeField != null && nextNodeField.FieldType == typeof(string))
+                        {
+                            string currentNextId = (string)nextNodeField.GetValue(nodeView.Data);
+                            if (!string.IsNullOrEmpty(currentNextId) && nodeDict.TryGetValue(currentNextId, out var tNode))
+                            {
+                                var outPort = nodeView.outputContainer.Q<Port>();
+                                if (outPort != null && tNode.InputPort != null) AddElement(ConnectPorts(outPort, tNode.InputPort));
+                            }
                         }
                     }
                 }
                 else
                 {
-                    if (!string.IsNullOrEmpty(nodeView.Data.NextNodeID) && nodeDict.TryGetValue(nodeView.Data.NextNodeID, out var targetNode))
-                        if (nodeView.OutputPort != null && targetNode.InputPort != null) AddElement(ConnectPorts(nodeView.OutputPort, targetNode.InputPort));
+                    var nextNodeField = nodeView.Data.GetType().GetField("NextNodeID");
+                    if (nextNodeField != null && nextNodeField.FieldType == typeof(string))
+                    {
+                        string currentNextId = (string)nextNodeField.GetValue(nodeView.Data);
+                        if (!string.IsNullOrEmpty(currentNextId) && nodeDict.TryGetValue(currentNextId, out var tNode))
+                        {
+                            var outPort = nodeView.outputContainer.Q<Port>();
+                            if (outPort != null && tNode.InputPort != null)
+                            {
+                                AddElement(ConnectPorts(outPort, tNode.InputPort));
+                            }
+                        }
+                    }
                 }
             }
         }
