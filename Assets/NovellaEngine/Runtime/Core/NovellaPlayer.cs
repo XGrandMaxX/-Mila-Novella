@@ -2,8 +2,8 @@
 /// ОТВЕЧАЕТ ЗА:
 /// 1. Обработку всех нод Графа во время игры (PlayNode).
 /// 2. Отображение текста на UI и управление массовкой.
-/// 3. Систему Сохранения и Загрузки игры (SaveGame / LoadGame).
-/// 4. Поддержку DLC (маршрутизация делегатов OnExecuteDLCNode и умный Pass-through).
+/// 3. Систему Сохранения (Автосейвы и Чекпоинты).
+/// 4. Поддержку DLC (выполнение через интерфейс INovellaDLCExecutable).
 /// </summary>
 using System.Collections;
 using System.Collections.Generic;
@@ -48,7 +48,6 @@ namespace NovellaEngine.Runtime
 
         private NovellaPoolManager _poolManager;
 
-        // ПОЛИМОРФНАЯ БАЗА
         private NovellaNodeBase _currentNodeBase;
         private DialogueNodeData _currentDialogue;
 
@@ -64,7 +63,6 @@ namespace NovellaEngine.Runtime
         private TMP_Text _defaultDialogueBodyText;
         private GameObject _currentCustomFrame;
 
-        // === ОЖИДАНИЕ И ИНДИКАТОР КЛИКА ===
         private bool _isWaitNodeActive = false;
         private WaitNodeData _currentWaitNode;
         private Coroutine _waitNodeCoroutine;
@@ -73,10 +71,11 @@ namespace NovellaEngine.Runtime
         private Coroutine _saveNotifCoroutine;
 
         private bool _isFastForwarding = false;
+        private float _autoSaveTimer = 0f;
 
         private void Start()
         {
-            if (FindAnyObjectByType<AudioListener>() == null && Camera.main != null)
+            if (FindFirstObjectByType<AudioListener>() == null && Camera.main != null)
                 Camera.main.gameObject.AddComponent<AudioListener>();
 
             _poolManager = gameObject.GetComponent<NovellaPoolManager>();
@@ -93,39 +92,46 @@ namespace NovellaEngine.Runtime
                 if (tempWait != null) Destroy(tempWait.gameObject);
             }
 
-            int loadSlot = PlayerPrefs.GetInt("NovellaEngine_LoadSlotRequest", -1);
-            if (loadSlot != -1)
-            {
-                PlayerPrefs.SetInt("NovellaEngine_LoadSlotRequest", -1);
-                LoadGame(loadSlot);
-                return;
-            }
-
             InitializeVariables();
 
-            string chapterName = PlayerPrefs.GetString("SelectedChapterPath", "");
-            if (!string.IsNullOrEmpty(chapterName))
-            {
-                PlayerPrefs.SetString("SelectedChapterPath", "");
-                NovellaTree externalTree = Resources.Load<NovellaTree>("Chapters/" + chapterName);
-                if (externalTree != null)
-                {
-                    PlayTree(externalTree);
-                    return;
-                }
-                else Debug.LogError($"[Novella Engine] Chapter '{chapterName}' not found in Resources/Chapters/ !");
-            }
+            string targetNodeID = PlayerPrefs.GetString("LoadTargetNodeID", "");
 
-            if (StoryTree != null) PlayTree(StoryTree);
-            else Debug.LogWarning("[NovellaPlayer] Story Tree is not assigned!");
+            if (!string.IsNullOrEmpty(targetNodeID) && StoryTree != null)
+            {
+                Debug.Log($"[NovellaPlayer] Загрузка сохраненной игры. Нода: {targetNodeID}");
+
+                var saveData = NovellaSaveManager.LoadVariables(StoryTree.name);
+                if (saveData != null)
+                {
+                    _currentLineIndex = saveData.CurrentLineIndex;
+                }
+
+                ClearCharacters();
+
+                _isFastForwarding = true;
+                PlayNode(targetNodeID);
+                _isFastForwarding = false;
+            }
+            else if (StoryTree != null)
+            {
+                Debug.Log("[NovellaPlayer] Старт новой игры.");
+                PlayTree(StoryTree);
+            }
+            else
+            {
+                Debug.LogWarning("[NovellaPlayer] Story Tree is not assigned!");
+            }
         }
 
-        public void SaveGame(int slotIndex)
+        private void SaveProgress()
         {
             if (_currentNodeBase == null || StoryTree == null) return;
-            NovellaSaveManager.SaveGame(slotIndex, StoryTree, _currentNodeBase.NodeID, _currentLineIndex);
 
-            if (SaveNotification != null)
+            if (_currentNodeBase.NodeType == ENodeType.End) return;
+
+            NovellaSaveManager.SaveGame(StoryTree.name, _currentNodeBase.NodeID, _currentLineIndex);
+
+            if (SaveNotification != null && !_isFastForwarding)
             {
                 if (_saveNotifCoroutine != null) StopCoroutine(_saveNotifCoroutine);
                 _saveNotifCoroutine = StartCoroutine(ShowSaveNotification());
@@ -154,31 +160,6 @@ namespace NovellaEngine.Runtime
             }
             cg.alpha = 0f;
             SaveNotification.SetActive(false);
-        }
-
-        public void LoadGame(int slotIndex)
-        {
-            NovellaSaveData data = NovellaSaveManager.GetSaveData(slotIndex);
-            if (data == null) { Debug.LogError($"[Novella Save] Slot {slotIndex} is empty or corrupted."); return; }
-
-            IntVars.Clear(); BoolVars.Clear(); StringVars.Clear();
-            for (int i = 0; i < data.IntKeys.Count; i++) IntVars[data.IntKeys[i]] = data.IntValues[i];
-            for (int i = 0; i < data.BoolKeys.Count; i++) BoolVars[data.BoolKeys[i]] = data.BoolValues[i];
-            for (int i = 0; i < data.StringKeys.Count; i++) StringVars[data.StringKeys[i]] = data.StringValues[i];
-
-            if (StoryTree == null || StoryTree.name != data.ChapterName)
-            {
-                NovellaTree newTree = Resources.Load<NovellaTree>("Chapters/" + data.ChapterName);
-                if (newTree == null) { Debug.LogError($"[Novella Save] Tree {data.ChapterName} not found in Resources/Chapters/"); return; }
-                StoryTree = newTree;
-            }
-
-            ClearCharacters();
-
-            _isFastForwarding = true;
-            _currentLineIndex = data.CurrentLineIndex;
-            PlayNode(data.CurrentNodeID);
-            _isFastForwarding = false;
         }
 
         private void InitializeVariables()
@@ -268,28 +249,19 @@ namespace NovellaEngine.Runtime
             _currentNodeBase = StoryTree.Nodes.FirstOrDefault(n => n.NodeID == nodeID);
             if (_currentNodeBase == null) return;
 
-            // === ФИКС 1: УМНЫЙ ПРОПУСК ВЫКЛЮЧЕННОГО DLC ===
             if (_currentNodeBase.NodeType == ENodeType.CustomDLC)
             {
-                var settings = NovellaDLCSettings.GetOrCreateSettings();
-                if (!settings.IsDLCEnabled(_currentNodeBase.GetType().FullName))
+                var settings = NovellaDLCSettings.Instance;
+                if (settings != null && !settings.IsDLCEnabled(_currentNodeBase.GetType().FullName))
                 {
-                    // Ищем первое поле с атрибутом вывода
-                    var outputField = _currentNodeBase.GetType().GetFields()
-                        .FirstOrDefault(f => f.GetCustomAttributes(typeof(NovellaDLCOutputAttribute), false).Length > 0);
-
+                    var outFields = DLCCache.GetOutputFields(_currentNodeBase.GetType());
                     string nextNodeID = "";
-                    if (outputField != null)
-                    {
-                        nextNodeID = (string)outputField.GetValue(_currentNodeBase);
-                    }
+                    if (outFields.Count > 0) nextNodeID = (string)outFields.First().GetValue(_currentNodeBase);
                     else
                     {
-                        // Резервный вариант, если забыли атрибут
                         var fallbackField = _currentNodeBase.GetType().GetField("NextNodeID");
                         if (fallbackField != null) nextNodeID = (string)fallbackField.GetValue(_currentNodeBase);
                     }
-
                     PlayNode(nextNodeID);
                     return;
                 }
@@ -310,6 +282,7 @@ namespace NovellaEngine.Runtime
             else if (_currentNodeBase is SceneSettingsNodeData bgData) ProcessSceneSettingsNode(bgData);
             else if (_currentNodeBase is AnimationNodeData animData) ProcessAnimationNode(animData);
             else if (_currentNodeBase is EventBroadcastNodeData ebData) ProcessEventBroadcastNode(ebData);
+            else if (_currentNodeBase is SaveNodeData saveData) ProcessSaveNode(saveData);
             else if (_currentNodeBase is EndNodeData endData) ProcessEndNode(endData);
             else if (_currentNodeBase.NodeType == ENodeType.CustomDLC)
             {
@@ -323,6 +296,16 @@ namespace NovellaEngine.Runtime
                     OnExecuteDLCNode?.Invoke(this, _currentNodeBase);
                 }
             }
+        }
+
+        private void ProcessSaveNode(SaveNodeData saveData)
+        {
+            if (!_isFastForwarding)
+            {
+                _autoSaveTimer = 0f;
+                SaveProgress();
+            }
+            PlayNode(saveData.NextNodeID);
         }
 
         private void ProcessEventBroadcastNode(EventBroadcastNodeData ebData)
@@ -718,6 +701,7 @@ namespace NovellaEngine.Runtime
                 yield return null;
             }
         }
+
         private void ProcessConditionNode(ConditionNodeData condData)
         {
             bool isTrue = CheckConditions(condData.Conditions);
@@ -802,8 +786,23 @@ namespace NovellaEngine.Runtime
             if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
             if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
 
+            if (StoryTree != null)
+            {
+                PlayerPrefs.SetInt($"NovellaSave_{StoryTree.name}_Completed", 1);
+                PlayerPrefs.Save();
+                Debug.Log($"[NovellaPlayer] История {StoryTree.name} завершена!");
+            }
+
             if (endData.EndAction == EEndAction.QuitGame) Application.Quit();
+            else if (endData.EndAction == EEndAction.ReturnToMainMenu)
+            {
+                UnityEngine.SceneManagement.SceneManager.LoadScene(0);
+            }
             else if (endData.EndAction == EEndAction.LoadNextChapter && endData.NextChapter != null) PlayTree(endData.NextChapter);
+            else if (endData.EndAction == EEndAction.LoadSpecificScene && !string.IsNullOrEmpty(endData.TargetSceneName))
+            {
+                UnityEngine.SceneManagement.SceneManager.LoadScene(endData.TargetSceneName);
+            }
         }
 
         private void ProcessDialogueLine()
@@ -870,6 +869,16 @@ namespace NovellaEngine.Runtime
 
         private void Update()
         {
+            if (StoryTree != null && StoryTree.EnableAutoSave && !_isFastForwarding)
+            {
+                _autoSaveTimer += Time.deltaTime;
+                if (_autoSaveTimer >= StoryTree.AutoSaveInterval)
+                {
+                    _autoSaveTimer = 0f;
+                    SaveProgress();
+                }
+            }
+
             bool advance = false;
 
 #if ENABLE_INPUT_SYSTEM
@@ -880,12 +889,16 @@ namespace NovellaEngine.Runtime
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (Keyboard.current != null && Keyboard.current.f5Key.wasPressedThisFrame)
             {
-                SaveGame(1); Debug.Log("[NovellaEngine] QuickSave to Slot 1");
+                SaveProgress(); Debug.Log("[NovellaEngine] QuickSave!");
             }
             if (Keyboard.current != null && Keyboard.current.f9Key.wasPressedThisFrame)
             {
-                if (NovellaSaveManager.HasSave(1)) { LoadGame(1); Debug.Log("[NovellaEngine] QuickLoad from Slot 1"); }
-                else Debug.LogWarning("[NovellaEngine] No save found in Slot 1!");
+                if (PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node"))
+                {
+                    PlayerPrefs.SetString("LoadTargetNodeID", PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_Node"));
+                    UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+                    Debug.Log("[NovellaEngine] QuickLoad!");
+                }
             }
 #endif
 
@@ -895,12 +908,15 @@ namespace NovellaEngine.Runtime
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (Input.GetKeyDown(KeyCode.F5)) 
             { 
-                SaveGame(1); Debug.Log("[NovellaEngine] QuickSave to Slot 1"); 
+                SaveProgress(); Debug.Log("[NovellaEngine] QuickSave!"); 
             }
             if (Input.GetKeyDown(KeyCode.F9)) 
             { 
-                if (NovellaSaveManager.HasSave(1)) { LoadGame(1); Debug.Log("[NovellaEngine] QuickLoad from Slot 1"); }
-                else Debug.LogWarning("[NovellaEngine] No save found in Slot 1!");
+                if (PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node")) {
+                    PlayerPrefs.SetString("LoadTargetNodeID", PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_Node"));
+                    UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+                    Debug.Log("[NovellaEngine] QuickLoad!");
+                }
             }
 #endif
 
@@ -1071,7 +1087,7 @@ namespace NovellaEngine.Runtime
             {
                 if (line.Speaker != null && !charConfigs.ContainsKey(line.Speaker.CharacterID))
                 {
-                    charConfigs[line.Speaker.CharacterID] = new CharacterInDialogue { CharacterAsset = line.Speaker, Plane = ECharacterPlane.Speaker, Scale = 1.0f, Emotion = "Default", PosX = 0f, PosY = 0f, PositionPreset = ECharacterPosition.Center };
+                    charConfigs[line.Speaker.CharacterID] = new CharacterInDialogue { CharacterAsset = line.Speaker, Plane = ECharacterPlane.Speaker, Scale = 1.0f, Emotion = "Default", PosX = 0f, PosY = 0f, PositionPreset = ECharacterPosition.Center, FlipX = false, FlipY = false };
                 }
             }
 
@@ -1094,8 +1110,10 @@ namespace NovellaEngine.Runtime
                     string emotionToSet = config.Emotion;
 
                     float baseX = 0f;
-                    if (config.PositionPreset == ECharacterPosition.Left) baseX = -5.5f;
-                    else if (config.PositionPreset == ECharacterPosition.Right) baseX = 5.5f;
+                    if (config.PositionPreset == ECharacterPosition.Left) baseX = -3.5f;
+                    else if (config.PositionPreset == ECharacterPosition.Right) baseX = 3.5f;
+                    else if (config.PositionPreset == ECharacterPosition.FarLeft) baseX = -6.5f;
+                    else if (config.PositionPreset == ECharacterPosition.FarRight) baseX = 6.5f;
                     else if (config.PositionPreset == ECharacterPosition.Custom) baseX = config.PosX;
 
                     if (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID)
@@ -1105,8 +1123,10 @@ namespace NovellaEngine.Runtime
                         {
                             renderer.sortingOrder = (int)currentLine.SpeakerPlane;
                             float activeX = 0f;
-                            if (currentLine.SpeakerPositionPreset == ECharacterPosition.Left) activeX = -5.5f;
-                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Right) activeX = 5.5f;
+                            if (currentLine.SpeakerPositionPreset == ECharacterPosition.Left) activeX = -3.5f;
+                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Right) activeX = 3.5f;
+                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarLeft) activeX = -6.5f;
+                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarRight) activeX = 6.5f;
                             else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Custom) activeX = currentLine.SpeakerPosX;
 
                             entity.transform.localScale = Vector3.one * (config.Scale * currentLine.SpeakerScale);
@@ -1134,16 +1154,9 @@ namespace NovellaEngine.Runtime
 
                     renderer.sprite = targetSprite;
 
-                    if (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID)
-                    {
-                        renderer.flipX = currentLine.FlipX;
-                        renderer.flipY = currentLine.FlipY;
-                    }
-                    else
-                    {
-                        renderer.flipX = false;
-                        renderer.flipY = false;
-                    }
+                    bool isSpeaker = (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID);
+                    renderer.flipX = isSpeaker ? (config.FlipX ^ currentLine.FlipX) : config.FlipX;
+                    renderer.flipY = isSpeaker ? (config.FlipY ^ currentLine.FlipY) : config.FlipY;
                 }
 
                 bool shouldHide = false;

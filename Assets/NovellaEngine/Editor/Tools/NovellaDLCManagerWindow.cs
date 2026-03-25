@@ -2,99 +2,255 @@
 using UnityEditor;
 using NovellaEngine.Data;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace NovellaEngine.Editor
 {
     public class NovellaDLCManagerWindow : EditorWindow
     {
         private Vector2 _scrollPos;
+        private int _currentTab = 0;
+        private string[] _tabs;
+
+        private Dictionary<string, bool> _expandedStates = new Dictionary<string, bool>();
+
+        private class DLCItem
+        {
+            public string SystemName;
+            public string MenuName;
+            public string Version;
+            public string HexColor;
+            public string Description;
+            public bool IsTrashed;
+            public System.Type ClassType;
+        }
 
         public static void ShowWindow()
         {
             var win = GetWindow<NovellaDLCManagerWindow>(ToolLang.Get("DLC Manager", "Менеджер DLC"));
-            win.minSize = new Vector2(450, 400);
+            win.minSize = new Vector2(450, 450);
+
             win.ShowUtility();
+            win.Focus();
+        }
+
+        private void OnEnable()
+        {
+            _tabs = new string[] { "🧩 " + ToolLang.Get("Active Modules", "Активные модули"), "🗑 " + ToolLang.Get("Trash Bin", "Корзина") };
         }
 
         private void OnGUI()
         {
             GUILayout.Space(10);
-            GUILayout.Label("🧩 " + ToolLang.Get("Installed DLC Modules", "Установленные модули DLC"), new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter });
+            _currentTab = GUILayout.Toolbar(_currentTab, _tabs, GUILayout.Height(30));
             GUILayout.Space(10);
 
-            var settings = NovellaDLCSettings.Instance;
-            var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
-                .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0)
-                .ToList();
+            _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
-            if (dlcTypes.Count == 0)
+            List<DLCItem> allDLCs = GetAllDLCs();
+
+            if (_currentTab == 0) DrawActiveDLCs(allDLCs.Where(d => !d.IsTrashed).ToList());
+            else DrawTrashBin(allDLCs.Where(d => d.IsTrashed).ToList());
+
+            GUILayout.EndScrollView();
+        }
+
+        private List<DLCItem> GetAllDLCs()
+        {
+            List<DLCItem> list = new List<DLCItem>();
+            var settings = NovellaDLCSettings.Instance;
+
+            var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
+                .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0);
+
+            foreach (var type in dlcTypes)
             {
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "No DLC modules found.\n\nTo install a DLC, simply import its .unitypackage into the project. The engine will detect it automatically!",
-                    "Модули DLC не найдены.\n\nЧтобы установить DLC, просто импортируйте его .unitypackage в проект. Движок найдет его автоматически!"
-                ), MessageType.Info);
+                var attr = (NovellaDLCNodeAttribute)type.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).First();
+                bool trashed = settings.IsDLCTrashed(type.FullName);
+
+                list.Add(new DLCItem
+                {
+                    SystemName = type.FullName,
+                    MenuName = attr.MenuName,
+                    Version = attr.Version,
+                    HexColor = attr.HexColor,
+                    Description = attr.Description,
+                    IsTrashed = trashed,
+                    ClassType = type
+                });
+            }
+
+            return list.OrderBy(d => d.MenuName).ToList();
+        }
+
+        private void DrawActiveDLCs(List<DLCItem> activeList)
+        {
+            var settings = NovellaDLCSettings.Instance;
+
+            if (activeList.Count == 0)
+            {
+                EditorGUILayout.HelpBox(ToolLang.Get("No active DLC modules found.", "Активные модули DLC не найдены."), MessageType.Info);
                 return;
             }
 
             GUIStyle helpStyle = new GUIStyle(EditorStyles.helpBox) { richText = true, fontSize = 12 };
             GUILayout.Label(ToolLang.Get(
-                "<b>Graceful Degradation (Pass-through)</b>\nIf you disable a DLC here, its nodes will be hidden from the Creation Menu, grayed out on the Graph, and locked in the Inspector. In the game, the player will simply <b>skip</b> these nodes!",
-                "<b>Умный пропуск (Pass-through)</b>\nПри выключении DLC, его ноды пропадут из меню, заблокируются в Инспекторе и станут прозрачными. В игре плеер <b>проскочит</b> эти ноды насквозь!"
+                "<b>Graceful Degradation (Pass-through)</b>\nIf disabled, the player will simply <b>skip</b> these nodes in the game!\n<i>Click on a module name to see its description.</i>",
+                "<b>Умный пропуск (Pass-through)</b>\nПри выключении, в игре плеер <b>проскочит</b> эти ноды насквозь!\n<i>Нажмите на имя модуля, чтобы прочитать описание.</i>"
             ), helpStyle);
 
             GUILayout.Space(10);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button(ToolLang.Get("Enable All", "Включить всё"), EditorStyles.miniButtonLeft, GUILayout.Height(25))) ToggleAll(dlcTypes, settings, true);
-            if (GUILayout.Button(ToolLang.Get("Disable All", "Выключить всё"), EditorStyles.miniButtonRight, GUILayout.Height(25))) ToggleAll(dlcTypes, settings, false);
+            if (GUILayout.Button(ToolLang.Get("Enable All", "Включить всё"), EditorStyles.miniButtonLeft, GUILayout.Height(25))) { foreach (var d in activeList) settings.SetDLCState(d.SystemName, true); RefreshGraphs(); }
+            if (GUILayout.Button(ToolLang.Get("Disable All", "Выключить всё"), EditorStyles.miniButtonRight, GUILayout.Height(25))) { foreach (var d in activeList) settings.SetDLCState(d.SystemName, false); RefreshGraphs(); }
             GUILayout.EndHorizontal();
             GUILayout.Space(10);
 
-            _scrollPos = GUILayout.BeginScrollView(_scrollPos);
+            var activeGraph = Resources.FindObjectsOfTypeAll<NovellaGraphWindow>().FirstOrDefault();
+            NovellaTree currentTree = activeGraph != null ? activeGraph.GetType().GetField("_currentTree", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(activeGraph) as NovellaTree : null;
 
-            foreach (var type in dlcTypes)
+            foreach (var item in activeList)
             {
-                var attr = (NovellaDLCNodeAttribute)type.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).First();
-                string dlcID = type.FullName;
-                bool isEnabled = settings.IsDLCEnabled(dlcID);
+                bool isEnabled = settings.IsDLCEnabled(item.SystemName);
 
                 GUILayout.BeginVertical(EditorStyles.helpBox);
                 GUILayout.BeginHorizontal();
 
-                ColorUtility.TryParseHtmlString(attr.HexColor, out Color dlcColor);
+                ColorUtility.TryParseHtmlString(item.HexColor, out Color dlcColor);
                 GUI.color = isEnabled ? dlcColor : Color.gray;
-                string checkIcon = isEnabled ? "✔" : "✖";
-                GUILayout.Label(checkIcon, EditorStyles.boldLabel, GUILayout.Width(20));
+                GUILayout.Label(isEnabled ? "✔" : "✖", EditorStyles.boldLabel, GUILayout.Width(20));
                 GUI.color = Color.white;
 
-                GUILayout.Label(attr.MenuName, new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = isEnabled ? Color.white : Color.gray } });
+                bool hasDescription = !string.IsNullOrWhiteSpace(item.Description);
+                bool isExpanded = hasDescription && _expandedStates.TryGetValue(item.SystemName, out bool exp) && exp;
+
+                GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = isEnabled ? Color.white : Color.gray } };
+
+                if (hasDescription)
+                {
+                    nameStyle.hover.textColor = Color.white;
+                    string arrow = isExpanded ? "▼ " : "▶ ";
+                    if (GUILayout.Button(arrow + item.MenuName, nameStyle, GUILayout.ExpandWidth(false)))
+                    {
+                        _expandedStates[item.SystemName] = !isExpanded;
+                    }
+                }
+                else
+                {
+                    GUILayout.Label(item.MenuName, nameStyle, GUILayout.ExpandWidth(false));
+                }
+
+                if (currentTree != null && item.ClassType != null)
+                {
+                    int count = currentTree.Nodes.Count(n => n.GetType() == item.ClassType);
+                    if (count > 0) GUILayout.Label($"({count} {ToolLang.Get("nodes", "нод")})", EditorStyles.miniBoldLabel);
+                }
+
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"v. {attr.Version}", EditorStyles.miniLabel);
+                GUILayout.Label($"v. {item.Version}", EditorStyles.miniLabel);
 
                 EditorGUI.BeginChangeCheck();
                 bool newEnabled = EditorGUILayout.Toggle(isEnabled, GUILayout.Width(20));
                 if (EditorGUI.EndChangeCheck())
                 {
-                    settings.SetDLCState(dlcID, newEnabled);
+                    settings.SetDLCState(item.SystemName, newEnabled);
                     RefreshGraphs();
                 }
 
-                if (GUILayout.Button("🗑", EditorStyles.miniButton, GUILayout.Width(30))) DeleteDLC(type, attr);
+                if (GUILayout.Button("🗑", EditorStyles.miniButton, GUILayout.Width(30)))
+                {
+                    settings.SetDLCTrashed(item.SystemName, true);
+                    RefreshGraphs();
+                }
 
                 GUILayout.EndHorizontal();
 
+                if (isExpanded)
+                {
+                    GUILayout.Space(2);
+                    GUILayout.Label(item.Description, new GUIStyle(EditorStyles.helpBox) { wordWrap = true, fontSize = 11, normal = { textColor = new Color(0.85f, 0.85f, 0.85f) } });
+                }
+
                 GUILayout.Space(5);
-                GUILayout.Label(ToolLang.Get("System Name: ", "Системное имя: ") + type.Name, EditorStyles.centeredGreyMiniLabel);
+                GUILayout.Label(ToolLang.Get("System Name: ", "Системное имя: ") + item.SystemName, EditorStyles.centeredGreyMiniLabel);
                 GUILayout.EndVertical();
                 GUILayout.Space(5);
             }
-
-            GUILayout.EndScrollView();
         }
 
-        private void ToggleAll(System.Collections.Generic.List<System.Type> dlcTypes, NovellaDLCSettings settings, bool state)
+        private void DrawTrashBin(List<DLCItem> trashedList)
         {
-            foreach (var type in dlcTypes) settings.SetDLCState(type.FullName, state);
-            RefreshGraphs();
+            var settings = NovellaDLCSettings.Instance;
+
+            if (trashedList.Count == 0)
+            {
+                EditorGUILayout.HelpBox(ToolLang.Get("Trash bin is empty.", "Корзина пуста."), MessageType.Info);
+                return;
+            }
+
+            EditorGUILayout.HelpBox(ToolLang.Get("These modules are virtually deleted and hidden from your project. Click 'Restore' to bring them back or 'Delete' to permanently remove their scripts.", "Эти модули виртуально удалены и скрыты из графов. Нажмите 'Восстановить', чтобы вернуть их, или 'Удалить', чтобы навсегда стереть их скрипты."), MessageType.Warning);
+            GUILayout.Space(10);
+
+            foreach (var item in trashedList)
+            {
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+                GUILayout.BeginHorizontal();
+
+                GUI.color = Color.gray;
+                GUILayout.Label("✖", EditorStyles.boldLabel, GUILayout.Width(20));
+                GUI.color = Color.white;
+
+                bool hasDescription = !string.IsNullOrWhiteSpace(item.Description);
+                bool isExpanded = hasDescription && _expandedStates.TryGetValue(item.SystemName, out bool exp) && exp;
+
+                GUIStyle trashNameStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.7f, 0.7f, 0.7f) } };
+
+                if (hasDescription)
+                {
+                    trashNameStyle.hover.textColor = Color.white;
+                    string arrow = isExpanded ? "▼ " : "▶ ";
+                    if (GUILayout.Button(arrow + item.MenuName, trashNameStyle, GUILayout.ExpandWidth(false)))
+                    {
+                        _expandedStates[item.SystemName] = !isExpanded;
+                    }
+                }
+                else
+                {
+                    GUILayout.Label(item.MenuName, trashNameStyle, GUILayout.ExpandWidth(false));
+                }
+
+                GUILayout.FlexibleSpace();
+
+                GUI.backgroundColor = new Color(0.4f, 0.8f, 0.4f);
+                if (GUILayout.Button("♻ " + ToolLang.Get("Restore", "Восстановить"), EditorStyles.miniButtonLeft, GUILayout.Width(100)))
+                {
+                    settings.SetDLCTrashed(item.SystemName, false);
+                    RefreshGraphs();
+                }
+
+                GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                if (GUILayout.Button("🗑 " + ToolLang.Get("Delete", "Удалить"), EditorStyles.miniButtonRight, GUILayout.Width(80)))
+                {
+                    if (EditorUtility.DisplayDialog("Delete", ToolLang.Get($"Delete '{item.MenuName}' permanently?", $"Навсегда удалить скрипт '{item.MenuName}'?"), ToolLang.Get("Yes", "Да"), ToolLang.Get("No", "Нет")))
+                    {
+                        DeletePermanently(item);
+                    }
+                }
+                GUI.backgroundColor = Color.white;
+
+                GUILayout.EndHorizontal();
+
+                if (isExpanded)
+                {
+                    GUILayout.Space(2);
+                    GUILayout.Label(item.Description, new GUIStyle(EditorStyles.helpBox) { wordWrap = true, fontSize = 11, normal = { textColor = new Color(0.7f, 0.7f, 0.7f) } });
+                }
+
+                GUILayout.Space(5);
+                GUILayout.Label(ToolLang.Get("System Name: ", "Системное имя: ") + item.SystemName, EditorStyles.centeredGreyMiniLabel);
+                GUILayout.EndVertical();
+                GUILayout.Space(5);
+            }
         }
 
         private void RefreshGraphs()
@@ -103,38 +259,23 @@ namespace NovellaEngine.Editor
             foreach (var gw in graphWindows) { gw.RefreshAllNodes(); gw.Repaint(); }
         }
 
-        private void DeleteDLC(System.Type type, NovellaDLCNodeAttribute attr)
+        private void DeletePermanently(DLCItem item)
         {
-            if (EditorUtility.DisplayDialog(
-                ToolLang.Get("Delete DLC?", "Удалить DLC?"),
-                ToolLang.Get(
-                    $"Are you sure you want to permanently delete the '{attr.MenuName}' DLC?\n\nWARNING: All nodes of this type will be REMOVED from all graphs to prevent corruption. Connections will be broken. Backup recommended!",
-                    $"Вы уверены, что хотите навсегда удалить DLC '{attr.MenuName}'?\n\nВНИМАНИЕ: Все ноды этого типа будут УДАЛЕНЫ из всех графов, чтобы не сломать проект. Связи к ним оборвутся. Сделайте бэкап!"
-                ), ToolLang.Get("Yes, Delete", "Да, Удалить"), ToolLang.Get("Cancel", "Отмена")))
+            string[] scriptGuids = AssetDatabase.FindAssets("t:MonoScript " + item.ClassType.Name);
+            foreach (var sGuid in scriptGuids)
             {
-                string[] treeGuids = AssetDatabase.FindAssets("t:NovellaTree");
-                foreach (var guid in treeGuids)
+                string sPath = AssetDatabase.GUIDToAssetPath(sGuid);
+                var script = AssetDatabase.LoadAssetAtPath<MonoScript>(sPath);
+                if (script != null && script.GetClass() == item.ClassType)
                 {
-                    var tree = AssetDatabase.LoadAssetAtPath<NovellaTree>(AssetDatabase.GUIDToAssetPath(guid));
-                    if (tree != null)
-                    {
-                        int removed = tree.Nodes.RemoveAll(n => n.GetType() == type);
-                        if (removed > 0) { EditorUtility.SetDirty(tree); AssetDatabase.SaveAssets(); }
-                    }
-                }
+                    NovellaDLCSettings.Instance.RemoveDLCRecord(item.SystemName);
 
-                string[] scriptGuids = AssetDatabase.FindAssets("t:MonoScript " + type.Name);
-                foreach (var sGuid in scriptGuids)
-                {
-                    string sPath = AssetDatabase.GUIDToAssetPath(sGuid);
-                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(sPath);
-                    if (script != null && script.GetClass() == type)
-                    {
+                    EditorApplication.delayCall += () => {
                         AssetDatabase.DeleteAsset(sPath);
-                        RefreshGraphs();
-                        GUIUtility.ExitGUI();
-                        break;
-                    }
+                        AssetDatabase.Refresh();
+                    };
+                    GUIUtility.ExitGUI();
+                    break;
                 }
             }
         }

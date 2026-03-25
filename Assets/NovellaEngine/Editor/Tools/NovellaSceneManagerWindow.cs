@@ -672,7 +672,7 @@ namespace NovellaEngine.Editor
                 trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
 
                 var txt = textObj.AddComponent<TMPro.TextMeshProUGUI>();
-                txt.text = ToolLang.Get("💾 Game Saved", "💾 Игра сохранена");
+                txt.text = ToolLang.Get("Game Saved", "Игра сохранена");
                 txt.color = new Color(0.6f, 1f, 0.6f);
                 txt.alignment = TMPro.TextAlignmentOptions.Center;
                 txt.fontSize = 20;

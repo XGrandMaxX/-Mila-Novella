@@ -11,7 +11,9 @@ namespace NovellaEngine.Data
     public class NovellaTree : ScriptableObject
     {
         public string RootNodeID;
-        public Vector2 StartPosition = new Vector2(50, 200);
+        public Vector2 StartPosition = new Vector2(50, 200); 
+        public bool EnableAutoSave = false;
+        public float AutoSaveInterval = 30f;
 
         [SerializeReference]
         public List<NovellaNodeBase> Nodes = new List<NovellaNodeBase>();

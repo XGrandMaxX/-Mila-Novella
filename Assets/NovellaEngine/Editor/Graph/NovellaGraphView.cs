@@ -590,13 +590,14 @@ namespace NovellaEngine.Editor
             evt.menu.AppendAction(logicCat + ToolLang.Get("Random (Chance)", "Случайность (Шанс)"), (a) => CreateNode(pos, ENodeType.Random));
             evt.menu.AppendAction(logicCat + ToolLang.Get("Variable / Logic", "Переменная / Логика"), (a) => CreateNode(pos, ENodeType.Variable));
 
-            evt.menu.AppendAction(cineCat + ToolLang.Get("Scene Settings (Bg & Chars)", "Настройки Сцены (Фон/Актеры)"), (a) => CreateNode(pos, ENodeType.SceneSettings));
+            evt.menu.AppendAction(cineCat + ToolLang.Get("Scene Settings (Bg & Chars)", "Настройки Сцены (Фон-Актеры)"), (a) => CreateNode(pos, ENodeType.SceneSettings));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Audio / BGM", "Аудио / Музыка"), (a) => CreateNode(pos, ENodeType.Audio));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Animation / Tween", "Анимация / Эффект"), (a) => CreateNode(pos, ENodeType.Animation));
             evt.menu.AppendAction(cineCat + ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)"), (a) => CreateNode(pos, ENodeType.Wait));
 
             evt.menu.AppendAction(sysCat + ToolLang.Get("Event Broadcast", "Вызов События"), (a) => CreateNode(pos, ENodeType.EventBroadcast));
-            
+            evt.menu.AppendAction(sysCat + ToolLang.Get("Save Game (Auto-Save)", "Сохранить Игру (Автосейв)"), (a) => CreateNode(pos, ENodeType.Save));
+
             if (!selection.OfType<NovellaStartNodeView>().Any()) 
                 evt.menu.AppendAction(sysCat + ToolLang.Get("END Node", "Конец Сцены"), (a) => CreateNode(pos, ENodeType.End));
 
@@ -608,7 +609,6 @@ namespace NovellaEngine.Editor
                 evt.menu.AppendSeparator("");
                 foreach (var type in dlcTypes)
                 {
-                    // ИСПОЛЬЗУЕМ ВАШ DLCSettings ВМЕСТО EditorPrefs
                     var settings = NovellaDLCSettings.GetOrCreateSettings();
                     bool isEnabled = settings.IsDLCEnabled(type.FullName);
 
@@ -687,6 +687,7 @@ namespace NovellaEngine.Editor
                 case ENodeType.SceneSettings: nodeData = new SceneSettingsNodeData(); break;
                 case ENodeType.Animation: nodeData = new AnimationNodeData(); break;
                 case ENodeType.EventBroadcast: nodeData = new EventBroadcastNodeData(); break;
+                case ENodeType.Save: nodeData = new SaveNodeData(); break;
                 case ENodeType.Note: nodeData = new NoteNodeData(); break;
                 case ENodeType.End: nodeData = new EndNodeData(); break;
                 case ENodeType.CustomDLC:
@@ -1001,7 +1002,7 @@ namespace NovellaEngine.Editor
                                 var attr = (NovellaDLCOutputAttribute)field.GetCustomAttributes(typeof(NovellaDLCOutputAttribute), false).First();
                                 var outPort = nodeView.outputContainer.Query<Port>().ToList().FirstOrDefault(p => p.portName == attr.PortName);
 
-                                if (outPort == null) outPort = nodeView.outputContainer.Q<Port>();
+                                outPort ??= nodeView.OutputPort;
 
                                 if (outPort != null && tNode.InputPort != null) AddElement(ConnectPorts(outPort, tNode.InputPort));
                             }
@@ -1015,8 +1016,7 @@ namespace NovellaEngine.Editor
                             string currentNextId = (string)nextNodeField.GetValue(nodeView.Data);
                             if (!string.IsNullOrEmpty(currentNextId) && nodeDict.TryGetValue(currentNextId, out var tNode))
                             {
-                                var outPort = nodeView.outputContainer.Q<Port>();
-                                if (outPort != null && tNode.InputPort != null) AddElement(ConnectPorts(outPort, tNode.InputPort));
+                                if (nodeView.OutputPort != null && tNode.InputPort != null) AddElement(ConnectPorts(nodeView.OutputPort, tNode.InputPort));
                             }
                         }
                     }
@@ -1029,10 +1029,9 @@ namespace NovellaEngine.Editor
                         string currentNextId = (string)nextNodeField.GetValue(nodeView.Data);
                         if (!string.IsNullOrEmpty(currentNextId) && nodeDict.TryGetValue(currentNextId, out var tNode))
                         {
-                            var outPort = nodeView.outputContainer.Q<Port>();
-                            if (outPort != null && tNode.InputPort != null)
+                            if (nodeView.OutputPort != null && tNode.InputPort != null)
                             {
-                                AddElement(ConnectPorts(outPort, tNode.InputPort));
+                                AddElement(ConnectPorts(nodeView.OutputPort, tNode.InputPort));
                             }
                         }
                     }

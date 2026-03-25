@@ -57,6 +57,8 @@ namespace NovellaEngine.Editor
             GUILayout.Label(ToolLang.Get("System", "Система"), EditorStyles.miniBoldLabel);
             DrawTabBtn(ENodeType.EventBroadcast, "⚡", ToolLang.Get("Event Broadcast", "Вызов События"));
 
+            DrawTabBtn(ENodeType.Save, "💾", ToolLang.Get("Save Checkpoint", "Сохранение"));
+
             if (_dlcTypes.Count > 0)
             {
                 GUILayout.Space(20);
@@ -194,6 +196,7 @@ namespace NovellaEngine.Editor
                 case ENodeType.SceneSettings: defaultHex = "#3A5C74"; break;
                 case ENodeType.Animation: defaultHex = "#963E56"; break;
                 case ENodeType.EventBroadcast: defaultHex = "#A88522"; break;
+                case ENodeType.Save: defaultHex = "#2E7D32"; break;
             }
 
             string hex = EditorPrefs.GetString("NovellaColor_" + type.ToString(), defaultHex);
@@ -250,6 +253,7 @@ namespace NovellaEngine.Editor
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.SceneSettings.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Animation.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.EventBroadcast.ToString());
+            EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Save.ToString());
 
 
             if (_dlcTypes != null)

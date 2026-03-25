@@ -20,6 +20,7 @@ namespace NovellaEngine.Data
         string Execute(NovellaPlayer player);
     }
 }
+
 namespace NovellaEngine.Data
 {
     [Serializable]
@@ -27,6 +28,7 @@ namespace NovellaEngine.Data
     {
         public string DLC_ID;
         public bool IsEnabled;
+        public bool IsTrashed;
     }
 
     [CreateAssetMenu(fileName = "NovellaDLCSettings", menuName = "Novella Engine/DLC Settings")]
@@ -54,7 +56,13 @@ namespace NovellaEngine.Data
         public bool IsDLCEnabled(string dlcID)
         {
             var module = Modules.FirstOrDefault(m => m.DLC_ID == dlcID);
-            return module == null || module.IsEnabled;
+            return module == null || (module.IsEnabled && !module.IsTrashed);
+        }
+
+        public bool IsDLCTrashed(string dlcID)
+        {
+            var module = Modules.FirstOrDefault(m => m.DLC_ID == dlcID);
+            return module != null && module.IsTrashed;
         }
 
 #if UNITY_EDITOR
@@ -62,8 +70,29 @@ namespace NovellaEngine.Data
         {
             var module = Modules.FirstOrDefault(m => m.DLC_ID == dlcID);
             if (module != null) module.IsEnabled = isEnabled;
-            else Modules.Add(new DLCState { DLC_ID = dlcID, IsEnabled = isEnabled });
+            else Modules.Add(new DLCState { DLC_ID = dlcID, IsEnabled = isEnabled, IsTrashed = false });
 
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssets();
+        }
+
+        public void SetDLCTrashed(string dlcID, bool isTrashed)
+        {
+            var module = Modules.FirstOrDefault(m => m.DLC_ID == dlcID);
+            if (module != null)
+            {
+                module.IsTrashed = isTrashed;
+                if (isTrashed) module.IsEnabled = false;
+            }
+            else Modules.Add(new DLCState { DLC_ID = dlcID, IsEnabled = false, IsTrashed = isTrashed });
+
+            EditorUtility.SetDirty(this);
+            AssetDatabase.SaveAssets();
+        }
+
+        public void RemoveDLCRecord(string dlcID)
+        {
+            Modules.RemoveAll(m => m.DLC_ID == dlcID);
             EditorUtility.SetDirty(this);
             AssetDatabase.SaveAssets();
         }

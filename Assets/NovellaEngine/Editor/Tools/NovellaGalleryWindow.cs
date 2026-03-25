@@ -19,8 +19,7 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI }
-
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story }
         private enum UndoType { Delete, Move, Copy }
 
         private struct UndoAction
@@ -261,6 +260,11 @@ namespace NovellaEngine.Editor
             bool isPrefab = ext == ".prefab";
             bool isCustomUI = false;
 
+            bool isGraph = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaTree);
+            if (isGraph && formattedFile.Contains("NovellaEngine/Tutorials")) return;
+
+            bool isStory = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaStory);
+
             if (isPrefab && _filterMode == EGalleryFilter.CustomUI)
             {
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(formattedFile);
@@ -274,7 +278,9 @@ namespace NovellaEngine.Editor
                 if (_filterMode == EGalleryFilter.Video && !isVideo) return;
                 if (_filterMode == EGalleryFilter.Prefab && !isPrefab) return;
                 if (_filterMode == EGalleryFilter.CustomUI && !isCustomUI) return;
-                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab)) return;
+                if (_filterMode == EGalleryFilter.Graph && !isGraph) return;
+                if (_filterMode == EGalleryFilter.Story && !isStory) return;
+                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory)) return;
             }
 
             Texture2D tex = null;
@@ -1224,6 +1230,32 @@ namespace NovellaEngine.Editor
             if (GUILayout.Button("OK", GUILayout.Height(30)))
             {
                 if (!string.IsNullOrEmpty(_newName)) _onRename?.Invoke(_newName);
+                Close();
+            }
+        }
+    }
+    public class CreateStoryPopup : EditorWindow
+    {
+        private string _storyName = "My New Story";
+        private Action<string> _onCreate;
+
+        public static void ShowPopup(Action<string> onCreate)
+        {
+            var window = GetWindow<CreateStoryPopup>(true, ToolLang.Get("Create New Story", "Создать новую историю"), true);
+            window._onCreate = onCreate;
+            window.minSize = window.maxSize = new Vector2(300, 90);
+            window.ShowUtility();
+        }
+
+        private void OnGUI()
+        {
+            GUILayout.Space(10);
+            GUILayout.Label(ToolLang.Get("Enter Story Title:", "Введите название истории:"), EditorStyles.boldLabel);
+            _storyName = EditorGUILayout.TextField(_storyName);
+            GUILayout.Space(10);
+            if (GUILayout.Button(ToolLang.Get("✨ Create", "✨ Создать"), GUILayout.Height(30)))
+            {
+                if (!string.IsNullOrEmpty(_storyName)) _onCreate?.Invoke(_storyName);
                 Close();
             }
         }

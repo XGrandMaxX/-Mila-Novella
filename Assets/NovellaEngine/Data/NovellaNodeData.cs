@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace NovellaEngine.Data
 {
-    public enum ENodeType { Dialogue, Branch, Event, End, Character, Audio, Variable, Condition, Note, Random, Wait, SceneSettings, Animation, EventBroadcast, CustomDLC }
+    public enum ENodeType { Dialogue, Branch, Event, End, Character, Audio, Variable, Condition, Note, Random, Wait, SceneSettings, Animation, EventBroadcast, Save, CustomDLC }
     public enum EBgTransition { None, Fade, SlideLeft, SlideRight, FlashWhite, FlashBlack }
     public enum EAnimTarget { Camera, Background, DialogueFrame, Character }
     public enum EAnimType { Shake, Punch, FadeIn, FadeOut, MoveTo, Scale }
@@ -18,7 +18,7 @@ namespace NovellaEngine.Data
     public enum EConditionOperator { Equal, NotEqual, Greater, Less, GreaterOrEqual, LessOrEqual }
     public enum ENoteImageShape { Normal, Square, Circle }
     public enum ENoteImageAlignment { Background, TopLeft, TopCenter, TopRight, Left, Right, BottomLeft, BottomCenter, BottomRight }
-    public enum ECharacterPosition { Center, Left, Right, Custom }
+    public enum ECharacterPosition { Center, Left, Right, FarLeft, FarRight, Custom }
     public enum EFramePosition { Default, Top, Center, Bottom, Custom }
     public enum EWaitMode { Time, UserClick }
 
@@ -31,6 +31,7 @@ namespace NovellaEngine.Data
         public string NodeTitle;
         public string HexColor;
         public string Version;
+        public string Description;
 
         public NovellaDLCNodeAttribute(string menuName, string nodeTitle, string hexColor, string version = "1.0")
         {
@@ -70,7 +71,7 @@ namespace NovellaEngine.Data
     [Serializable] public class ChanceModifier { public string Variable = "Diamond"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; public int BonusWeight = 10; }
     [Serializable] public class DialogueAudioEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public AudioClip AudioAsset; public EAudioAction AudioAction = EAudioAction.Play; public EAudioChannel AudioChannel = EAudioChannel.SFX; [Range(0f, 1f)] public float Volume = 1f; }
     [Serializable] public class NovellaAnimEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public EAnimTarget Target = EAnimTarget.Character; public NovellaCharacter TargetCharacter; public EAnimType AnimType = EAnimType.Shake; public float Duration = 0.5f; public float Strength = 10f; public Vector2 EndVector = Vector2.one; }
-    [Serializable] public class CharacterInDialogue { public NovellaCharacter CharacterAsset; public ECharacterPlane Plane = ECharacterPlane.BackSlot1; public ECharacterPosition PositionPreset = ECharacterPosition.Center; public float Scale = 1.0f; public string Emotion = "Default"; public float PosX = 0f; public float PosY = 0f; public bool IsExpanded = true; }
+    [Serializable] public class CharacterInDialogue { public NovellaCharacter CharacterAsset; public ECharacterPlane Plane = ECharacterPlane.BackSlot1; public ECharacterPosition PositionPreset = ECharacterPosition.Center; public float Scale = 1.0f; public string Emotion = "Default"; public float PosX = 0f; public float PosY = 0f; public bool IsExpanded = true; public bool FlipX = false; public bool FlipY = false; }
 
     [Serializable]
     public class SceneSettingsEvent
@@ -236,6 +237,13 @@ namespace NovellaEngine.Data
         public float WaitTextBlinkSpeed = 2f;
         public float WaitTextPosX = 0f;
         public float WaitTextPosY = -35f;
+        public string NextNodeID;
+    }
+
+    [Serializable]
+    public class SaveNodeData : NovellaNodeBase
+    {
+        public override ENodeType NodeType => ENodeType.Save;
         public string NextNodeID;
     }
 

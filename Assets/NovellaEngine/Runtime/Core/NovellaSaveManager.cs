@@ -1,74 +1,62 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
-using NovellaEngine.Data;
+using System.Linq;
 
 namespace NovellaEngine.Runtime
 {
-    [Serializable]
+    [System.Serializable]
     public class NovellaSaveData
     {
-        public string SaveDate;
-        public string ChapterName;
-        public string CurrentNodeID;
-        public int CurrentLineIndex;
+        public int CurrentLineIndex = 0;
 
-        public List<string> IntKeys = new();
-        public List<int> IntValues = new();
-
-        public List<string> BoolKeys = new();
-        public List<bool> BoolValues = new();
-
-        public List<string> StringKeys = new();
-        public List<string> StringValues = new();
+        public List<string> IntKeys = new List<string>();
+        public List<int> IntValues = new List<int>();
+        public List<string> BoolKeys = new List<string>();
+        public List<bool> BoolValues = new List<bool>();
+        public List<string> StringKeys = new List<string>();
+        public List<string> StringValues = new List<string>();
     }
 
     public static class NovellaSaveManager
     {
-        private const string SAVE_KEY_PREFIX = "NovellaSaveSlot_";
-
-        public static void SaveGame(int slotIndex, NovellaTree currentTree, string currentNodeID, int currentLineIndex)
+        public static void SaveGame(string storyName, string nodeID, int currentLineIndex)
         {
-            if (currentTree == null) return;
+            PlayerPrefs.SetString($"NovellaSave_{storyName}_Node", nodeID);
 
-            NovellaSaveData data = new NovellaSaveData
-            {
-                SaveDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                ChapterName = currentTree.name,
-                CurrentNodeID = currentNodeID,
-                CurrentLineIndex = currentLineIndex
-            };
+            NovellaSaveData data = new NovellaSaveData();
+            data.CurrentLineIndex = currentLineIndex;
 
-            foreach (var kvp in NovellaPlayer.IntVars) { data.IntKeys.Add(kvp.Key); data.IntValues.Add(kvp.Value); }
-            foreach (var kvp in NovellaPlayer.BoolVars) { data.BoolKeys.Add(kvp.Key); data.BoolValues.Add(kvp.Value); }
-            foreach (var kvp in NovellaPlayer.StringVars) { data.StringKeys.Add(kvp.Key); data.StringValues.Add(kvp.Value); }
+            data.IntKeys = NovellaPlayer.IntVars.Keys.ToList();
+            data.IntValues = NovellaPlayer.IntVars.Values.ToList();
+
+            data.BoolKeys = NovellaPlayer.BoolVars.Keys.ToList();
+            data.BoolValues = NovellaPlayer.BoolVars.Values.ToList();
+
+            data.StringKeys = NovellaPlayer.StringVars.Keys.ToList();
+            data.StringValues = NovellaPlayer.StringVars.Values.ToList();
 
             string json = JsonUtility.ToJson(data);
-            PlayerPrefs.SetString(SAVE_KEY_PREFIX + slotIndex, json);
+            PlayerPrefs.SetString($"NovellaSave_{storyName}_Vars", json);
             PlayerPrefs.Save();
-
-            Debug.Log($"[Novella Engine] Game saved in slot {slotIndex} at node {currentNodeID}");
         }
 
-        public static bool HasSave(int slotIndex)
+        public static NovellaSaveData LoadVariables(string storyName)
         {
-            return PlayerPrefs.HasKey(SAVE_KEY_PREFIX + slotIndex);
-        }
+            string json = PlayerPrefs.GetString($"NovellaSave_{storyName}_Vars", "");
+            if (string.IsNullOrEmpty(json)) return null;
 
-        public static NovellaSaveData GetSaveData(int slotIndex)
-        {
-            if (!HasSave(slotIndex)) return null;
-            string json = PlayerPrefs.GetString(SAVE_KEY_PREFIX + slotIndex);
-            return JsonUtility.FromJson<NovellaSaveData>(json);
-        }
+            NovellaSaveData data = JsonUtility.FromJson<NovellaSaveData>(json);
+            if (data == null) return null;
 
-        public static void DeleteSave(int slotIndex)
-        {
-            if (HasSave(slotIndex))
-            {
-                PlayerPrefs.DeleteKey(SAVE_KEY_PREFIX + slotIndex);
-                PlayerPrefs.Save();
-            }
+            NovellaPlayer.IntVars.Clear();
+            NovellaPlayer.BoolVars.Clear();
+            NovellaPlayer.StringVars.Clear();
+
+            for (int i = 0; i < data.IntKeys.Count; i++) NovellaPlayer.IntVars[data.IntKeys[i]] = data.IntValues[i];
+            for (int i = 0; i < data.BoolKeys.Count; i++) NovellaPlayer.BoolVars[data.BoolKeys[i]] = data.BoolValues[i];
+            for (int i = 0; i < data.StringKeys.Count; i++) NovellaPlayer.StringVars[data.StringKeys[i]] = data.StringValues[i];
+
+            return data;
         }
     }
 }

@@ -44,6 +44,12 @@ namespace NovellaEngine.Editor
         private RectTransform _renamingDecoRect;
         private string _renamingDecoName;
 
+        private int _editingGraphIndex = -1;
+        private string _tempGraphName = "";
+
+        private int _editingStoryIndex = -1;
+        private string _tempStoryName = "";
+
         public static void ShowWindow()
         {
             var win = GetWindow<NovellaUIEditorWindow>(ToolLang.Get("UI Master Forge", "Кузница UI"));
@@ -51,12 +57,11 @@ namespace NovellaEngine.Editor
             win.Show();
         }
 
-        // === НОВОЕ: МГНОВЕННЫЙ ПЕРЕХОД ИЗ ИНСПЕКТОРА НОД ===
         public static void OpenWithCustomPrefab(GameObject targetPrefab)
         {
             var win = GetWindow<NovellaUIEditorWindow>(ToolLang.Get("UI Master Forge", "Кузница UI"));
             win.minSize = new Vector2(1200, 700);
-            win._currentTab = 3; // Вкладка Custom UI
+            win._currentTab = 3;
             win._selectedCustomPrefab = targetPrefab;
             win.CleanTempPrefabs();
             win._activeEditRect = null;
@@ -68,8 +73,7 @@ namespace NovellaEngine.Editor
 
         private void OnEnable()
         {
-            _tabs = new string[] { "🎮 " + ToolLang.Get("Game UI", "Игровой UI"), "📱 " + ToolLang.Get("Menu UI", "Меню UI"), "💠 " + ToolLang.Get("System Prefabs", "Системные Префабы"), "✨ " + ToolLang.Get("Custom UI (Frames)", "Кастомный UI (Рамки)") };
-            if (!AssetDatabase.IsValidFolder(_customPrefabsDir)) Directory.CreateDirectory(_customPrefabsDir);
+            _tabs = new string[] { "🎮 " + ToolLang.Get("Game UI", "Игровой UI"), "📱 " + ToolLang.Get("Menu UI", "Меню UI"), "💠 " + ToolLang.Get("System Prefabs", "Системные Префабы"), "🛠 " + ToolLang.Get("Prefab Creator", "Создание Префабов") }; if (!AssetDatabase.IsValidFolder(_customPrefabsDir)) Directory.CreateDirectory(_customPrefabsDir);
             FindReferences();
             EditorApplication.update += OnEditorUpdate;
         }
@@ -104,9 +108,8 @@ namespace NovellaEngine.Editor
                 c.renderMode = RenderMode.ScreenSpaceCamera;
                 c.worldCamera = _camera;
                 c.planeDistance = 5f;
-                c.sortingOrder = 100; // Обновляем сортировку главного канваса
+                c.sortingOrder = 100;
 
-                // === ФИКС ДЛЯ СТАРЫХ СЦЕН ===
                 Transform bgTransform = c.transform.Find("Background");
                 if (bgTransform != null)
                 {
@@ -117,7 +120,7 @@ namespace NovellaEngine.Editor
                         bgTransform.gameObject.AddComponent<GraphicRaycaster>();
                     }
                     bgCanvas.overrideSorting = true;
-                    bgCanvas.sortingOrder = -100; // Отправляем фон за персонажей
+                    bgCanvas.sortingOrder = -100;
                 }
 
                 EditorUtility.SetDirty(c);
@@ -149,7 +152,8 @@ namespace NovellaEngine.Editor
             if (_currentTab != 3) { if (_tempCustomPreview) DestroyImmediate(_tempCustomPreview); }
 
             bool isEditingChoiceContainer = (_currentTab == 0 && _player != null && _activeEditRect == _player.ChoiceContainer?.GetComponent<RectTransform>());
-            bool isEditingStoryContainer = (_currentTab == 1 && _launcher != null && _activeEditRect == _launcher.StoriesContainer?.GetComponent<RectTransform>());
+
+            bool isEditingStoryContainer = (_currentTab == 1 && _launcher != null && _launcher.StoriesContainer != null);
 
             if (isEditingChoiceContainer || isEditingStoryContainer)
             {
@@ -216,13 +220,99 @@ namespace NovellaEngine.Editor
         {
             if (_player == null) { EditorGUILayout.HelpBox(ToolLang.Get("This is not a Gameplay Scene.", "Это не игровая сцена."), MessageType.Info); return; }
 
-            Transform bgTransform = _player.DialoguePanel.transform.parent.Find("Background");
-            if (bgTransform != null) DrawRectTransformEditor(ToolLang.Get("Background (Canvas)", "Общий Фон (Canvas)"), bgTransform.GetComponent<RectTransform>());
+            Canvas canvas = _player.DialoguePanel.GetComponentInParent<Canvas>();
+
+
+            DrawSectionHeader("📖", ToolLang.Get("Active Story (Graph)", "Активная История (Граф)"));
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.HelpBox(ToolLang.Get(
+                "Assign a NovellaTree (Graph) here to link this scene to a specific story. The UI will use this graph to load dialogues, characters, and choices.",
+                "Назначьте здесь Граф (NovellaTree), чтобы привязать эту сцену к конкретной истории. UI будет брать оттуда диалоги, персонажей и выборы."
+            ), MessageType.Info);
+            GUILayout.Space(5);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Linked Story Tree:", "Подключенный Граф:"), EditorStyles.boldLabel, GUILayout.Width(140));
+
+            string treeName = _player.StoryTree != null ? _player.StoryTree.name : ToolLang.Get("None (Click to select)", "Пусто (Нажмите для выбора)");
+            if (GUILayout.Button("📄 " + treeName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+            {
+                NovellaGalleryWindow.ShowWindow(obj => {
+                    NovellaTree selectedTree = obj as NovellaTree;
+                    if (selectedTree != null)
+                    {
+                        Undo.RecordObject(_player, "Change Story Tree");
+                        _player.StoryTree = selectedTree;
+                        EditorUtility.SetDirty(_player);
+                        if (!Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+                        GetWindow<NovellaUIEditorWindow>().Repaint();
+                    }
+                }, NovellaGalleryWindow.EGalleryFilter.Graph, "Assets/NovellaEngine/Resources/Chapters");
+            }
+
+            if (_player.StoryTree != null)
+            {
+                GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                {
+                    Undo.RecordObject(_player, "Clear Story Tree");
+                    _player.StoryTree = null;
+                    EditorUtility.SetDirty(_player);
+                    if (!Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+                }
+                GUI.backgroundColor = Color.white;
+            }
+            GUILayout.EndHorizontal();
+
+            if (_player.StoryTree == null)
+            {
+                GUILayout.Space(5);
+                EditorGUILayout.HelpBox(ToolLang.Get("Assign a NovellaTree (Graph) to start the game!", "Назначьте граф (NovellaTree), чтобы игра могла запуститься!"), MessageType.Warning);
+            }
+            else
+            {
+                GUILayout.Space(5);
+                GUI.backgroundColor = new Color(0.2f, 0.6f, 1f);
+                if (GUILayout.Button(ToolLang.Get("Open Graph Editor", "Открыть Редактор Графа"), EditorStyles.miniButton, GUILayout.Height(30)))
+                {
+                    NovellaGraphWindow.OpenGraphWindow(_player.StoryTree);
+                }
+                GUI.backgroundColor = Color.white;
+
+                GUILayout.Space(10);
+                GUIStyle descStyle = new GUIStyle(EditorStyles.helpBox) { wordWrap = true, richText = true, fontSize = 11 };
+                GUILayout.Label(ToolLang.Get(
+                    "<b>What is a Graph?</b>\nIt's a visual flowchart where you build your story. You saw this in the Tutorial! Connect nodes to create your game flow:\n\n" +
+                    "• <b>Dialogue:</b> Displays text and shows characters.\n" +
+                    "• <b>Branch:</b> Creates choices for the player.\n" +
+                    "• <b>Audio/Scene:</b> Plays music or changes background.\n" +
+                    "• <b>Save:</b> A checkpoint to save player's progress.\n" +
+                    "и т.д...",
+
+                    "<b>Что такое Граф?</b>\nЭто визуальная блок-схема, где вы строите сюжет (вы уже видели это в Обучении!). Соединяйте ноды (карточки) линиями, чтобы создать игру:\n\n" +
+                    "• <b>Диалог:</b> Выводит текст на экран и показывает персонажей.\n" +
+                    "• <b>Развилка:</b> Создает кнопки выбора для игрока.\n" +
+                    "• <b>Аудио/Сцена:</b> Включает музыку или меняет фон.\n" +
+                    "• <b>Чекпоинт:</b> Точка сохранения прогресса игрока.\n" +
+                    "etc..."
+                ), descStyle);
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(15);
+
+            if (canvas != null)
+            {
+                Transform bgTransform = canvas.transform.Find("Background");
+                if (bgTransform != null) DrawRectTransformEditor(ToolLang.Get("Background (Canvas)", "Общий Фон (Canvas)"), bgTransform.GetComponent<RectTransform>());
+            }
 
             DrawRectTransformEditor(ToolLang.Get("Dialogue Panel", "Панель Диалога"), _player.DialoguePanel.GetComponent<RectTransform>());
             DrawTextEditor(ToolLang.Get("Speaker Name", "Имя Спикера"), _player.SpeakerNameText);
             DrawTextEditor(ToolLang.Get("Dialogue Text", "Текст Диалога"), _player.DialogueBodyText);
             DrawLayoutContainerEditor(ToolLang.Get("Choices Container", "Контейнер Кнопок"), _player.ChoiceContainer.GetComponent<RectTransform>());
+
+            if (canvas != null) DrawSaveLoadPanel(canvas.transform, true);
 
             if (_player.SaveNotification != null)
             {
@@ -239,6 +329,13 @@ namespace NovellaEngine.Editor
                 {
                     Undo.RecordObject(_player.SaveNotification, "Toggle Save Notification");
                     _player.SaveNotification.SetActive(isSaveNotifActive);
+
+                    if (isSaveNotifActive)
+                    {
+                        var cg = _player.SaveNotification.GetComponent<CanvasGroup>();
+                        if (cg != null) { Undo.RecordObject(cg, "Force Alpha"); cg.alpha = 1f; }
+                    }
+
                     EditorUtility.SetDirty(_player.SaveNotification);
                     if (!Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
                 }
@@ -246,6 +343,21 @@ namespace NovellaEngine.Editor
                 GUILayout.EndHorizontal();
 
                 DrawRectTransformEditor(ToolLang.Get("Notification Panel", "Панель Уведомления"), _player.SaveNotification.GetComponent<RectTransform>());
+
+                if (_activeEditRect == _player.SaveNotification.GetComponent<RectTransform>())
+                {
+                    var images = _player.SaveNotification.GetComponentsInChildren<UnityEngine.UI.Image>(true);
+                    foreach (var img in images)
+                    {
+                        if (img.gameObject != _player.SaveNotification)
+                        {
+                            GUILayout.Space(5);
+                            EditorGUI.BeginChangeCheck();
+                            DrawImageSettingsBlock(img);
+                            if (EditorGUI.EndChangeCheck()) EditorUtility.SetDirty(img.gameObject);
+                        }
+                    }
+                }
 
                 TMP_Text notifText = _player.SaveNotification.GetComponentInChildren<TMP_Text>(true);
                 if (notifText != null)
@@ -301,15 +413,487 @@ namespace NovellaEngine.Editor
                 }, NovellaGalleryWindow.EGalleryFilter.CustomUI, _customPrefabsDir);
             }
         }
+        private void DrawMenuFullscreenBackground(Canvas canvas)
+        {
+            DrawSectionHeader("🖼", ToolLang.Get("Main Background", "Главный Фон Сцены"));
 
+            Transform bgTransform = null;
+            Transform parentToUse = canvas.rootCanvas != null ? canvas.rootCanvas.transform : canvas.transform;
+
+            GameObject bgCanvasObj = GameObject.Find("Background Canvas");
+            Transform bgCanvas = bgCanvasObj != null ? bgCanvasObj.transform : null;
+
+            if (bgCanvas == null && parentToUse.parent != null)
+            {
+                bgCanvas = parentToUse.parent.Find("Background Canvas");
+            }
+
+            if (bgCanvas != null)
+            {
+                bgTransform = bgCanvas.Find("Background");
+                parentToUse = bgCanvas;
+            }
+
+            if (bgTransform == null)
+            {
+                var globalBg = GameObject.Find("Background");
+                if (globalBg != null && globalBg.GetComponent<Image>() != null)
+                {
+                    bgTransform = globalBg.transform;
+                    parentToUse = bgTransform.parent;
+                }
+            }
+
+            if (bgTransform == null)
+            {
+                if (GUILayout.Button("+ " + ToolLang.Get("Create Background", "Создать Фон"), EditorStyles.miniButton, GUILayout.Height(30)))
+                {
+                    GameObject bg = new GameObject("Background");
+                    bg.transform.SetParent(parentToUse, false);
+                    bg.transform.SetAsFirstSibling();
+
+                    var newRt = bg.AddComponent<RectTransform>();
+                    newRt.anchorMin = Vector2.zero;
+                    newRt.anchorMax = Vector2.one;
+                    newRt.offsetMin = Vector2.zero;
+                    newRt.offsetMax = Vector2.zero;
+                    newRt.localScale = Vector3.one;
+                    newRt.anchoredPosition = Vector2.zero;
+                    newRt.sizeDelta = Vector2.zero;
+
+                    bg.AddComponent<Image>().color = Color.white;
+                    Undo.RegisterCreatedObjectUndo(bg, "Create Fullscreen BG");
+
+                    EditorUtility.SetDirty(parentToUse.gameObject);
+                    Canvas.ForceUpdateCanvases();
+                    GUIUtility.ExitGUI();
+                }
+                return;
+            }
+
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+            Image img = bgTransform.GetComponent<Image>();
+            RectTransform rt = bgTransform.GetComponent<RectTransform>();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("🎨 " + ToolLang.Get("Background Settings", "Настройки Фона"), EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+
+            GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
+            if (GUILayout.Button("[ ] " + ToolLang.Get("Stretch Fullscreen", "Растянуть на весь экран"), EditorStyles.miniButton))
+            {
+                Undo.RecordObject(rt, "Stretch BG");
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.one;
+                rt.offsetMin = Vector2.zero;
+                rt.offsetMax = Vector2.zero;
+                rt.localScale = Vector3.one;
+                rt.anchoredPosition = Vector2.zero;
+                rt.sizeDelta = Vector2.zero;
+                EditorUtility.SetDirty(rt);
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10);
+
+            EditorGUI.BeginChangeCheck();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Sprite", "Спрайт"), GUILayout.Width(55));
+            string spriteName = img.sprite != null ? img.sprite.name : ToolLang.Get("None", "Пусто");
+
+            if (GUILayout.Button(spriteName, EditorStyles.popup))
+            {
+                NovellaGalleryWindow.ShowWindow(obj => {
+                    Sprite sp = obj as Sprite;
+                    if (sp == null && obj is Texture2D tex)
+                    {
+                        string path = AssetDatabase.GetAssetPath(tex);
+                        sp = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                    }
+                    if (sp != null)
+                    {
+                        Undo.RecordObject(img, "Change Sprite"); img.sprite = sp;
+                        if (img.color == new Color(0.1f, 0.1f, 0.1f, 1f)) img.color = Color.white;
+                        EditorUtility.SetDirty(img.gameObject); Canvas.ForceUpdateCanvases(); Repaint();
+                    }
+                }, NovellaGalleryWindow.EGalleryFilter.Image);
+            }
+
+            GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+            if (GUILayout.Button("✖", GUILayout.Width(25)))
+            {
+                Undo.RecordObject(img, "Clear Sprite");
+                img.sprite = null;
+                EditorUtility.SetDirty(img.gameObject);
+                Canvas.ForceUpdateCanvases();
+                Repaint();
+            }
+            GUI.backgroundColor = Color.white;
+
+            img.color = EditorGUILayout.ColorField(GUIContent.none, img.color, false, true, false, GUILayout.Width(60));
+            GUILayout.EndHorizontal();
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                EditorUtility.SetDirty(img.gameObject);
+                Canvas.ForceUpdateCanvases();
+            }
+
+            GUILayout.EndVertical();
+        }
         private void DrawMenuUITab()
         {
             if (_launcher == null) { EditorGUILayout.HelpBox(ToolLang.Get("This is not a Main Menu Scene.", "Это не сцена главного меню."), MessageType.Info); return; }
-            Transform bgTransform = _launcher.StoriesContainer.parent.Find("Background");
-            if (bgTransform != null) DrawRectTransformEditor(ToolLang.Get("Menu Background", "Фон Меню"), bgTransform.GetComponent<RectTransform>());
-            DrawLayoutContainerEditor(ToolLang.Get("Stories Carousel", "Контейнер Историй"), _launcher.StoriesContainer.GetComponent<RectTransform>());
+
+            Canvas canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>();
+
+            DrawSectionHeader("📚", ToolLang.Get("Stories to Show", "Истории для показа"));
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.HelpBox(ToolLang.Get("If empty, ALL stories from Resources/Stories will be loaded automatically.", "Если список пуст, автоматически загрузятся ВСЕ истории из папки Resources/Stories."), MessageType.Info);
+
+            for (int i = 0; i < _launcher.SpecificStories.Count; i++)
+            {
+                var story = _launcher.SpecificStories[i];
+
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+                GUILayout.BeginHorizontal();
+                string sName = story != null ? story.name : ToolLang.Get("Empty (Click to set)", "Пусто (Нажмите для выбора)");
+
+                if (GUILayout.Button("📖 " + sName, EditorStyles.popup))
+                {
+                    int index = i;
+                    NovellaGalleryWindow.ShowWindow(obj => {
+                        Undo.RecordObject(_launcher, "Change Story");
+                        _launcher.SpecificStories[index] = obj as NovellaStory;
+                        EditorUtility.SetDirty(_launcher);
+                        GetWindow<NovellaUIEditorWindow>().Repaint();
+                    }, NovellaGalleryWindow.EGalleryFilter.Story, "Assets/NovellaEngine/Resources/Stories");
+                }
+
+                GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                if (GUILayout.Button("X", GUILayout.Width(25)))
+                {
+                    Undo.RecordObject(_launcher, "Remove Story");
+                    _launcher.SpecificStories.RemoveAt(i);
+                    EditorUtility.SetDirty(_launcher);
+                    GUI.backgroundColor = Color.white;
+                    break;
+                }
+                GUI.backgroundColor = Color.white;
+                GUILayout.EndHorizontal();
+
+                if (story != null)
+                {
+                    GUILayout.Space(5);
+
+                    // --- ЛОГИКА ПЕРЕИМЕНОВАНИЯ ИСТОРИИ ---
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("↳ " + ToolLang.Get("Story File:", "Файл истории:"), EditorStyles.miniLabel, GUILayout.Width(130));
+
+                    if (_editingStoryIndex == i)
+                    {
+                        _tempStoryName = EditorGUILayout.TextField(_tempStoryName);
+                        GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+                        if (GUILayout.Button("✔", EditorStyles.miniButton, GUILayout.Width(30)))
+                        {
+                            if (!string.IsNullOrEmpty(_tempStoryName) && _tempStoryName != story.name)
+                            {
+                                string path = AssetDatabase.GetAssetPath(story);
+                                AssetDatabase.RenameAsset(path, _tempStoryName);
+                                story.Title = _tempStoryName; // Заодно меняем внутренний Title
+                                EditorUtility.SetDirty(story);
+                                AssetDatabase.SaveAssets();
+                            }
+                            _editingStoryIndex = -1;
+                            GUIUtility.ExitGUI();
+                        }
+                        GUI.backgroundColor = Color.white;
+                    }
+                    else
+                    {
+                        EditorGUILayout.LabelField(story.name, EditorStyles.boldLabel);
+                        if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(30)))
+                        {
+                            _editingStoryIndex = i;
+                            _tempStoryName = story.name;
+                        }
+                    }
+                    GUILayout.EndHorizontal();
+
+                    if (story.StartingChapter != null)
+                    {
+                        GUILayout.Space(5);
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label("↳ " + ToolLang.Get("Linked Graph:", "Подключенный Граф:"), EditorStyles.miniLabel, GUILayout.Width(130));
+
+                        // --- ЛОГИКА ПЕРЕИМЕНОВАНИЯ ГРАФА ---
+                        if (_editingGraphIndex == i)
+                        {
+                            _tempGraphName = EditorGUILayout.TextField(_tempGraphName);
+                            GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+                            if (GUILayout.Button("✔", EditorStyles.miniButton, GUILayout.Width(30)))
+                            {
+                                if (!string.IsNullOrEmpty(_tempGraphName) && _tempGraphName != story.StartingChapter.name)
+                                {
+                                    string path = AssetDatabase.GetAssetPath(story.StartingChapter);
+                                    AssetDatabase.RenameAsset(path, _tempGraphName);
+                                    AssetDatabase.SaveAssets();
+                                }
+                                _editingGraphIndex = -1;
+                                GUIUtility.ExitGUI();
+                            }
+                            GUI.backgroundColor = Color.white;
+                        }
+                        else
+                        {
+                            EditorGUILayout.LabelField(story.StartingChapter.name, EditorStyles.boldLabel);
+                            if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(30)))
+                            {
+                                _editingGraphIndex = i;
+                                _tempGraphName = story.StartingChapter.name;
+                            }
+                        }
+
+                        GUI.backgroundColor = new Color(0.2f, 0.6f, 1f);
+                        if (GUILayout.Button(ToolLang.Get("Open", "Открыть"), EditorStyles.miniButton, GUILayout.Width(70)))
+                        {
+                            NovellaGraphWindow.OpenGraphWindow(story.StartingChapter);
+                        }
+                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+                    }
+                    else
+                    {
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label("↳ " + ToolLang.Get("Linked Graph:", "Подключенный Граф:"), EditorStyles.miniLabel, GUILayout.Width(130));
+                        EditorGUILayout.HelpBox(ToolLang.Get("Missing!", "Отсутствует!"), MessageType.Error);
+                        GUILayout.EndHorizontal();
+                    }
+                }
+                GUILayout.EndVertical();
+                GUILayout.Space(5);
+            }
+
+            GUILayout.Space(5);
+            GUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("+ " + ToolLang.Get("Add Existing Story", "Добавить готовую историю"), EditorStyles.miniButton, GUILayout.Height(25)))
+            {
+                Undo.RecordObject(_launcher, "Add Story");
+                _launcher.SpecificStories.Add(null);
+                EditorUtility.SetDirty(_launcher);
+            }
+
+            GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+            if (GUILayout.Button("✨ " + ToolLang.Get("Create NEW Story", "Создать НОВУЮ историю"), EditorStyles.miniButton, GUILayout.Height(25)))
+            {
+                CreateStoryPopup.ShowPopup(CreateNewStoryAsset);
+            }
+            GUI.backgroundColor = Color.white;
+
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+
+            if (canvas != null)
+            {
+                DrawMenuFullscreenBackground(canvas);
+
+                DrawSectionHeader("🎠", ToolLang.Get("Stories Carousel", "Контейнер Историй (Карусель)"));
+                DrawLayoutContainerEditor(ToolLang.Get("Carousel Layout", "Настройки расположения"), _launcher.StoriesContainer.GetComponent<RectTransform>());
+                DrawMinimalBackgroundEditor(_launcher.StoriesContainer.gameObject, ToolLang.Get("Carousel Background", "Фон Контейнера"));
+
+                DrawSaveLoadPanel(canvas.transform, false);
+            }
+        }
+        private void DrawSaveLoadPanel(Transform canvasRoot, bool isGameScene)
+        {
+            if (canvasRoot == null) return;
+
+            var allButtons = canvasRoot.GetComponentsInChildren<Button>(true);
+
+            var saveLoadButtons = allButtons.Where(b =>
+                b.name.ToLower().Contains("start") || b.name.ToLower().Contains("начать") || b.name.ToLower().Contains("play") ||
+                b.name.ToLower().Contains("settings") || b.name.ToLower().Contains("настройки") ||
+                b.name.ToLower().Contains("exit") || b.name.ToLower().Contains("выход")
+            ).ToList();
+
+            if (saveLoadButtons.Count == 0)
+            {
+                if (!isGameScene)
+                {
+                    GUILayout.Space(15);
+                    EditorGUILayout.HelpBox(ToolLang.Get("No Main Menu buttons found on Canvas. Create them manually (e.g. 'Btn_Start', 'Btn_Exit') to edit them here.", "Базовые кнопки меню не найдены. Создайте их вручную на Canvas (например, 'Btn_Start', 'Btn_Exit'), и они появятся здесь для настройки."), MessageType.Info);
+                }
+                return;
+            }
+
+            GUILayout.Space(15);
+            DrawSectionHeader("🕹️", ToolLang.Get("Menu Navigation Buttons", "Кнопки Навигации Меню"));
+
+            foreach (var btn in saveLoadButtons)
+            {
+                string lowerName = btn.name.ToLower();
+                string btnTitle = btn.name;
+
+                if (lowerName.Contains("start") || lowerName.Contains("play") || lowerName.Contains("начать")) btnTitle = ToolLang.Get("Start / Play Button", "Кнопка Начать Игру");
+                else if (lowerName.Contains("settings") || lowerName.Contains("настройки")) btnTitle = ToolLang.Get("Settings Button", "Кнопка Настройки");
+                else if (lowerName.Contains("exit") || lowerName.Contains("выход")) btnTitle = ToolLang.Get("Exit Button", "Кнопка Выход");
+
+                DrawRectTransformEditor($"▶ {btnTitle} ({btn.gameObject.name})", btn.GetComponent<RectTransform>());
+
+                bool isEditingBtn = _activeEditRect != null && (_activeEditRect == btn.GetComponent<RectTransform>() || _activeEditRect.IsChildOf(btn.transform));
+
+                if (isEditingBtn)
+                {
+                    var txt = btn.GetComponentInChildren<TMP_Text>();
+                    if (txt != null)
+                    {
+                        if (txt.rectTransform.anchorMin == Vector2.zero && txt.rectTransform.anchorMax == Vector2.one)
+                        {
+                            Undo.RecordObject(txt.rectTransform, "Auto-fix Text Anchors");
+                            txt.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+                            txt.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                            txt.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                            txt.rectTransform.sizeDelta = btn.GetComponent<RectTransform>().rect.size;
+                            txt.rectTransform.anchoredPosition = Vector2.zero;
+                            EditorUtility.SetDirty(txt.rectTransform);
+                            Canvas.ForceUpdateCanvases();
+                        }
+
+                        DrawTextEditor("↳ 📝 " + ToolLang.Get("Button Text", "Текст на кнопке"), txt);
+                    }
+
+                    GUILayout.Space(5);
+                    EditorGUI.BeginChangeCheck();
+                    DrawButtonSettingsBlock(btn);
+                    if (EditorGUI.EndChangeCheck()) EditorUtility.SetDirty(btn.gameObject);
+                }
+            }
         }
 
+        private void GenerateDefaultMenuButtons(Transform canvasRoot)
+        {
+            Undo.RegisterFullObjectHierarchyUndo(canvasRoot.gameObject, "Generate Menu Buttons");
+
+            GameObject panel = new GameObject("MainMenu_ButtonsList");
+            panel.transform.SetParent(canvasRoot, false);
+            var rt = panel.AddComponent<RectTransform>();
+
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            float currentY = 150f;
+            float spacing = 80f;
+
+            Button SpawnBtn(string name, string textStr)
+            {
+                GameObject btnObj = new GameObject(name);
+                btnObj.transform.SetParent(panel.transform, false);
+                var brt = btnObj.AddComponent<RectTransform>();
+
+                brt.anchorMin = new Vector2(0.5f, 0.5f);
+                brt.anchorMax = new Vector2(0.5f, 0.5f);
+                brt.sizeDelta = new Vector2(350, 65);
+                brt.anchoredPosition = new Vector2(0, currentY);
+                currentY -= spacing;
+
+                var img = btnObj.AddComponent<Image>();
+                img.color = new Color(0.1f, 0.1f, 0.1f, 0.9f);
+                var btn = btnObj.AddComponent<Button>();
+
+                GameObject txtObj = new GameObject("Text");
+                txtObj.transform.SetParent(btnObj.transform, false);
+                var trt = txtObj.AddComponent<RectTransform>();
+
+                trt.anchorMin = new Vector2(0.5f, 0.5f);
+                trt.anchorMax = new Vector2(0.5f, 0.5f);
+                trt.pivot = new Vector2(0.5f, 0.5f);
+                trt.sizeDelta = new Vector2(350, 65);
+                trt.anchoredPosition = Vector2.zero;
+
+                var txt = txtObj.AddComponent<TextMeshProUGUI>();
+                txt.text = textStr;
+                txt.fontSize = 28;
+                txt.alignment = TextAlignmentOptions.Center;
+                txt.color = Color.white;
+
+                return btn;
+            }
+
+            SpawnBtn("Btn_StartPlay", ToolLang.Get("Start Game", "Начать игру"));
+            SpawnBtn("Btn_Continue", ToolLang.Get("Continue", "Продолжить"));
+            SpawnBtn("Btn_Load", ToolLang.Get("Load", "Загрузить"));
+            SpawnBtn("Btn_Settings", ToolLang.Get("Settings", "Настройки"));
+            SpawnBtn("Btn_Exit", ToolLang.Get("Exit", "Выход"));
+
+            EditorUtility.SetDirty(canvasRoot.gameObject);
+            GUIUtility.ExitGUI();
+        }
+        private void DrawMinimalBackgroundEditor(GameObject targetObj, string title)
+        {
+            if (targetObj == null) return;
+
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("🎨 " + title, EditorStyles.boldLabel);
+
+            Image img = targetObj.GetComponent<Image>();
+            if (img == null)
+            {
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("+ " + ToolLang.Get("Add Background", "Добавить Фон"), EditorStyles.miniButton))
+                {
+                    Undo.AddComponent<Image>(targetObj);
+                    GUIUtility.ExitGUI();
+                }
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                GUILayout.FlexibleSpace();
+                GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                {
+                    Undo.DestroyObjectImmediate(img);
+                    GUIUtility.ExitGUI();
+                }
+                GUI.backgroundColor = Color.white;
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(5);
+                EditorGUI.BeginChangeCheck();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(ToolLang.Get("Sprite", "Спрайт"), GUILayout.Width(55));
+                string spriteName = img.sprite != null ? img.sprite.name : ToolLang.Get("None", "Пусто");
+
+                if (GUILayout.Button(spriteName, EditorStyles.popup))
+                {
+                    NovellaGalleryWindow.ShowWindow(obj => {
+                        Sprite sp = obj as Sprite;
+                        if (sp == null && obj is Texture2D) sp = AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GetAssetPath(obj));
+                        if (sp != null)
+                        {
+                            Undo.RecordObject(img, "Change Sprite"); img.sprite = sp;
+                            EditorUtility.SetDirty(img.gameObject); img.SetAllDirty(); Canvas.ForceUpdateCanvases(); Repaint();
+                        }
+                    }, NovellaGalleryWindow.EGalleryFilter.Image);
+                }
+
+                img.color = EditorGUILayout.ColorField(GUIContent.none, img.color, false, true, false, GUILayout.Width(60));
+                GUILayout.EndHorizontal();
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    EditorUtility.SetDirty(img.gameObject);
+                    Canvas.ForceUpdateCanvases();
+                }
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(10);
+        }
         private void DrawPrefabsTab()
         {
             if (_player != null)
@@ -376,8 +960,7 @@ namespace NovellaEngine.Editor
             EditorGUIUtility.labelWidth = 50;
             _newPrefabName = EditorGUILayout.TextField(ToolLang.Get("Name", "Имя"), _newPrefabName, GUILayout.ExpandWidth(true));
 
-            string[] typeNames = { ToolLang.Get("Image", "Картинка (Image)"), ToolLang.Get("Text", "Текст (TMP_Text)"), ToolLang.Get("Slider", "Ползунок (Slider)") };
-            _newPrefabTypeIndex = EditorGUILayout.Popup(_newPrefabTypeIndex, typeNames, GUILayout.Width(130));
+            string[] typeNames = { ToolLang.Get("Image", "Картинка (Image)"), ToolLang.Get("Text", "Текст (TMP_Text)"), ToolLang.Get("Slider", "Ползунок (Slider)"), ToolLang.Get("Button", "Кнопка (Button)") }; _newPrefabTypeIndex = EditorGUILayout.Popup(_newPrefabTypeIndex, typeNames, GUILayout.Width(130));
 
             GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
             if (GUILayout.Button("+ " + ToolLang.Get("Create", "Создать"), GUILayout.Width(80)))
@@ -410,7 +993,6 @@ namespace NovellaEngine.Editor
             {
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
-                // Фикс: Синхронизируем индекс с текущим выбранным префабом
                 if (_selectedCustomPrefab != null && customPrefabs.Contains(_selectedCustomPrefab))
                 {
                     _customPrefabIndex = customPrefabs.IndexOf(_selectedCustomPrefab);
@@ -501,12 +1083,12 @@ namespace NovellaEngine.Editor
 
             var customUiComp = root.AddComponent<NovellaCustomUI>();
 
-            if (_newPrefabTypeIndex == 0) // Image
+            if (_newPrefabTypeIndex == 0)
             {
                 var img = root.AddComponent<Image>();
                 img.color = new Color(0.1f, 0.1f, 0.1f, 0.9f);
             }
-            else if (_newPrefabTypeIndex == 1) // Text
+            else if (_newPrefabTypeIndex == 1)
             {
                 var txt = root.AddComponent<TextMeshProUGUI>();
                 txt.text = "Custom Text";
@@ -514,7 +1096,7 @@ namespace NovellaEngine.Editor
                 txt.alignment = TextAlignmentOptions.Center;
                 customUiComp.OverrideDialogueText = txt;
             }
-            else if (_newPrefabTypeIndex == 2) // Slider
+            else if (_newPrefabTypeIndex == 2)
             {
                 GameObject sliderTemplate = DefaultControls.CreateSlider(new DefaultControls.Resources());
                 sliderTemplate.transform.SetParent(root.transform, false);
@@ -534,6 +1116,24 @@ namespace NovellaEngine.Editor
                 var comp = sliderTemplate.GetComponent<Slider>();
                 if (comp != null) comp.interactable = false;
             }
+            else if (_newPrefabTypeIndex == 3)
+            {
+                var img = root.AddComponent<Image>();
+                img.color = new Color(0.2f, 0.6f, 0.8f, 1f);
+                var btn = root.AddComponent<Button>();
+
+                GameObject txtObj = new GameObject("Text");
+                txtObj.transform.SetParent(root.transform, false);
+                var trt = txtObj.AddComponent<RectTransform>();
+                trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+                trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
+
+                var txt = txtObj.AddComponent<TextMeshProUGUI>();
+                txt.text = "Button";
+                txt.fontSize = 28;
+                txt.alignment = TextAlignmentOptions.Center;
+                txt.color = Color.white;
+            }
 
             PrefabUtility.SaveAsPrefabAsset(root, path);
             DestroyImmediate(root);
@@ -541,6 +1141,50 @@ namespace NovellaEngine.Editor
 
             _selectedCustomPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             _newPrefabName = "NewCustomFrame";
+        }
+
+        private void CreateNewStoryAsset(string storyName)
+        {
+            string storiesDir = "Assets/NovellaEngine/Resources/Stories";
+            string chaptersDir = "Assets/NovellaEngine/Resources/Chapters";
+
+            if (!Directory.Exists(storiesDir)) Directory.CreateDirectory(storiesDir);
+            if (!Directory.Exists(chaptersDir)) Directory.CreateDirectory(chaptersDir);
+            AssetDatabase.Refresh();
+
+            NovellaTree newTree = ScriptableObject.CreateInstance<NovellaTree>();
+            newTree.StartPosition = new Vector2(400, 300);
+
+            string safeFileName = string.Join("_", storyName.Split(Path.GetInvalidFileNameChars()));
+
+            string treePath = AssetDatabase.GenerateUniqueAssetPath($"{chaptersDir}/{safeFileName}_Chapter1.asset");
+            AssetDatabase.CreateAsset(newTree, treePath);
+
+            NovellaStory newStory = ScriptableObject.CreateInstance<NovellaStory>();
+            newStory.Title = storyName;
+            newStory.StartingChapter = newTree;
+
+            string storyPath = AssetDatabase.GenerateUniqueAssetPath($"{storiesDir}/{safeFileName}.asset");
+            AssetDatabase.CreateAsset(newStory, storyPath);
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            if (_launcher != null)
+            {
+                Undo.RecordObject(_launcher, "Add New Story");
+                _launcher.SpecificStories.Add(newStory);
+                EditorUtility.SetDirty(_launcher);
+            }
+
+            EditorUtility.DisplayDialog(
+                ToolLang.Get("Success", "Успех"),
+                ToolLang.Get($"Story '{storyName}' created successfully!\nGraph for Chapter 1 is linked.", $"История '{storyName}' успешно создана!\nГраф для Главы 1 автоматически подключен."),
+                "OK"
+            );
+
+            NovellaGraphWindow.OpenGraphWindow(newTree);
+            Repaint();
         }
 
         private void DrawCustomPrefabEditor(GameObject prefab)
@@ -954,7 +1598,35 @@ namespace NovellaEngine.Editor
             if (txt == null) return;
 
             GUILayout.BeginVertical(GUI.skin.box);
+            GUILayout.BeginHorizontal();
             GUILayout.Label("📝 " + headerLabel, EditorStyles.miniBoldLabel);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("↻ " + ToolLang.Get("Reset", "Сбросить"), EditorStyles.miniButton, GUILayout.Width(70)))
+            {
+                Undo.RecordObject(txt, "Reset Text Settings");
+                Undo.RecordObject(txt.rectTransform, "Reset Text Rect");
+
+                txt.fontSize = 28;
+                txt.color = Color.white;
+                txt.alignment = TextAlignmentOptions.Center;
+                txt.richText = true;
+                txt.raycastTarget = false;
+
+
+                txt.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+                txt.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                txt.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                txt.rectTransform.sizeDelta = new Vector2(200f, 50f);
+                txt.rectTransform.anchoredPosition = Vector2.zero;
+                txt.rectTransform.localRotation = Quaternion.identity;
+                txt.rectTransform.localScale = Vector3.one;
+
+                txt.ForceMeshUpdate();
+                EditorUtility.SetDirty(txt.rectTransform);
+                EditorUtility.SetDirty(txt.gameObject);
+                Canvas.ForceUpdateCanvases();
+            }
+            GUILayout.EndHorizontal();
             GUILayout.Space(5);
 
             float lw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 110;
@@ -1099,79 +1771,6 @@ namespace NovellaEngine.Editor
             GUILayout.Space(5);
         }
 
-        private void DrawTransformSettings(RectTransform rect, bool skipAnchorAndOffsets = false)
-        {
-            GUILayout.Space(10);
-
-            bool isControlledByLayout = rect.parent != null && rect.parent.GetComponent<LayoutGroup>() != null;
-
-            if (!skipAnchorAndOffsets)
-            {
-                if (isControlledByLayout)
-                {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Anchors and Position are controlled by the parent Layout Group.", "Якоря и позиция жестко контролируются родительским Layout Group."), MessageType.Info);
-                }
-                else
-                {
-                    GUILayout.BeginHorizontal();
-                    DrawAnchorGrid(rect);
-                    GUILayout.BeginVertical();
-                }
-            }
-
-            EditorGUI.BeginChangeCheck();
-            float lw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 55;
-
-            GUILayout.Label(ToolLang.Get("Position & Size", "Позиция и Размеры"), EditorStyles.miniBoldLabel);
-
-            GUILayout.BeginHorizontal();
-            EditorGUI.BeginDisabledGroup(isControlledByLayout);
-            Vector2 pos = EditorGUILayout.Vector2Field("", rect.anchoredPosition);
-            EditorGUI.EndDisabledGroup();
-            GUILayout.EndHorizontal();
-
-            var csf = rect.GetComponent<ContentSizeFitter>();
-            bool isSizeDriven = csf != null && (csf.horizontalFit != ContentSizeFitter.FitMode.Unconstrained || csf.verticalFit != ContentSizeFitter.FitMode.Unconstrained);
-
-            GUILayout.BeginHorizontal();
-            EditorGUI.BeginDisabledGroup(isSizeDriven || isControlledByLayout);
-            Vector2 size = EditorGUILayout.Vector2Field("", rect.sizeDelta);
-            EditorGUI.EndDisabledGroup();
-            GUILayout.EndHorizontal();
-
-            if (isSizeDriven) GUILayout.Label(ToolLang.Get("Size is auto-driven by content.", "Размер подстраивается автоматически."), EditorStyles.centeredGreyMiniLabel);
-
-            EditorGUIUtility.labelWidth = lw;
-            if (EditorGUI.EndChangeCheck())
-            {
-                Undo.RecordObject(rect, "Change UI Layout");
-                if (!isControlledByLayout) rect.anchoredPosition = pos;
-                if (!isSizeDriven && !isControlledByLayout) rect.sizeDelta = size;
-                EditorUtility.SetDirty(rect.gameObject);
-                LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
-                Canvas.ForceUpdateCanvases();
-            }
-
-            if (!skipAnchorAndOffsets && !isControlledByLayout)
-            {
-                GUILayout.EndVertical();
-                GUILayout.EndHorizontal();
-            }
-        }
-
-        private void DrawTextEditor(string title, TMP_Text txt, bool isPrefabMode = false)
-        {
-            if (txt == null) return;
-            DrawRectTransformEditor(title, txt.GetComponent<RectTransform>(), isPrefabMode);
-
-            if (_activeEditRect == txt.GetComponent<RectTransform>())
-            {
-                EditorGUI.BeginChangeCheck();
-                DrawTMPTextSettingsBlock(txt, ToolLang.Get("Typography Settings", "Настройки Типографики"));
-                if (EditorGUI.EndChangeCheck()) { EditorUtility.SetDirty(txt.gameObject); Canvas.ForceUpdateCanvases(); }
-            }
-        }
-
         private void DrawLayoutContainerEditor(string title, RectTransform rect)
         {
             if (rect == null) return;
@@ -1250,6 +1849,79 @@ namespace NovellaEngine.Editor
             }
         }
 
+        private void DrawTextEditor(string title, TMP_Text txt, bool isPrefabMode = false)
+        {
+            if (txt == null) return;
+            DrawRectTransformEditor(title, txt.GetComponent<RectTransform>(), isPrefabMode);
+
+            if (_activeEditRect == txt.GetComponent<RectTransform>())
+            {
+                EditorGUI.BeginChangeCheck();
+                DrawTMPTextSettingsBlock(txt, ToolLang.Get("Typography Settings", "Настройки Типографики"));
+                if (EditorGUI.EndChangeCheck()) { EditorUtility.SetDirty(txt.gameObject); Canvas.ForceUpdateCanvases(); }
+            }
+        }
+
+        private void DrawTransformSettings(RectTransform rect, bool skipAnchorAndOffsets = false)
+        {
+            GUILayout.Space(10);
+
+            bool isControlledByLayout = rect.parent != null && rect.parent.GetComponent<LayoutGroup>() != null;
+
+            if (!skipAnchorAndOffsets)
+            {
+                if (isControlledByLayout)
+                {
+                    EditorGUILayout.HelpBox(ToolLang.Get("Anchors and Position are controlled by the parent Layout Group.", "Якоря и позиция жестко контролируются родительским Layout Group."), MessageType.Info);
+                }
+                else
+                {
+                    GUILayout.BeginHorizontal();
+                    DrawAnchorGrid(rect);
+                    GUILayout.BeginVertical();
+                }
+            }
+
+            EditorGUI.BeginChangeCheck();
+            float lw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 55;
+
+            GUILayout.Label(ToolLang.Get("Position & Size", "Позиция и Размеры"), EditorStyles.miniBoldLabel);
+
+            GUILayout.BeginHorizontal();
+            EditorGUI.BeginDisabledGroup(isControlledByLayout);
+            Vector2 pos = EditorGUILayout.Vector2Field("", rect.anchoredPosition);
+            EditorGUI.EndDisabledGroup();
+            GUILayout.EndHorizontal();
+
+            var csf = rect.GetComponent<ContentSizeFitter>();
+            bool isSizeDriven = csf != null && (csf.horizontalFit != ContentSizeFitter.FitMode.Unconstrained || csf.verticalFit != ContentSizeFitter.FitMode.Unconstrained);
+
+            GUILayout.BeginHorizontal();
+            EditorGUI.BeginDisabledGroup(isSizeDriven || isControlledByLayout);
+            Vector2 size = EditorGUILayout.Vector2Field("", rect.sizeDelta);
+            EditorGUI.EndDisabledGroup();
+            GUILayout.EndHorizontal();
+
+            if (isSizeDriven) GUILayout.Label(ToolLang.Get("Size is auto-driven by content.", "Размер подстраивается автоматически."), EditorStyles.centeredGreyMiniLabel);
+
+            EditorGUIUtility.labelWidth = lw;
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(rect, "Change UI Layout");
+                if (!isControlledByLayout) rect.anchoredPosition = pos;
+                if (!isSizeDriven && !isControlledByLayout) rect.sizeDelta = size;
+                EditorUtility.SetDirty(rect.gameObject);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+                Canvas.ForceUpdateCanvases();
+            }
+
+            if (!skipAnchorAndOffsets && !isControlledByLayout)
+            {
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+            }
+        }
+
         private void DrawAnchorGrid(RectTransform rect)
         {
             GUILayout.BeginVertical(GUILayout.Width(110));
@@ -1280,41 +1952,36 @@ namespace NovellaEngine.Editor
 
         private void SetAnchor(RectTransform rect, float minX, float minY, float maxX, float maxY)
         {
+            if (rect == null) return;
             Undo.RecordObject(rect, "Apply Anchor Preset");
 
-            float currentWidth = rect.rect.width;
-            float currentHeight = rect.rect.height;
+            float w = Mathf.Abs(rect.rect.width);
+            float h = Mathf.Abs(rect.rect.height);
 
             rect.anchorMin = new Vector2(minX, minY);
             rect.anchorMax = new Vector2(maxX, maxY);
 
-            if (minX == maxX && minY == maxY)
-            {
-                rect.offsetMin = Vector2.zero;
-                rect.offsetMax = Vector2.zero;
-                rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, currentWidth);
-                rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, currentHeight);
-            }
-            else
-            {
-                rect.offsetMin = Vector2.zero;
-                rect.offsetMax = Vector2.zero;
+            rect.pivot = new Vector2(
+                minX == maxX ? minX : 0.5f,
+                minY == maxY ? minY : 0.5f
+            );
 
-                if (minX == maxX)
-                {
-                    rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, currentWidth);
-                }
-                else if (minY == maxY)
-                {
-                    rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, currentHeight);
-                }
-            }
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            Vector2 newSize = Vector2.zero;
+            if (minX == maxX) newSize.x = w;
+            if (minY == maxY) newSize.y = h;
+            rect.sizeDelta = newSize;
+
+            rect.anchoredPosition = Vector2.zero;
+
+            rect.localScale = new Vector3(Mathf.Abs(rect.localScale.x), Mathf.Abs(rect.localScale.y), Mathf.Abs(rect.localScale.z));
 
             EditorUtility.SetDirty(rect.gameObject);
-            LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+            if (rect.parent != null) LayoutRebuilder.ForceRebuildLayoutImmediate(rect.parent as RectTransform);
             Canvas.ForceUpdateCanvases();
         }
-
         private void DrawPreviewPanel()
         {
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
@@ -1353,7 +2020,6 @@ namespace NovellaEngine.Editor
                 _camera.targetTexture = oldTarget;
 
                 GUI.Box(previewRect, GUIContent.none, EditorStyles.helpBox);
-
                 GUI.BeginClip(previewRect);
 
                 float texAspect = 1920f / 1080f;

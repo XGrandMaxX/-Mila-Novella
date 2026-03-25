@@ -308,7 +308,6 @@ namespace NovellaEngine.Editor
         {
             if (_serializedObject == null || _currentTree == null || _window == null) return;
 
-            // === ФИКС 3: ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ПАМЯТИ ДО РАБОТЫ ===
             _serializedObject.Update();
 
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
@@ -322,7 +321,7 @@ namespace NovellaEngine.Editor
 
             DrawSectionHeader("📝", ToolLang.Get("NODE INSPECTOR", "ИНСПЕКТОР НОДЫ"));
 
-            if (selectedNodeView == null || selectedNodeView.Data == null)
+            if (selectedNodeView == null || selectedNodeView.Data == null || !_currentTree.Nodes.Contains(selectedNodeView.Data))
             {
                 if (_lastSyncedNode != null) { _lastSyncedNode = null; ClearScenePreview(); }
                 EditorGUILayout.HelpBox(ToolLang.Get("Select a Node.", "Выберите Ноду."), MessageType.Info); EndLayout(); return;
@@ -499,7 +498,26 @@ namespace NovellaEngine.Editor
                 EndLayout();
                 return;
             }
+            // ==========================================
+            // === НОДА СОХРАНЕНИЯ (SAVE) ===
+            // ==========================================
+            if (nodeData is SaveNodeData saveData)
+            {
+                DrawSectionHeader("💾", ToolLang.Get("Save Checkpoint", "Сохранение (Чекпоинт)"));
+                GUILayout.BeginVertical(EditorStyles.helpBox);
 
+                EditorGUILayout.HelpBox(ToolLang.Get(
+                    "Acts as a Checkpoint. When the player reaches this node, the game forcibly saves their progress immediately, ignoring the Auto-Save timer. Great for saving before major branching choices!",
+                    "Работает как Чекпоинт. Когда игрок достигает этой ноды, игра принудительно сохраняет прогресс, игнорируя таймер автосохранения. Идеально ставить перед важными выборами!"
+                ), MessageType.Info);
+
+                GUILayout.Space(10);
+                GUILayout.Label("✅ " + ToolLang.Get("No configuration needed.", "Настройка не требуется."), EditorStyles.centeredGreyMiniLabel);
+                GUILayout.Space(10);
+
+                GUILayout.EndVertical();
+                EndLayout(); return;
+            }
             // ==========================================
             // === НОДА ЗАМЕТКИ (NOTE) ===
             // ==========================================
@@ -1602,6 +1620,10 @@ namespace NovellaEngine.Editor
                             Undo.RecordObject(_currentTree, "Change Character Asset");
                             activeChar.CharacterAsset = selectedChar;
                             GUI.changed = true;
+
+                            SyncScenePreview(dialData);
+                            _window.Repaint();
+                            _onMarkUnsaved?.Invoke();
                         });
                     }
 
@@ -1618,8 +1640,12 @@ namespace NovellaEngine.Editor
 
                     if (activeChar.IsExpanded && activeChar.CharacterAsset != null)
                     {
-                        GUILayout.Space(5); EditorGUI.BeginChangeCheck(); GUILayout.BeginHorizontal();
+                        GUILayout.Space(5); EditorGUI.BeginChangeCheck();
 
+                        float oldLw = EditorGUIUtility.labelWidth;
+                        EditorGUIUtility.labelWidth = ToolLang.IsRU ? 65 : 75;
+
+                        GUILayout.BeginHorizontal();
                         string[] planeNames = { "BackSlot1", "BackSlot2", "BackSlot3" };
                         int[] planeValues = { 0, 1, 2 };
                         activeChar.Plane = (ECharacterPlane)EditorGUILayout.IntPopup(ToolLang.Get("Plane:", "План:"), (int)activeChar.Plane, planeNames, planeValues);
@@ -1630,22 +1656,38 @@ namespace NovellaEngine.Editor
                         emIndex = EditorGUILayout.Popup(ToolLang.Get("Emotion:", "Эмоция:"), emIndex, emotions.ToArray()); activeChar.Emotion = emotions[emIndex];
                         GUILayout.EndHorizontal(); GUILayout.Space(2);
 
+
                         if (activeChar.Scale <= 0f) activeChar.Scale = 1f;
-                        activeChar.Scale = EditorGUILayout.Slider(ToolLang.Get("Scale:", "Масштаб:"), activeChar.Scale, 0.1f, 3f); GUILayout.Space(2);
+                        activeChar.Scale = EditorGUILayout.Slider(ToolLang.Get("Scale:", "Масштаб:"), activeChar.Scale, 0.1f, 5f); GUILayout.Space(2);
 
                         GUILayout.BeginHorizontal();
-                        activeChar.PositionPreset = (ECharacterPosition)EditorGUILayout.EnumPopup(ToolLang.Get("Pos Preset:", "Позиция:"), activeChar.PositionPreset, GUILayout.Width(180));
+                        activeChar.FlipX = EditorGUILayout.ToggleLeft("Flip X", activeChar.FlipX, GUILayout.Width(60));
+                        activeChar.FlipY = EditorGUILayout.ToggleLeft("Flip Y", activeChar.FlipY, GUILayout.Width(60));
+                        GUILayout.EndHorizontal(); GUILayout.Space(2);
+
+                        GUILayout.BeginHorizontal();
+
+                        string[] posNames = { ToolLang.Get("Center", "По центру"), ToolLang.Get("Left", "Слева"), ToolLang.Get("Right", "Справа"), ToolLang.Get("Far Left", "Крайний левый"), ToolLang.Get("Far Right", "Крайний правый"), ToolLang.Get("Custom (X,Y)", "Кастомный (X,Y)") };
+                        int[] posValues = { (int)ECharacterPosition.Center, (int)ECharacterPosition.Left, (int)ECharacterPosition.Right, (int)ECharacterPosition.FarLeft, (int)ECharacterPosition.FarRight, (int)ECharacterPosition.Custom };
+
+                        activeChar.PositionPreset = (ECharacterPosition)EditorGUILayout.IntPopup(ToolLang.Get("Pos Preset:", "Позиция:"), (int)activeChar.PositionPreset, posNames, posValues);
 
                         if (activeChar.PositionPreset == ECharacterPosition.Custom)
                         {
+                            float tempLw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 15;
                             GUILayout.Space(10);
-                            activeChar.PosX = EditorGUILayout.FloatField("X", activeChar.PosX);
-                            GUILayout.Space(10);
-                            activeChar.PosY = EditorGUILayout.FloatField("Y", activeChar.PosY);
+                            activeChar.PosX = EditorGUILayout.FloatField("X", activeChar.PosX, GUILayout.Width(45));
+                            GUILayout.Space(5);
+                            activeChar.PosY = EditorGUILayout.FloatField("Y", activeChar.PosY, GUILayout.Width(45));
+                            EditorGUIUtility.labelWidth = tempLw;
                         }
                         GUILayout.EndHorizontal();
 
-                        if (EditorGUI.EndChangeCheck()) Undo.RecordObject(_currentTree, "Change Data");
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            Undo.RecordObject(_currentTree, "Change Data");
+                            GUI.changed = true;
+                        }
                     }
                     EditorGUIUtility.labelWidth = originalLabelWidth; GUILayout.EndVertical(); GUILayout.Space(5);
                 }
@@ -1721,9 +1763,6 @@ namespace NovellaEngine.Editor
 
             }
 
-            // ==========================================
-            // === КАСТОМНЫЕ НОДЫ ИЗ DLC (АВТО-ОТРИСОВКА) ===
-            // ==========================================
             if (nodeData.NodeType == ENodeType.CustomDLC)
             {
                 string dlcName = "DLC Module";
@@ -1735,13 +1774,20 @@ namespace NovellaEngine.Editor
 
                 EditorGUI.BeginChangeCheck();
 
-                if (_cachedNodeProp != null)
+                int nodeIndex = _currentTree.Nodes.FindIndex(n => n != null && n.NodeID == nodeData.NodeID);
+                SerializedProperty freshNodeProp = nodeIndex != -1 ? _serializedObject.FindProperty("Nodes").GetArrayElementAtIndex(nodeIndex) : null;
+
+                if (freshNodeProp != null)
                 {
-                    SerializedProperty iterator = _cachedNodeProp.Copy();
+                    SerializedProperty iterator = freshNodeProp.Copy();
+                    SerializedProperty endProperty = iterator.GetEndProperty();
+
                     bool enterChildren = true;
                     while (iterator.NextVisible(enterChildren))
                     {
                         enterChildren = false;
+                        if (SerializedProperty.EqualContents(iterator, endProperty)) break;
+
                         if (iterator.name == "NodeID" || iterator.name == "NodeTitle" ||
                             iterator.name == "GraphPosition" || iterator.name == "NodeCustomColor" ||
                             iterator.name == "IsPinned") continue;
@@ -1800,14 +1846,55 @@ namespace NovellaEngine.Editor
                 }
                 GUI.backgroundColor = Color.white;
             }
+
+            GUILayout.Space(20);
+            DrawSectionHeader("💾", ToolLang.Get("AUTO-SAVE", "АВТОСОХРАНЕНИЕ"));
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.HelpBox(ToolLang.Get(
+                "Auto-Save silently records the player's progress in the background every X seconds. When they click 'Continue' in the Main Menu, the story resumes from the last saved node.",
+                "Автосохранение незаметно записывает прогресс игрока каждые X секунд. При нажатии на карточку истории в Главном меню игра продолжится с этого места."
+            ), MessageType.Info);
+
+            EditorGUI.BeginChangeCheck();
+            _currentTree.EnableAutoSave = EditorGUILayout.ToggleLeft(ToolLang.Get(" Enable Auto-Save (Timer)", " Включить автосохранение по таймеру"), _currentTree.EnableAutoSave, EditorStyles.boldLabel);
+
+            if (_currentTree.EnableAutoSave)
+            {
+                GUILayout.Space(5);
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(ToolLang.Get("Interval (sec):", "Интервал (сек):"), GUILayout.Width(100));
+                _currentTree.AutoSaveInterval = EditorGUILayout.FloatField(_currentTree.AutoSaveInterval, GUILayout.Width(60));
+                GUILayout.EndHorizontal();
+
+                if (_currentTree.AutoSaveInterval < 5f) _currentTree.AutoSaveInterval = 5f;
+
+                if (_currentTree.AutoSaveInterval < 10f)
+                {
+                    GUILayout.Space(5);
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "Warning: An interval of less than 10 seconds may cause micro-stutters on mobile devices due to frequent file writing. 15-30 seconds is recommended.",
+                        "Внимание: Интервал менее 10 секунд может вызывать микро-фризы на слабых мобильных устройствах из-за частой записи в память. Рекомендуется 15-30 секунд."
+                    ), MessageType.Warning);
+                }
+            }
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                EditorUtility.SetDirty(_currentTree);
+                _onMarkUnsaved?.Invoke();
+            }
+            GUILayout.EndVertical();
         }
 
         private void EndLayout() { GUILayout.EndVertical(); GUILayout.Space(20); GUILayout.EndHorizontal(); GUILayout.EndScrollView(); }
 
         private float GetCharXOffset(ECharacterPosition preset, float customX)
         {
-            if (preset == ECharacterPosition.Left) return -5.5f;
-            if (preset == ECharacterPosition.Right) return 5.5f;
+            if (preset == ECharacterPosition.Left) return -3.5f;
+            if (preset == ECharacterPosition.Right) return 3.5f;
+            if (preset == ECharacterPosition.FarLeft) return -6.5f;
+            if (preset == ECharacterPosition.FarRight) return 6.5f;
             if (preset == ECharacterPosition.Custom) return customX;
             return 0f;
         }

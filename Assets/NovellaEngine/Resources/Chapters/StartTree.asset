@@ -12,20 +12,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e7fd50bdf9114ce4498a7f22f486539a, type: 3}
   m_Name: StartTree
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
-  RootNodeID: DLC_4bba2
-  StartPosition: {x: -141, y: 154}
+  RootNodeID: Save_e3c89
+  StartPosition: {x: -359, y: 125}
+  EnableAutoSave: 1
+  AutoSaveInterval: 10
   Nodes:
-  - rid: 6664540747352244289
-  - rid: 6664540724970127467
-  - rid: 6664540747352244302
   - rid: 6664540747352244305
   - rid: 6664540747352244306
-  - rid: 6664540747352244307
   - rid: 6664540747352244308
-  - rid: 6664540747352244297
-  - rid: 6664540747352244311
   - rid: 6664540747352244295
+  - rid: 6664540755987005507
+  - rid: 6664540747352244307
   - rid: 6664540724970127462
+  - rid: 6664540724970127467
+  - rid: 6664540747352244289
+  - rid: 6664540747352244297
   Groups: []
   references:
     version: 2
@@ -35,26 +36,20 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f5966
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 165, y: 116}
+        GraphPosition: {x: 140, y: 106}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
         - CharacterAsset: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Plane: 0
-          PositionPreset: 0
+          PositionPreset: 1
           Scale: 1
           Emotion: Default
           PosX: 0
           PosY: 0
           IsExpanded: 1
-        - CharacterAsset: {fileID: 11400000, guid: 554c9f3e675b1cf42b8bfa036c35967b, type: 2}
-          Plane: 0
-          PositionPreset: 0
-          Scale: 1
-          Emotion: Default
-          PosX: 0
-          PosY: 0
-          IsExpanded: 1
+          FlipX: 0
+          FlipY: 0
         DialogueLines:
         - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Mood: Default
@@ -109,7 +104,7 @@ MonoBehaviour:
           FramePosX: 0
           FramePosY: 0
           FrameScale: 1
-        - Speaker: {fileID: 11400000, guid: 554c9f3e675b1cf42b8bfa036c35967b, type: 2}
+        - Speaker: {fileID: 0}
           Mood: Default
           HideSpeakerName: 0
           CustomName: 
@@ -163,7 +158,7 @@ MonoBehaviour:
           FramePosY: 0
           FrameScale: 1
         UnlockDialogueLimit: 0
-        NextNodeID: 
+        NextNodeID: Dialogue_f6c24
         AudioSyncNodeID: Audio_143a6
         AnimSyncNodeID: Animation_e7336
         SceneSyncNodeID: SceneSettings_9f8b4
@@ -173,28 +168,19 @@ MonoBehaviour:
       data:
         NodeID: Animation_e7336
         NodeTitle: Animation 1
-        GraphPosition: {x: 408, y: 8}
+        GraphPosition: {x: 361, y: 18}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
         UnlockAnimLimit: 0
-        AnimEvents:
-        - LineIndex: 0
-          TriggerType: 0
-          TimeDelay: 0
-          Target: 1
-          TargetCharacter: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
-          AnimType: 0
-          Duration: 0.5
-          Strength: 10
-          EndVector: {x: 1, y: 1}
+        AnimEvents: []
         NextNodeID: 
     - rid: 6664540747352244289
       type: {class: AudioNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
       data:
         NodeID: Audio_143a6
         NodeTitle: Audio 1
-        GraphPosition: {x: 406, y: -96}
+        GraphPosition: {x: 355, y: -66}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         AudioAsset: {fileID: 0}
@@ -204,7 +190,7 @@ MonoBehaviour:
         SyncWithDialogue: 1
         AudioEvents:
         - LineIndex: 0
-          TriggerType: 2
+          TriggerType: 0
           TimeDelay: 0
           AudioAsset: {fileID: 0}
           AudioAction: 0
@@ -230,11 +216,21 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f6c24
         NodeTitle: Dialogue 2
-        GraphPosition: {x: 522, y: 166}
+        GraphPosition: {x: 521, y: 170}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
         - CharacterAsset: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
+          Plane: 0
+          PositionPreset: 3
+          Scale: 1
+          Emotion: Default
+          PosX: -4.37
+          PosY: -0.49
+          IsExpanded: 1
+          FlipX: 0
+          FlipY: 0
+        - CharacterAsset: {fileID: 11400000, guid: 56139cb6efdbfd9478b8146a03eda261, type: 2}
           Plane: 0
           PositionPreset: 0
           Scale: 1
@@ -242,6 +238,8 @@ MonoBehaviour:
           PosX: 0
           PosY: 0
           IsExpanded: 1
+          FlipX: 0
+          FlipY: 0
         DialogueLines:
         - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Mood: Default
@@ -401,8 +399,8 @@ MonoBehaviour:
           FramePosY: 0
           FrameScale: 1
         UnlockDialogueLimit: 0
-        NextNodeID: 
-        AudioSyncNodeID: Dialogue_34a0f
+        NextNodeID: Dialogue_34a0f
+        AudioSyncNodeID: 
         AnimSyncNodeID: 
         SceneSyncNodeID: 
         FontSize: 32
@@ -411,7 +409,7 @@ MonoBehaviour:
       data:
         NodeID: SceneSettings_9f8b4
         NodeTitle: SceneSettings 2
-        GraphPosition: {x: 385, y: 102}
+        GraphPosition: {x: 356, y: 134}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -421,27 +419,7 @@ MonoBehaviour:
         BgTransition: 1
         BgTransitionTime: 1
         BgClearCharacters: 1
-        SceneEvents:
-        - LineIndex: 0
-          TriggerType: 0
-          TimeDelay: 0
-          ActionType: 0
-          BgSprite: {fileID: 0}
-          BgColor: {r: 1, g: 1, b: 1, a: 1}
-          BgTransition: 1
-          BgTransitionTime: 1
-          TargetCharacter: {fileID: 0}
-        NextNodeID: 
-    - rid: 6664540747352244302
-      type: {class: EventBroadcastNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: EventBroadcast_e8758
-        NodeTitle: EventBroadcast 1
-        GraphPosition: {x: 435, y: 382}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        BroadcastEventName: MyCustomEvent
-        BroadcastEventParam: 
+        SceneEvents: []
         NextNodeID: 
     - rid: 6664540747352244305
       type: {class: AudioNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
@@ -505,7 +483,7 @@ MonoBehaviour:
       data:
         NodeID: SceneSettings_28a4e
         NodeTitle: SceneSettings 2
-        GraphPosition: {x: 1005, y: 164}
+        GraphPosition: {x: 1015, y: 169}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -531,7 +509,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_34a0f
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 784, y: 161}
+        GraphPosition: {x: 784, y: 159}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -543,6 +521,8 @@ MonoBehaviour:
           PosX: 0
           PosY: 0
           IsExpanded: 1
+          FlipX: 0
+          FlipY: 0
         - CharacterAsset: {fileID: 11400000, guid: 554c9f3e675b1cf42b8bfa036c35967b, type: 2}
           Plane: 0
           PositionPreset: 0
@@ -551,6 +531,8 @@ MonoBehaviour:
           PosX: 0
           PosY: 0
           IsExpanded: 1
+          FlipX: 0
+          FlipY: 0
         DialogueLines:
         - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Mood: Default
@@ -664,15 +646,12 @@ MonoBehaviour:
         AnimSyncNodeID: Animation_c85fa
         SceneSyncNodeID: SceneSettings_28a4e
         FontSize: 32
-    - rid: 6664540747352244311
-      type: {class: ItemCheckNodeData, ns: NovellaEngine.DLC.Inventory, asm: Assembly-CSharp}
+    - rid: 6664540755987005507
+      type: {class: SaveNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
       data:
-        NodeID: DLC_4bba2
-        NodeTitle: Item Check
-        GraphPosition: {x: 3, y: 48}
-        NodeCustomColor: {r: 0.18039216, g: 0.54901963, b: 0.38431373, a: 1}
+        NodeID: Save_e3c89
+        NodeTitle: Save 1
+        GraphPosition: {x: -100, y: 192}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
-        ItemIDToNeed: Key_01
-        RemoveItemOnSuccess: 1
-        TrueNextNodeID: Dialogue_f5966
-        FalseNextNodeID: 
+        NextNodeID: Dialogue_f5966
