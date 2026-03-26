@@ -523,6 +523,46 @@ namespace NovellaEngine.Editor
             // ==========================================
             if (nodeData is NoteNodeData noteData)
             {
+                // ПРОХОЖДЕНИЕ ТУТОРИАЛА: ПРОВЕРКА НА КЛЮЧЕВОЕ СЛОВО
+                string currentNoteTextEN = noteData.LocalizedNoteText.GetText("EN");
+                string currentNoteTextRU = noteData.LocalizedNoteText.GetText("RU");
+
+                if ((currentNoteTextEN != null && currentNoteTextEN.Contains("[TUTORIAL_END]")) ||
+                    (currentNoteTextRU != null && currentNoteTextRU.Contains("[TUTORIAL_END]")))
+                {
+                    DrawSectionHeader("🎓", ToolLang.Get("Tutorial Completed!", "Обучение Завершено!"));
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+
+                    GUIStyle tutStyle = new GUIStyle(EditorStyles.label) { wordWrap = true, fontSize = 13, alignment = TextAnchor.MiddleCenter, richText = true };
+                    GUILayout.Label(ToolLang.Get(
+                        "You've learned the basics of <b>Novella Engine</b>!\nNow it's time to create your own Visual Novel.",
+                        "Вы изучили основы <b>Novella Engine</b>!\nТеперь пришло время создать свою собственную визуальную новеллу."
+                    ), tutStyle);
+
+                    GUILayout.Space(20);
+
+                    GUI.backgroundColor = new Color(0.2f, 0.8f, 0.4f);
+                    if (GUILayout.Button(ToolLang.Get("🚀 GO TO CREATE MY VISUAL NOVEL", "🚀 ПЕРЕЙТИ К СОЗДАНИЮ СВОЕЙ НОВЕЛЛЫ"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(50)))
+                    {
+                        EditorPrefs.SetBool("Novella_TutorialMode", true);
+
+                        // Открываем Менеджер сцен через рефлексию (чтобы не требовать прямую ссылку, если скрипт в другой папке)
+                        Type type = Type.GetType("NovellaEngine.Editor.NovellaSceneManagerWindow");
+                        if (type != null)
+                        {
+                            var method = type.GetMethod("ShowWindow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                            if (method != null) method.Invoke(null, null);
+                        }
+                    }
+                    GUI.backgroundColor = Color.white;
+
+                    GUILayout.Space(10);
+                    GUILayout.EndVertical();
+
+                    EndLayout(); return;
+                }
+
+                // СТАНДАРТНАЯ ОТРИСОВКА ЗАМЕТКИ
                 DrawSectionHeader("📌", ToolLang.Get("Note Settings", "Настройки Заметки"));
 
                 EditorGUI.BeginChangeCheck();
@@ -695,7 +735,12 @@ namespace NovellaEngine.Editor
 
                         if (GUILayout.Button("🛠 " + ToolLang.Get("Open Scene Manager", "Открыть Менеджер Сцен"), EditorStyles.miniButton, GUILayout.Height(25)))
                         {
-                            NovellaSceneManagerWindow.ShowWindow();
+                            Type type = Type.GetType("NovellaEngine.Editor.NovellaSceneManagerWindow");
+                            if (type != null)
+                            {
+                                var method = type.GetMethod("ShowWindow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                                if (method != null) method.Invoke(null, null);
+                            }
                         }
                     }
                     else
@@ -708,7 +753,12 @@ namespace NovellaEngine.Editor
 
                         if (GUILayout.Button(new GUIContent("🛠", ToolLang.Get("Open Scene Manager", "Открыть Менеджер Сцен")), EditorStyles.miniButton, GUILayout.Width(30)))
                         {
-                            NovellaSceneManagerWindow.ShowWindow();
+                            Type type = Type.GetType("NovellaEngine.Editor.NovellaSceneManagerWindow");
+                            if (type != null)
+                            {
+                                var method = type.GetMethod("ShowWindow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                                if (method != null) method.Invoke(null, null);
+                            }
                         }
 
                         GUILayout.EndHorizontal();

@@ -19,7 +19,7 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story }
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story, Character }
         private enum UndoType { Delete, Move, Copy }
 
         private struct UndoAction
@@ -265,6 +265,8 @@ namespace NovellaEngine.Editor
 
             bool isStory = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaStory);
 
+            bool isCharacter = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaCharacter);
+
             if (isPrefab && _filterMode == EGalleryFilter.CustomUI)
             {
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(formattedFile);
@@ -280,7 +282,8 @@ namespace NovellaEngine.Editor
                 if (_filterMode == EGalleryFilter.CustomUI && !isCustomUI) return;
                 if (_filterMode == EGalleryFilter.Graph && !isGraph) return;
                 if (_filterMode == EGalleryFilter.Story && !isStory) return;
-                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory)) return;
+                if (_filterMode == EGalleryFilter.Character && !isCharacter) return;
+                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory || isCharacter)) return;
             }
 
             Texture2D tex = null;

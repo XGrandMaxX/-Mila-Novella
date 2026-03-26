@@ -1,11 +1,4 @@
-﻿/// <summary>
-/// ОТВЕЧАЕТ ЗА:
-/// 1. Обработку всех нод Графа во время игры (PlayNode).
-/// 2. Отображение текста на UI и управление массовкой.
-/// 3. Систему Сохранения (Автосейвы и Чекпоинты).
-/// 4. Поддержку DLC (выполнение через интерфейс INovellaDLCExecutable).
-/// </summary>
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -94,6 +87,23 @@ namespace NovellaEngine.Runtime
 
             InitializeVariables();
 
+            string selectedStoryID = PlayerPrefs.GetString("SelectedStoryID", "");
+            if (!string.IsNullOrEmpty(selectedStoryID))
+            {
+                var allStories = Resources.LoadAll<NovellaStory>("Stories");
+                var activeStory = allStories.FirstOrDefault(s => s.name == selectedStoryID);
+                if (activeStory != null && activeStory.StartingChapter != null)
+                {
+                    StoryTree = activeStory.StartingChapter;
+                }
+                else
+                {
+                    Debug.LogWarning($"[NovellaPlayer] Не удалось найти историю '{selectedStoryID}' в Resources/Stories. Будет использован граф из инспектора (если он назначен).");
+                }
+            }
+
+            SetupMCProfile();
+
             string targetNodeID = PlayerPrefs.GetString("LoadTargetNodeID", "");
 
             if (!string.IsNullOrEmpty(targetNodeID) && StoryTree != null)
@@ -114,15 +124,63 @@ namespace NovellaEngine.Runtime
             }
             else if (StoryTree != null)
             {
-                Debug.Log("[NovellaPlayer] Старт новой игры.");
+                Debug.Log($"[NovellaPlayer] Старт новой игры. Граф: {StoryTree.name}");
                 PlayTree(StoryTree);
             }
             else
             {
-                Debug.LogWarning("[NovellaPlayer] Story Tree is not assigned!");
+                Debug.LogError("[NovellaPlayer] Story Tree is not assigned! Пожалуйста, выберите историю в меню или назначьте граф вручную в инспекторе NovellaPlayer.");
             }
         }
+        private void SetupMCProfile()
+        {
+            if (DialoguePanel == null || StoryTree == null) return;
 
+            Canvas rootCanvas = DialoguePanel.GetComponentInParent<Canvas>(true);
+            if (rootCanvas != null && rootCanvas.rootCanvas != null) rootCanvas = rootCanvas.rootCanvas;
+
+            Transform mcPanel = rootCanvas.transform.Find("MCCreationPanel");
+            if (mcPanel != null)
+            {
+                mcPanel.gameObject.SetActive(false);
+
+                string mcName = PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_MCName", "Alex");
+                int bodyId = PlayerPrefs.GetInt($"NovellaSave_{StoryTree.name}_MCBodyID", 0);
+
+                var inputField = mcPanel.GetComponentInChildren<TMP_InputField>(true);
+                if (inputField != null) inputField.text = mcName;
+
+                var avatarPreview = mcPanel.Find("AvatarPreview")?.GetComponent<Image>();
+                if (avatarPreview != null)
+                {
+                    NovellaCharacter mcAsset = null;
+
+                    foreach (var node in StoryTree.Nodes)
+                    {
+                        if (node is DialogueNodeData dialData)
+                        {
+                            var mc = dialData.ActiveCharacters.FirstOrDefault(c => c.CharacterAsset != null && c.CharacterAsset.IsPlayerCharacter);
+                            if (mc != null)
+                            {
+                                mcAsset = mc.CharacterAsset;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (mcAsset != null && bodyId >= 0 && bodyId < mcAsset.AvailableBaseBodies.Count)
+                    {
+                        avatarPreview.sprite = mcAsset.AvailableBaseBodies[bodyId];
+                        avatarPreview.color = Color.white;
+                    }
+                    else
+                    {
+                        avatarPreview.sprite = null;
+                        avatarPreview.color = new Color(0.2f, 0.2f, 0.2f, 0f);
+                    }
+                }
+            }
+        }
         private void SaveProgress()
         {
             if (_currentNodeBase == null || StoryTree == null) return;
@@ -1012,10 +1070,21 @@ namespace NovellaEngine.Runtime
                     if (!line.HideSpeakerName)
                     {
                         SpeakerNameText.gameObject.SetActive(true);
-                        string displayName = CurrentLanguage == "RU" ? line.Speaker.DisplayName_RU : line.Speaker.DisplayName_EN;
-                        if (string.IsNullOrEmpty(displayName)) displayName = line.Speaker.name;
 
-                        SpeakerNameText.text = displayName; SpeakerNameText.color = line.Speaker.ThemeColor;
+                        // --- ВАЖНО: ПОДТЯГИВАЕМ ИМЯ ИЗ СОХРАНЕНИЙ, ЕСЛИ ЭТО ГГ! ---
+                        string displayName = "";
+                        if (line.Speaker.IsPlayerCharacter && StoryTree != null)
+                        {
+                            displayName = PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_MCName", "Alex");
+                        }
+                        else
+                        {
+                            displayName = CurrentLanguage == "RU" ? line.Speaker.DisplayName_RU : line.Speaker.DisplayName_EN;
+                            if (string.IsNullOrEmpty(displayName)) displayName = line.Speaker.name;
+                        }
+
+                        SpeakerNameText.text = displayName;
+                        SpeakerNameText.color = line.Speaker.ThemeColor;
                     }
                     else
                     {
@@ -1146,7 +1215,16 @@ namespace NovellaEngine.Runtime
                         entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
                     }
 
-                    if (emotionToSet != "Default")
+                    // --- ВАЖНО: ПОДТЯГИВАЕМ СПРАЙТ ИЗ СОХРАНЕНИЙ, ЕСЛИ ЭТО ГГ! ---
+                    if (config.CharacterAsset.IsPlayerCharacter && StoryTree != null)
+                    {
+                        int lookIndex = PlayerPrefs.GetInt($"NovellaSave_{StoryTree.name}_MCBodyID", 0);
+                        if (lookIndex >= 0 && lookIndex < config.CharacterAsset.AvailableBaseBodies.Count)
+                        {
+                            targetSprite = config.CharacterAsset.AvailableBaseBodies[lookIndex];
+                        }
+                    }
+                    else if (emotionToSet != "Default")
                     {
                         var emotionData = config.CharacterAsset.Emotions.FirstOrDefault(e => e.EmotionName == emotionToSet);
                         if (emotionData.EmotionSprite != null) targetSprite = emotionData.EmotionSprite;

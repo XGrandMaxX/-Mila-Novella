@@ -73,11 +73,16 @@ namespace NovellaEngine.Editor
 
         private void OnEnable()
         {
-            _tabs = new string[] { "🎮 " + ToolLang.Get("Game UI", "Игровой UI"), "📱 " + ToolLang.Get("Menu UI", "Меню UI"), "💠 " + ToolLang.Get("System Prefabs", "Системные Префабы"), "🛠 " + ToolLang.Get("Prefab Creator", "Создание Префабов") }; if (!AssetDatabase.IsValidFolder(_customPrefabsDir)) Directory.CreateDirectory(_customPrefabsDir);
-            FindReferences();
+            _tabs = new string[] { "🎮 " + ToolLang.Get("Game UI", "Игровой UI"), "📱 " + ToolLang.Get("Menu UI", "Меню UI"), "💠 " + ToolLang.Get("System Prefabs", "Системные Префабы"), "🛠 " + ToolLang.Get("Prefab Creator", "Создание Префабов") };
+            if (!AssetDatabase.IsValidFolder(_customPrefabsDir)) Directory.CreateDirectory(_customPrefabsDir);
+
+            EditorApplication.delayCall += () => {
+                FindReferences();
+                Repaint();
+            };
+
             EditorApplication.update += OnEditorUpdate;
         }
-
         private void OnDisable()
         {
             EditorApplication.update -= OnEditorUpdate;
@@ -85,7 +90,11 @@ namespace NovellaEngine.Editor
             ClearDummyButtons();
             if (_previewTexture != null) { _previewTexture.Release(); DestroyImmediate(_previewTexture); }
         }
-
+        private void OnHierarchyChange()
+        {
+            FindReferences();
+            Repaint();
+        }
         private void OnEditorUpdate() { Repaint(); }
 
         private void FindReferences()
@@ -100,17 +109,18 @@ namespace NovellaEngine.Editor
             else if (_player != null && _currentTab == 1) _currentTab = 0;
 
             Canvas c = null;
-            if (_player != null && _player.DialoguePanel != null) c = _player.DialoguePanel.GetComponentInParent<Canvas>();
-            else if (_launcher != null && _launcher.StoriesContainer != null) c = _launcher.StoriesContainer.GetComponentInParent<Canvas>();
+            if (_player != null && _player.DialoguePanel != null) c = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
+            else if (_launcher != null && _launcher.StoriesContainer != null) c = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
 
             if (c != null && _camera != null)
             {
-                c.renderMode = RenderMode.ScreenSpaceCamera;
-                c.worldCamera = _camera;
-                c.planeDistance = 5f;
-                c.sortingOrder = 100;
+                Canvas rCanvas = c.rootCanvas != null ? c.rootCanvas : c;
+                rCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+                rCanvas.worldCamera = _camera;
+                rCanvas.planeDistance = 5f;
+                rCanvas.sortingOrder = 100;
 
-                Transform bgTransform = c.transform.Find("Background");
+                Transform bgTransform = rCanvas.transform.Find("Background");
                 if (bgTransform != null)
                 {
                     Canvas bgCanvas = bgTransform.GetComponent<Canvas>();
@@ -123,10 +133,52 @@ namespace NovellaEngine.Editor
                     bgCanvas.sortingOrder = -100;
                 }
 
-                EditorUtility.SetDirty(c);
+                EditorUtility.SetDirty(rCanvas);
+            }
+
+            if (_launcher != null && _launcher.StoriesContainer != null)
+            {
+                bool isDirty = false;
+                Canvas contCanvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
+
+                if (contCanvas != null)
+                {
+                    Canvas rootCanvas = contCanvas.rootCanvas != null ? contCanvas.rootCanvas : contCanvas;
+                    var allTransforms = rootCanvas.GetComponentsInChildren<Transform>(true);
+
+                    if (_launcher.MainMenuPanel == null)
+                    {
+                        var p = allTransforms.FirstOrDefault(t => t.name.Contains("MainMenu") || t.name.Contains("ButtonsList"));
+                        if (p != null) { _launcher.MainMenuPanel = p.gameObject; isDirty = true; }
+                    }
+
+                    if (_launcher.StoriesPanel == null)
+                    {
+                        _launcher.StoriesPanel = _launcher.StoriesContainer.gameObject;
+                        isDirty = true;
+                    }
+
+                    if (_launcher.MCCreationPanel == null)
+                    {
+                        var mcPanel = allTransforms.FirstOrDefault(t => t.name == "MCCreationPanel");
+                        if (mcPanel != null)
+                        {
+                            _launcher.MCCreationPanel = mcPanel.gameObject;
+                            _launcher.MCNameInput = mcPanel.GetComponentInChildren<TMP_InputField>(true);
+                            var btns = mcPanel.GetComponentsInChildren<Button>(true);
+                            _launcher.MCConfirmButton = btns.FirstOrDefault(b => b.name.Contains("Confirm") || b.name.Contains("Готово"));
+
+                            _launcher.MCAvatarPreview = mcPanel.Find("AvatarPreview")?.GetComponent<Image>();
+                            _launcher.MCPrevLookButton = mcPanel.Find("Btn_PrevLook")?.GetComponent<Button>();
+                            _launcher.MCNextLookButton = mcPanel.Find("Btn_NextLook")?.GetComponent<Button>();
+
+                            isDirty = true;
+                        }
+                    }
+                }
+                if (isDirty) EditorUtility.SetDirty(_launcher);
             }
         }
-
         private void OnGUI()
         {
             if (_player == null && _launcher == null)
@@ -152,7 +204,6 @@ namespace NovellaEngine.Editor
             if (_currentTab != 3) { if (_tempCustomPreview) DestroyImmediate(_tempCustomPreview); }
 
             bool isEditingChoiceContainer = (_currentTab == 0 && _player != null && _activeEditRect == _player.ChoiceContainer?.GetComponent<RectTransform>());
-
             bool isEditingStoryContainer = (_currentTab == 1 && _launcher != null && _launcher.StoriesContainer != null);
 
             if (isEditingChoiceContainer || isEditingStoryContainer)
@@ -216,12 +267,443 @@ namespace NovellaEngine.Editor
             GUILayout.EndVertical();
         }
 
+        private void DrawMCCreationSection(Canvas canvas)
+        {
+            if (canvas == null) return;
+
+            bool isGameScene = _currentTab == 0;
+            Transform rootT = canvas.rootCanvas != null ? canvas.rootCanvas.transform : canvas.transform;
+
+            GUILayout.Space(15);
+            string headerText = isGameScene ? ToolLang.Get("Character Profile (In-Game)", "Профиль персонажа (В игре)") : ToolLang.Get("Main Character Creator", "Создание Главного Героя");
+            DrawSectionHeader("👤", headerText);
+
+            Transform mcPanelTransform = rootT.Find("MCCreationPanel");
+
+            if (mcPanelTransform == null)
+            {
+                EditorGUILayout.HelpBox(ToolLang.Get("Create a panel to allow players to interact with the MC.", "Создайте панель, чтобы игроки могли взаимодействовать с профилем ГГ."), MessageType.Info);
+                GUI.backgroundColor = new Color(0.2f, 0.8f, 0.4f);
+                if (GUILayout.Button("🛠 " + ToolLang.Get("Generate MC Panel", "Сгенерировать панель ГГ"), GUILayout.Height(35)))
+                {
+                    GenerateMCCreationPanel(rootT, isGameScene);
+                }
+                GUI.backgroundColor = Color.white;
+            }
+            else
+            {
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+
+                if (_launcher != null)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("🦸 " + ToolLang.Get("Base MC Asset:", "SO Персонажа:"), EditorStyles.boldLabel, GUILayout.Width(130));
+
+                    string mcName = _launcher.MainCharacterAsset != null ? _launcher.MainCharacterAsset.name : ToolLang.Get("None (Click to select)", "Не выбран (Нажмите)");
+                    string charDir = "Assets/NovellaEngine/Runtime/Data/Characters";
+
+                    if (GUILayout.Button(mcName, EditorStyles.popup))
+                    {
+                        if (!Directory.Exists(charDir)) Directory.CreateDirectory(charDir);
+
+                        NovellaGalleryWindow.ShowWindow(obj => {
+                            NovellaCharacter mc = obj as NovellaCharacter;
+                            if (mc != null)
+                            {
+                                Undo.RecordObject(_launcher, "Assign MC");
+                                _launcher.MainCharacterAsset = mc;
+                                EditorUtility.SetDirty(_launcher);
+                                Repaint();
+                            }
+                        }, NovellaGalleryWindow.EGalleryFilter.Character, charDir);
+                    }
+
+                    if (_launcher.MainCharacterAsset != null)
+                    {
+                        GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+                        if (GUILayout.Button("✖", GUILayout.Width(25)))
+                        {
+                            Undo.RecordObject(_launcher, "Clear MC Asset");
+                            _launcher.MainCharacterAsset = null;
+                            EditorUtility.SetDirty(_launcher);
+                        }
+                        GUI.backgroundColor = Color.white;
+                    }
+                    else
+                    {
+                        GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+                        if (GUILayout.Button("+ " + ToolLang.Get("Create", "Создать"), EditorStyles.miniButton, GUILayout.Width(70)))
+                        {
+                            if (!Directory.Exists(charDir)) Directory.CreateDirectory(charDir);
+
+                            NovellaCharacter newMc = ScriptableObject.CreateInstance<NovellaCharacter>();
+                            newMc.IsPlayerCharacter = true;
+                            newMc.CharacterID = "Player";
+                            newMc.DisplayName_EN = "Player";
+                            newMc.DisplayName_RU = "Игрок";
+
+                            string path = AssetDatabase.GenerateUniqueAssetPath($"{charDir}/MC_Player.asset");
+                            AssetDatabase.CreateAsset(newMc, path);
+                            AssetDatabase.SaveAssets();
+
+                            Undo.RecordObject(_launcher, "Assign MC");
+                            _launcher.MainCharacterAsset = newMc;
+                            EditorUtility.SetDirty(_launcher);
+                        }
+                        GUI.backgroundColor = Color.white;
+                    }
+                    GUILayout.EndHorizontal();
+
+                    if (_launcher.MainCharacterAsset != null)
+                    {
+                        GUILayout.Space(5);
+                        GUILayout.BeginVertical(GUI.skin.box);
+
+                        SerializedObject so = new SerializedObject(_launcher.MainCharacterAsset);
+                        so.Update();
+
+                        EditorGUI.BeginChangeCheck();
+                        EditorGUILayout.PropertyField(so.FindProperty("IsPlayerCharacter"), new GUIContent(ToolLang.Get("Is Main Character", "Это Главный Герой")));
+                        GUILayout.Space(5);
+                        EditorGUILayout.PropertyField(so.FindProperty("AvailableBaseBodies"), new GUIContent(ToolLang.Get("Base Looks (Sprites)", "Базовые спрайты (Внешность)")), true);
+
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            so.ApplyModifiedProperties();
+                            EditorUtility.SetDirty(_launcher.MainCharacterAsset);
+                        }
+                        GUILayout.EndVertical();
+                    }
+                    GUILayout.Space(10);
+                }
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("👁 " + ToolLang.Get("Panel Visibility", "Видимость панели"), EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+
+                EditorGUI.BeginChangeCheck();
+                bool isPanelActive = GUILayout.Toggle(mcPanelTransform.gameObject.activeSelf, ToolLang.Get("Show in Scene", "Показать на сцене"), EditorStyles.toolbarButton, GUILayout.Width(130));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(mcPanelTransform.gameObject, "Toggle MC Panel");
+                    mcPanelTransform.gameObject.SetActive(isPanelActive);
+                    EditorUtility.SetDirty(mcPanelTransform.gameObject);
+                    if (!Application.isPlaying) UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(10);
+
+                DrawRectTransformEditor(ToolLang.Get("Main Panel Base", "Главная подложка панели"), mcPanelTransform.GetComponent<RectTransform>());
+
+                bool isEditingMC = _activeEditRect != null && (_activeEditRect == mcPanelTransform.GetComponent<RectTransform>() || _activeEditRect.IsChildOf(mcPanelTransform));
+
+                if (isEditingMC)
+                {
+                    foreach (Transform child in mcPanelTransform)
+                    {
+                        var rt = child.GetComponent<RectTransform>();
+                        var txt = child.GetComponent<TMP_Text>();
+
+                        if (txt != null)
+                        {
+                            DrawTextEditor("↳ 📝 " + child.name, txt);
+                        }
+                        else if (rt != null)
+                        {
+                            DrawRectTransformEditor("↳ 🔲 " + child.name, rt);
+
+                            bool isEditingChild = _activeEditRect != null && (_activeEditRect == rt || _activeEditRect.IsChildOf(rt));
+                            if (isEditingChild)
+                            {
+                                var deepTexts = child.GetComponentsInChildren<TMP_Text>(true);
+                                foreach (var dTxt in deepTexts)
+                                {
+                                    if (dTxt.gameObject != child.gameObject)
+                                        DrawTextEditor("   ↳ 📝 " + dTxt.name, dTxt);
+                                }
+                            }
+                        }
+                    }
+                }
+                GUILayout.EndVertical();
+            }
+        }
+        private void DrawLayoutContainerEditor(string title, RectTransform rect)
+        {
+            if (rect == null) return;
+
+            DrawRectTransformEditor(title, rect);
+
+            if (_activeEditRect == rect)
+            {
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+                GUILayout.Label(ToolLang.Get("Layout Settings", "Настройки Расположения"), EditorStyles.miniBoldLabel);
+
+                var vlg = rect.GetComponent<VerticalLayoutGroup>();
+                var hlg = rect.GetComponent<HorizontalLayoutGroup>();
+                int currentType = vlg != null ? 0 : (hlg != null ? 1 : -1);
+
+                EditorGUI.BeginChangeCheck();
+                int newType = EditorGUILayout.Popup(ToolLang.Get("Type", "Тип"), currentType, new string[] { ToolLang.Get("Vertical", "Вертикальный (Столбик)"), ToolLang.Get("Horizontal", "Горизонтальный (Строка)") });
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(rect.gameObject, "Change Layout Group");
+                    float spacing = 20f; TextAnchor align = TextAnchor.MiddleCenter;
+
+                    if (vlg != null) { spacing = vlg.spacing; align = vlg.childAlignment; DestroyImmediate(vlg); }
+                    if (hlg != null) { spacing = hlg.spacing; align = hlg.childAlignment; DestroyImmediate(hlg); }
+
+                    if (newType == 0)
+                    {
+                        vlg = rect.gameObject.AddComponent<VerticalLayoutGroup>();
+                        vlg.spacing = spacing; vlg.childAlignment = align;
+                        vlg.childControlHeight = false; vlg.childControlWidth = false;
+                        vlg.childForceExpandHeight = false; vlg.childForceExpandWidth = false;
+                    }
+                    else if (newType == 1)
+                    {
+                        hlg = rect.gameObject.AddComponent<HorizontalLayoutGroup>();
+                        hlg.spacing = spacing; hlg.childAlignment = align;
+                        hlg.childControlHeight = false; hlg.childControlWidth = false;
+                        hlg.childForceExpandHeight = false; hlg.childForceExpandWidth = false;
+                    }
+
+                    var csf = rect.GetComponent<ContentSizeFitter>();
+                    if (csf == null) csf = rect.gameObject.AddComponent<ContentSizeFitter>();
+                    csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+                    EditorUtility.SetDirty(rect.gameObject);
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+                    Canvas.ForceUpdateCanvases();
+                }
+
+                LayoutGroup lg = rect.GetComponent<LayoutGroup>();
+                if (lg != null)
+                {
+                    EditorGUI.BeginChangeCheck();
+                    float s = 0;
+                    if (lg is VerticalLayoutGroup v) s = v.spacing;
+                    if (lg is HorizontalLayoutGroup h) s = h.spacing;
+
+                    s = EditorGUILayout.FloatField(ToolLang.Get("Spacing", "Отступ между элементами"), s);
+                    TextAnchor al = (TextAnchor)EditorGUILayout.EnumPopup(ToolLang.Get("Alignment", "Выравнивание"), lg.childAlignment);
+
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Undo.RecordObject(lg, "Change Settings");
+                        if (lg is VerticalLayoutGroup vv) { vv.spacing = s; vv.childAlignment = al; }
+                        if (lg is HorizontalLayoutGroup hh) { hh.spacing = s; hh.childAlignment = al; }
+                        EditorUtility.SetDirty(lg);
+
+                        LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+                        Canvas.ForceUpdateCanvases();
+                    }
+                }
+                GUILayout.EndVertical();
+                GUILayout.Space(10);
+            }
+        }
+
+        private void DrawTextEditor(string title, TMP_Text txt, bool isPrefabMode = false)
+        {
+            if (txt == null) return;
+            DrawRectTransformEditor(title, txt.GetComponent<RectTransform>(), isPrefabMode);
+
+            if (_activeEditRect == txt.GetComponent<RectTransform>())
+            {
+                EditorGUI.BeginChangeCheck();
+                DrawTMPTextSettingsBlock(txt, ToolLang.Get("Typography Settings", "Настройки Типографики"));
+                if (EditorGUI.EndChangeCheck()) { EditorUtility.SetDirty(txt.gameObject); Canvas.ForceUpdateCanvases(); }
+            }
+        }
+        private void GenerateMCCreationPanel(Transform rootTransform, bool isGameScene)
+        {
+            Undo.RegisterFullObjectHierarchyUndo(rootTransform.gameObject, "Generate MC Panel");
+
+            GameObject panel = new GameObject("MCCreationPanel");
+            panel.transform.SetParent(rootTransform, false);
+            panel.transform.SetAsLastSibling();
+
+            var canvas = panel.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 1000;
+            panel.AddComponent<GraphicRaycaster>();
+
+            var rt = panel.GetComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            panel.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.1f, 0.95f);
+
+            // АВАТАР ПЕРСОНАЖА (1001 СЛОЙ)
+            GameObject avatarObj = new GameObject("AvatarPreview");
+            avatarObj.transform.SetParent(panel.transform, false);
+            var avRt = avatarObj.AddComponent<RectTransform>();
+            avRt.anchorMin = new Vector2(0.5f, 0.5f); avRt.anchorMax = new Vector2(0.5f, 0.5f);
+            avRt.anchoredPosition = new Vector2(0, 30);
+            avRt.sizeDelta = new Vector2(300, 450);
+            var avImg = avatarObj.AddComponent<Image>();
+            avImg.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
+            avImg.preserveAspect = true;
+
+            var avCanvas = avatarObj.AddComponent<Canvas>();
+            avCanvas.overrideSorting = true;
+            avCanvas.sortingOrder = 1001;
+
+            // СТРЕЛКИ ГЕНЕРИРУЮТСЯ ТОЛЬКО ЕСЛИ МЫ НЕ В ИГРЕ
+            if (!isGameScene)
+            {
+                GameObject btnPrev = new GameObject("Btn_PrevLook");
+                btnPrev.transform.SetParent(panel.transform, false);
+                var bpRt = btnPrev.AddComponent<RectTransform>();
+                bpRt.anchorMin = new Vector2(0.5f, 0.5f); bpRt.anchorMax = new Vector2(0.5f, 0.5f);
+                bpRt.anchoredPosition = new Vector2(-300, 0);
+                bpRt.sizeDelta = new Vector2(60, 60);
+                btnPrev.AddComponent<Image>().color = new Color(0.3f, 0.3f, 0.3f, 1f);
+                btnPrev.AddComponent<Button>();
+
+                GameObject txtPrev = new GameObject("Text");
+                txtPrev.transform.SetParent(btnPrev.transform, false);
+                var tpRt = txtPrev.AddComponent<RectTransform>();
+                tpRt.anchorMin = Vector2.zero; tpRt.anchorMax = Vector2.one;
+                tpRt.offsetMin = Vector2.zero; tpRt.offsetMax = Vector2.zero;
+                var tTmpP = txtPrev.AddComponent<TextMeshProUGUI>();
+                tTmpP.text = "<"; tTmpP.fontSize = 40; tTmpP.alignment = TextAlignmentOptions.Center;
+
+                GameObject btnNext = new GameObject("Btn_NextLook");
+                btnNext.transform.SetParent(panel.transform, false);
+                var bnRt = btnNext.AddComponent<RectTransform>();
+                bnRt.anchorMin = new Vector2(0.5f, 0.5f); bnRt.anchorMax = new Vector2(0.5f, 0.5f);
+                bnRt.anchoredPosition = new Vector2(300, 0);
+                bnRt.sizeDelta = new Vector2(60, 60);
+                btnNext.AddComponent<Image>().color = new Color(0.3f, 0.3f, 0.3f, 1f);
+                btnNext.AddComponent<Button>();
+
+                GameObject txtNext = new GameObject("Text");
+                txtNext.transform.SetParent(btnNext.transform, false);
+                var tnRt = txtNext.AddComponent<RectTransform>();
+                tnRt.anchorMin = Vector2.zero; tnRt.anchorMax = Vector2.one;
+                tnRt.offsetMin = Vector2.zero; tnRt.offsetMax = Vector2.zero;
+                var tTmpN = txtNext.AddComponent<TextMeshProUGUI>();
+                tTmpN.text = ">"; tTmpN.fontSize = 40; tTmpN.alignment = TextAlignmentOptions.Center;
+            }
+
+            // Заголовок
+            GameObject titleObj = new GameObject("TitleText");
+            titleObj.transform.SetParent(panel.transform, false);
+            var titleRt = titleObj.AddComponent<RectTransform>();
+            titleRt.anchorMin = new Vector2(0.5f, 1f); titleRt.anchorMax = new Vector2(0.5f, 1f);
+            titleRt.pivot = new Vector2(0.5f, 1f);
+            titleRt.anchoredPosition = new Vector2(0, -50);
+            titleRt.sizeDelta = new Vector2(800, 100);
+            var titleTxt = titleObj.AddComponent<TextMeshProUGUI>();
+            titleTxt.text = isGameScene ? ToolLang.Get("Character Profile", "Профиль персонажа") : ToolLang.Get("Create Your Character", "Создание Персонажа");
+            titleTxt.fontSize = 60; titleTxt.alignment = TextAlignmentOptions.Center;
+
+            // Подсказка (Хинт)
+            GameObject hintObj = new GameObject("HintText");
+            hintObj.transform.SetParent(panel.transform, false);
+            var hintRt = hintObj.AddComponent<RectTransform>();
+            hintRt.anchorMin = new Vector2(0.5f, 0.5f); hintRt.anchorMax = new Vector2(0.5f, 0.5f);
+            hintRt.anchoredPosition = new Vector2(0, -230);
+            hintRt.sizeDelta = new Vector2(500, 50);
+            var hintTxt = hintObj.AddComponent<TextMeshProUGUI>();
+            hintTxt.text = isGameScene ? ToolLang.Get("Current Name:", "Имя персонажа:") : ToolLang.Get("Enter character name:", "Введите имя персонажа:");
+            hintTxt.fontSize = 32; hintTxt.alignment = TextAlignmentOptions.Center;
+            hintTxt.color = new Color(0.7f, 0.7f, 0.7f);
+
+            // Поле ввода имени (Input Field Base)
+            GameObject inputBg = new GameObject("NameInput");
+            inputBg.transform.SetParent(panel.transform, false);
+            var inRt = inputBg.AddComponent<RectTransform>();
+            inRt.anchorMin = new Vector2(0.5f, 0.5f); inRt.anchorMax = new Vector2(0.5f, 0.5f);
+            inRt.anchoredPosition = new Vector2(0, -290);
+            inRt.sizeDelta = new Vector2(500, 80);
+            inputBg.AddComponent<Image>().color = new Color(0.2f, 0.2f, 0.2f, 1f);
+
+            // СОЗДАЕМ МАСКУ, ЧТОБЫ ТЕКСТ НЕ ВЫЛАЗИЛ
+            GameObject textAreaObj = new GameObject("TextArea");
+            textAreaObj.transform.SetParent(inputBg.transform, false);
+            var taRt = textAreaObj.AddComponent<RectTransform>();
+            taRt.anchorMin = Vector2.zero; taRt.anchorMax = Vector2.one;
+            taRt.offsetMin = new Vector2(15, 0); taRt.offsetMax = new Vector2(-15, 0);
+            textAreaObj.AddComponent<RectMask2D>();
+
+            // Текст внутри маски
+            GameObject inputText = new GameObject("Text");
+            inputText.transform.SetParent(textAreaObj.transform, false);
+            var txtRt = inputText.AddComponent<RectTransform>();
+            txtRt.anchorMin = Vector2.zero; txtRt.anchorMax = Vector2.one;
+            txtRt.offsetMin = Vector2.zero; txtRt.offsetMax = Vector2.zero;
+            var inputTMP = inputText.AddComponent<TextMeshProUGUI>();
+            inputTMP.fontSize = 40; inputTMP.alignment = TextAlignmentOptions.Center;
+            inputTMP.enableWordWrapping = false; // Отключаем перенос строк
+
+            // Плейсхолдер внутри маски
+            GameObject placeholderText = new GameObject("Placeholder");
+            placeholderText.transform.SetParent(textAreaObj.transform, false);
+            var phRt = placeholderText.AddComponent<RectTransform>();
+            phRt.anchorMin = Vector2.zero; phRt.anchorMax = Vector2.one;
+            phRt.offsetMin = Vector2.zero; phRt.offsetMax = Vector2.zero;
+            var phTMP = placeholderText.AddComponent<TextMeshProUGUI>();
+            phTMP.text = ToolLang.Get("Alex...", "Алекс...");
+            phTMP.fontSize = 40; phTMP.alignment = TextAlignmentOptions.Center;
+            phTMP.color = new Color(1, 1, 1, 0.3f);
+            phTMP.enableWordWrapping = false;
+
+            var inputField = inputBg.AddComponent<TMP_InputField>();
+            inputField.textComponent = inputTMP;
+            inputField.placeholder = phTMP;
+            inputField.characterLimit = 25;
+            if (isGameScene) inputField.interactable = false;
+
+            GameObject btnObj = new GameObject("Btn_ConfirmMC");
+            btnObj.transform.SetParent(panel.transform, false);
+            var brt = btnObj.AddComponent<RectTransform>();
+            brt.anchorMin = new Vector2(0.5f, 0f); brt.anchorMax = new Vector2(0.5f, 0f);
+            brt.pivot = new Vector2(0.5f, 0f);
+            brt.anchoredPosition = new Vector2(700, 30);
+            brt.sizeDelta = new Vector2(400, 80);
+            btnObj.AddComponent<Image>().color = new Color(0.2f, 0.8f, 0.4f, 1f);
+            btnObj.AddComponent<Button>();
+
+            GameObject btnTxt = new GameObject("Text");
+            btnTxt.transform.SetParent(btnObj.transform, false);
+            var bTrt = btnTxt.AddComponent<RectTransform>();
+            bTrt.anchorMin = Vector2.zero; bTrt.anchorMax = Vector2.one;
+            bTrt.offsetMin = Vector2.zero; bTrt.offsetMax = Vector2.zero;
+            var bTmp = btnTxt.AddComponent<TextMeshProUGUI>();
+            bTmp.text = isGameScene ? ToolLang.Get("Close Profile", "Закрыть профиль") : ToolLang.Get("Start Story", "Начать Историю");
+            bTmp.fontSize = 40; bTmp.alignment = TextAlignmentOptions.Center;
+
+            panel.SetActive(false);
+            EditorUtility.SetDirty(rootTransform.gameObject);
+            FindReferences();
+            GUIUtility.ExitGUI();
+        }
+
         private void DrawGameplayUITab()
         {
             if (_player == null) { EditorGUILayout.HelpBox(ToolLang.Get("This is not a Gameplay Scene.", "Это не игровая сцена."), MessageType.Info); return; }
 
-            Canvas canvas = _player.DialoguePanel.GetComponentInParent<Canvas>();
+            Canvas canvas = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
+            Canvas rootCanvas = (canvas != null && canvas.rootCanvas != null) ? canvas.rootCanvas : canvas;
 
+            if (!EditorPrefs.GetBool("Novella_HideUIGuide_Game", false))
+            {
+                GUILayout.BeginVertical(new GUIStyle(EditorStyles.helpBox) { border = new RectOffset(4, 4, 4, 4) });
+                GUILayout.Label("🎓 " + ToolLang.Get("How does Gameplay UI work?", "Как работает Игровой UI?"), EditorStyles.boldLabel);
+                GUILayout.Label(ToolLang.Get(
+                    "This tab configures the visual part of your story: Dialogue boxes, choices, and character positioning. You must link a 'Story Tree' (Graph) here so the game knows what story to play when this scene loads.",
+                    "Эта вкладка настраивает визуал самой игры: окна диалогов, кнопки выборов и т.д. Главное — назначить 'Граф Истории' (Story Tree), чтобы движок знал, какой сюжет запускать на этой сцене."),
+                    new GUIStyle(EditorStyles.wordWrappedLabel) { fontSize = 11, richText = true });
+
+                if (GUILayout.Button(ToolLang.Get("Got it, hide guide", "Понятно, скрыть подсказку"), EditorStyles.miniButtonRight, GUILayout.Width(180)))
+                    EditorPrefs.SetBool("Novella_HideUIGuide_Game", true);
+                GUILayout.EndVertical();
+                GUILayout.Space(10);
+            }
 
             DrawSectionHeader("📖", ToolLang.Get("Active Story (Graph)", "Активная История (Граф)"));
             GUILayout.BeginVertical(EditorStyles.helpBox);
@@ -312,7 +794,11 @@ namespace NovellaEngine.Editor
             DrawTextEditor(ToolLang.Get("Dialogue Text", "Текст Диалога"), _player.DialogueBodyText);
             DrawLayoutContainerEditor(ToolLang.Get("Choices Container", "Контейнер Кнопок"), _player.ChoiceContainer.GetComponent<RectTransform>());
 
-            if (canvas != null) DrawSaveLoadPanel(canvas.transform, true);
+            if (rootCanvas != null)
+            {
+                DrawSaveLoadPanel(rootCanvas.transform, true);
+                DrawMCCreationSection(rootCanvas);
+            }
 
             if (_player.SaveNotification != null)
             {
@@ -413,6 +899,7 @@ namespace NovellaEngine.Editor
                 }, NovellaGalleryWindow.EGalleryFilter.CustomUI, _customPrefabsDir);
             }
         }
+
         private void DrawMenuFullscreenBackground(Canvas canvas)
         {
             DrawSectionHeader("🖼", ToolLang.Get("Main Background", "Главный Фон Сцены"));
@@ -541,11 +1028,46 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndVertical();
         }
+
         private void DrawMenuUITab()
         {
             if (_launcher == null) { EditorGUILayout.HelpBox(ToolLang.Get("This is not a Main Menu Scene.", "Это не сцена главного меню."), MessageType.Info); return; }
 
-            Canvas canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>();
+            Canvas canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
+            Canvas rootCanvas = (canvas != null && canvas.rootCanvas != null) ? canvas.rootCanvas : canvas;
+
+            // --- БЛОК ОБЩИХ НАСТРОЕК (С ВЫБОРОМ СЦЕНЫ) ---
+            DrawSectionHeader("⚙", ToolLang.Get("General Menu Settings", "Общие настройки меню"));
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("🎮 " + ToolLang.Get("Target Game Scene:", "Игровая Сцена:"), EditorStyles.boldLabel, GUILayout.Width(140));
+
+            var scenesInBuild = EditorBuildSettings.scenes
+                .Where(s => s.enabled)
+                .Select(s => System.IO.Path.GetFileNameWithoutExtension(s.path))
+                .ToList();
+
+            if (scenesInBuild.Count == 0)
+            {
+                EditorGUILayout.HelpBox(ToolLang.Get("No scenes found in Build Settings!", "Нет сцен в Build Settings!"), MessageType.Warning);
+            }
+            else
+            {
+                int currentIndex = Mathf.Max(0, scenesInBuild.IndexOf(_launcher.GameSceneName));
+                EditorGUI.BeginChangeCheck();
+                int newIndex = EditorGUILayout.Popup(currentIndex, scenesInBuild.ToArray());
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_launcher, "Change Target Scene");
+                    _launcher.GameSceneName = scenesInBuild[newIndex];
+                    EditorUtility.SetDirty(_launcher);
+                }
+            }
+            GUILayout.EndHorizontal(); // <--- ВОТ ЗАКРЫТИЕ, КОТОРОЕ СПАСАЕТ ВЕСЬ UI
+            GUILayout.EndVertical();
+            GUILayout.Space(10);
+            // ---------------------------------------------
 
             DrawSectionHeader("📚", ToolLang.Get("Stories to Show", "Истории для показа"));
             GUILayout.BeginVertical(EditorStyles.helpBox);
@@ -586,7 +1108,6 @@ namespace NovellaEngine.Editor
                 {
                     GUILayout.Space(5);
 
-                    // --- ЛОГИКА ПЕРЕИМЕНОВАНИЯ ИСТОРИИ ---
                     GUILayout.BeginHorizontal();
                     GUILayout.Label("↳ " + ToolLang.Get("Story File:", "Файл истории:"), EditorStyles.miniLabel, GUILayout.Width(130));
 
@@ -600,7 +1121,7 @@ namespace NovellaEngine.Editor
                             {
                                 string path = AssetDatabase.GetAssetPath(story);
                                 AssetDatabase.RenameAsset(path, _tempStoryName);
-                                story.Title = _tempStoryName; // Заодно меняем внутренний Title
+                                story.Title = _tempStoryName;
                                 EditorUtility.SetDirty(story);
                                 AssetDatabase.SaveAssets();
                             }
@@ -626,7 +1147,6 @@ namespace NovellaEngine.Editor
                         GUILayout.BeginHorizontal();
                         GUILayout.Label("↳ " + ToolLang.Get("Linked Graph:", "Подключенный Граф:"), EditorStyles.miniLabel, GUILayout.Width(130));
 
-                        // --- ЛОГИКА ПЕРЕИМЕНОВАНИЯ ГРАФА ---
                         if (_editingGraphIndex == i)
                         {
                             _tempGraphName = EditorGUILayout.TextField(_tempGraphName);
@@ -694,15 +1214,18 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
 
-            if (canvas != null)
+            if (rootCanvas != null)
             {
-                DrawMenuFullscreenBackground(canvas);
+                DrawMenuFullscreenBackground(rootCanvas);
 
                 DrawSectionHeader("🎠", ToolLang.Get("Stories Carousel", "Контейнер Историй (Карусель)"));
+
                 DrawLayoutContainerEditor(ToolLang.Get("Carousel Layout", "Настройки расположения"), _launcher.StoriesContainer.GetComponent<RectTransform>());
                 DrawMinimalBackgroundEditor(_launcher.StoriesContainer.gameObject, ToolLang.Get("Carousel Background", "Фон Контейнера"));
 
-                DrawSaveLoadPanel(canvas.transform, false);
+                DrawSaveLoadPanel(rootCanvas.transform, false);
+
+                DrawMCCreationSection(rootCanvas);
             }
         }
         private void DrawSaveLoadPanel(Transform canvasRoot, bool isGameScene)
@@ -771,66 +1294,6 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private void GenerateDefaultMenuButtons(Transform canvasRoot)
-        {
-            Undo.RegisterFullObjectHierarchyUndo(canvasRoot.gameObject, "Generate Menu Buttons");
-
-            GameObject panel = new GameObject("MainMenu_ButtonsList");
-            panel.transform.SetParent(canvasRoot, false);
-            var rt = panel.AddComponent<RectTransform>();
-
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-
-            float currentY = 150f;
-            float spacing = 80f;
-
-            Button SpawnBtn(string name, string textStr)
-            {
-                GameObject btnObj = new GameObject(name);
-                btnObj.transform.SetParent(panel.transform, false);
-                var brt = btnObj.AddComponent<RectTransform>();
-
-                brt.anchorMin = new Vector2(0.5f, 0.5f);
-                brt.anchorMax = new Vector2(0.5f, 0.5f);
-                brt.sizeDelta = new Vector2(350, 65);
-                brt.anchoredPosition = new Vector2(0, currentY);
-                currentY -= spacing;
-
-                var img = btnObj.AddComponent<Image>();
-                img.color = new Color(0.1f, 0.1f, 0.1f, 0.9f);
-                var btn = btnObj.AddComponent<Button>();
-
-                GameObject txtObj = new GameObject("Text");
-                txtObj.transform.SetParent(btnObj.transform, false);
-                var trt = txtObj.AddComponent<RectTransform>();
-
-                trt.anchorMin = new Vector2(0.5f, 0.5f);
-                trt.anchorMax = new Vector2(0.5f, 0.5f);
-                trt.pivot = new Vector2(0.5f, 0.5f);
-                trt.sizeDelta = new Vector2(350, 65);
-                trt.anchoredPosition = Vector2.zero;
-
-                var txt = txtObj.AddComponent<TextMeshProUGUI>();
-                txt.text = textStr;
-                txt.fontSize = 28;
-                txt.alignment = TextAlignmentOptions.Center;
-                txt.color = Color.white;
-
-                return btn;
-            }
-
-            SpawnBtn("Btn_StartPlay", ToolLang.Get("Start Game", "Начать игру"));
-            SpawnBtn("Btn_Continue", ToolLang.Get("Continue", "Продолжить"));
-            SpawnBtn("Btn_Load", ToolLang.Get("Load", "Загрузить"));
-            SpawnBtn("Btn_Settings", ToolLang.Get("Settings", "Настройки"));
-            SpawnBtn("Btn_Exit", ToolLang.Get("Exit", "Выход"));
-
-            EditorUtility.SetDirty(canvasRoot.gameObject);
-            GUIUtility.ExitGUI();
-        }
         private void DrawMinimalBackgroundEditor(GameObject targetObj, string title)
         {
             if (targetObj == null) return;
@@ -894,6 +1357,7 @@ namespace NovellaEngine.Editor
             GUILayout.EndVertical();
             GUILayout.Space(10);
         }
+
         private void DrawPrefabsTab()
         {
             if (_player != null)
@@ -960,7 +1424,8 @@ namespace NovellaEngine.Editor
             EditorGUIUtility.labelWidth = 50;
             _newPrefabName = EditorGUILayout.TextField(ToolLang.Get("Name", "Имя"), _newPrefabName, GUILayout.ExpandWidth(true));
 
-            string[] typeNames = { ToolLang.Get("Image", "Картинка (Image)"), ToolLang.Get("Text", "Текст (TMP_Text)"), ToolLang.Get("Slider", "Ползунок (Slider)"), ToolLang.Get("Button", "Кнопка (Button)") }; _newPrefabTypeIndex = EditorGUILayout.Popup(_newPrefabTypeIndex, typeNames, GUILayout.Width(130));
+            string[] typeNames = { ToolLang.Get("Image", "Картинка (Image)"), ToolLang.Get("Text", "Текст (TMP_Text)"), ToolLang.Get("Slider", "Ползунок (Slider)"), ToolLang.Get("Button", "Кнопка (Button)") };
+            _newPrefabTypeIndex = EditorGUILayout.Popup(_newPrefabTypeIndex, typeNames, GUILayout.Width(130));
 
             GUI.backgroundColor = new Color(0.4f, 0.8f, 1f);
             if (GUILayout.Button("+ " + ToolLang.Get("Create", "Создать"), GUILayout.Width(80)))
@@ -1601,6 +2066,7 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Label("📝 " + headerLabel, EditorStyles.miniBoldLabel);
             GUILayout.FlexibleSpace();
+
             if (GUILayout.Button("↻ " + ToolLang.Get("Reset", "Сбросить"), EditorStyles.miniButton, GUILayout.Width(70)))
             {
                 Undo.RecordObject(txt, "Reset Text Settings");
@@ -1611,7 +2077,6 @@ namespace NovellaEngine.Editor
                 txt.alignment = TextAlignmentOptions.Center;
                 txt.richText = true;
                 txt.raycastTarget = false;
-
 
                 txt.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
                 txt.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1771,97 +2236,6 @@ namespace NovellaEngine.Editor
             GUILayout.Space(5);
         }
 
-        private void DrawLayoutContainerEditor(string title, RectTransform rect)
-        {
-            if (rect == null) return;
-
-            DrawRectTransformEditor(title, rect);
-
-            if (_activeEditRect == rect)
-            {
-                GUILayout.BeginVertical(EditorStyles.helpBox);
-                GUILayout.Label(ToolLang.Get("Layout Settings", "Настройки Расположения"), EditorStyles.miniBoldLabel);
-
-                var vlg = rect.GetComponent<VerticalLayoutGroup>();
-                var hlg = rect.GetComponent<HorizontalLayoutGroup>();
-                int currentType = vlg != null ? 0 : (hlg != null ? 1 : -1);
-
-                EditorGUI.BeginChangeCheck();
-                int newType = EditorGUILayout.Popup(ToolLang.Get("Type", "Тип"), currentType, new string[] { ToolLang.Get("Vertical", "Вертикальный (Столбик)"), ToolLang.Get("Horizontal", "Горизонтальный (Строка)") });
-
-                if (EditorGUI.EndChangeCheck())
-                {
-                    Undo.RecordObject(rect.gameObject, "Change Layout Group");
-                    float spacing = 20f; TextAnchor align = TextAnchor.MiddleCenter;
-
-                    if (vlg != null) { spacing = vlg.spacing; align = vlg.childAlignment; DestroyImmediate(vlg); }
-                    if (hlg != null) { spacing = hlg.spacing; align = hlg.childAlignment; DestroyImmediate(hlg); }
-
-                    if (newType == 0)
-                    {
-                        vlg = rect.gameObject.AddComponent<VerticalLayoutGroup>();
-                        vlg.spacing = spacing; vlg.childAlignment = align;
-                        vlg.childControlHeight = false; vlg.childControlWidth = false;
-                        vlg.childForceExpandHeight = false; vlg.childForceExpandWidth = false;
-                    }
-                    else if (newType == 1)
-                    {
-                        hlg = rect.gameObject.AddComponent<HorizontalLayoutGroup>();
-                        hlg.spacing = spacing; hlg.childAlignment = align;
-                        hlg.childControlHeight = false; hlg.childControlWidth = false;
-                        hlg.childForceExpandHeight = false; hlg.childForceExpandWidth = false;
-                    }
-
-                    var csf = rect.GetComponent<ContentSizeFitter>();
-                    if (csf == null) csf = rect.gameObject.AddComponent<ContentSizeFitter>();
-                    csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-                    csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-                    EditorUtility.SetDirty(rect.gameObject);
-                    LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
-                    Canvas.ForceUpdateCanvases();
-                }
-
-                LayoutGroup lg = rect.GetComponent<LayoutGroup>();
-                if (lg != null)
-                {
-                    EditorGUI.BeginChangeCheck();
-                    float s = 0;
-                    if (lg is VerticalLayoutGroup v) s = v.spacing;
-                    if (lg is HorizontalLayoutGroup h) s = h.spacing;
-
-                    s = EditorGUILayout.FloatField(ToolLang.Get("Spacing", "Отступ между элементами"), s);
-                    TextAnchor al = (TextAnchor)EditorGUILayout.EnumPopup(ToolLang.Get("Alignment", "Выравнивание"), lg.childAlignment);
-
-                    if (EditorGUI.EndChangeCheck())
-                    {
-                        Undo.RecordObject(lg, "Change Settings");
-                        if (lg is VerticalLayoutGroup vv) { vv.spacing = s; vv.childAlignment = al; }
-                        if (lg is HorizontalLayoutGroup hh) { hh.spacing = s; hh.childAlignment = al; }
-                        EditorUtility.SetDirty(lg);
-
-                        LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
-                        Canvas.ForceUpdateCanvases();
-                    }
-                }
-                GUILayout.EndVertical();
-                GUILayout.Space(10);
-            }
-        }
-
-        private void DrawTextEditor(string title, TMP_Text txt, bool isPrefabMode = false)
-        {
-            if (txt == null) return;
-            DrawRectTransformEditor(title, txt.GetComponent<RectTransform>(), isPrefabMode);
-
-            if (_activeEditRect == txt.GetComponent<RectTransform>())
-            {
-                EditorGUI.BeginChangeCheck();
-                DrawTMPTextSettingsBlock(txt, ToolLang.Get("Typography Settings", "Настройки Типографики"));
-                if (EditorGUI.EndChangeCheck()) { EditorUtility.SetDirty(txt.gameObject); Canvas.ForceUpdateCanvases(); }
-            }
-        }
-
         private void DrawTransformSettings(RectTransform rect, bool skipAnchorAndOffsets = false)
         {
             GUILayout.Space(10);
@@ -1982,6 +2356,7 @@ namespace NovellaEngine.Editor
             if (rect.parent != null) LayoutRebuilder.ForceRebuildLayoutImmediate(rect.parent as RectTransform);
             Canvas.ForceUpdateCanvases();
         }
+
         private void DrawPreviewPanel()
         {
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));

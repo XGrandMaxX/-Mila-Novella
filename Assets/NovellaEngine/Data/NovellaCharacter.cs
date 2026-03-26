@@ -15,6 +15,15 @@ namespace NovellaEngine.Data
     public class NovellaCharacter : ScriptableObject
     {
         public string CharacterID;
+
+        [Header("Main Character (Player) Settings")]
+        [Tooltip("Отметьте, если это Главный Герой (имя и внешность будут браться из сохранений игрока)")]
+        public bool IsPlayerCharacter = false;
+
+        [Tooltip("Список базовых тел/спрайтов для выбора в меню создания (если это ГГ)")]
+        public List<Sprite> AvailableBaseBodies = new List<Sprite>();
+
+        [Header("Standard Settings")]
         public string DisplayName_EN;
         public string DisplayName_RU;
         public Color ThemeColor = Color.black;

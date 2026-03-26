@@ -10,11 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 123d97a4e04b8e94dbf3d6a10a21fbb5, type: 3}
-  m_Name: NewCharacter_f875
+  m_Name: 34591adb_MC_Player
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaCharacter
-  CharacterID: NewCharacter_f875
-  DisplayName_EN: 
-  DisplayName_RU: 
+  CharacterID: Player
+  IsPlayerCharacter: 1
+  AvailableBaseBodies: []
+  DisplayName_EN: Player
+  DisplayName_RU: "\u0418\u0433\u0440\u043E\u043A"
   ThemeColor: {r: 0, g: 0, b: 0, a: 1}
   DefaultSprite: {fileID: 0}
   Emotions: []
