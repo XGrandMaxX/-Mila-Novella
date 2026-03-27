@@ -105,8 +105,8 @@ namespace NovellaEngine.Editor
             _player = FindFirstObjectByType<NovellaPlayer>();
             _launcher = FindFirstObjectByType<StoryLauncher>();
 
-            if (_launcher != null && _player == null) _currentTab = 1;
-            else if (_player != null && _currentTab == 1) _currentTab = 0;
+            //if (_launcher != null && _player == null) _currentTab = 1;
+            //else if (_player != null && _currentTab == 1) _currentTab = 0;
 
             Canvas c = null;
             if (_player != null && _player.DialoguePanel != null) c = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
