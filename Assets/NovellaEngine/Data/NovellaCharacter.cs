@@ -5,10 +5,26 @@ using UnityEngine;
 namespace NovellaEngine.Data
 {
     [Serializable]
+    public class CharacterLayer
+    {
+        public string LayerName = "Base";
+        public Sprite DefaultSprite;
+
+        public List<Sprite> WardrobeOptions = new List<Sprite>();
+    }
+
+    [Serializable]
+    public class CharacterLayerOverride
+    {
+        public string LayerName;
+        public Sprite OverrideSprite;
+    }
+
+    [Serializable]
     public struct CharacterEmotion
     {
         public string EmotionName;
-        public Sprite EmotionSprite;
+        public List<CharacterLayerOverride> LayerOverrides;
     }
 
     [CreateAssetMenu(fileName = "NewCharacter", menuName = "Novella Engine/Character")]
@@ -17,10 +33,10 @@ namespace NovellaEngine.Data
         public string CharacterID;
 
         [Header("Main Character (Player) Settings")]
-        [Tooltip("Отметьте, если это Главный Герой (имя и внешность будут браться из сохранений игрока)")]
+        [Tooltip("Отметьте, если это Главный Герой (внешность будет настраиваться игроком)")]
         public bool IsPlayerCharacter = false;
 
-        [Tooltip("Список базовых тел/спрайтов для выбора в меню создания (если это ГГ)")]
+        //TODO: В будущем здесь появятся списки для DLC Гардероба (волосы, одежда и т.д.)
         public List<Sprite> AvailableBaseBodies = new List<Sprite>();
 
         [Header("Standard Settings")]
@@ -28,8 +44,12 @@ namespace NovellaEngine.Data
         public string DisplayName_RU;
         public Color ThemeColor = Color.black;
 
-        public Sprite DefaultSprite;
+        [Header("Layer System (Paper Doll)")]
+        public List<CharacterLayer> BaseLayers = new List<CharacterLayer>();
         public List<CharacterEmotion> Emotions = new List<CharacterEmotion>();
+
+        // Для обратной совместимости старого кода (пока мы не обновим Редактор Персонажей)
+        public Sprite DefaultSprite => BaseLayers.Count > 0 ? BaseLayers[0].DefaultSprite : null;
 
         [HideInInspector]
         public bool IsFavorite;
@@ -43,17 +63,10 @@ namespace NovellaEngine.Data
 
         private void OnValidate()
         {
-            if (!string.IsNullOrEmpty(CharacterID) && CharacterID.Length > MAX_ID_LENGTH)
-                CharacterID = CharacterID[..MAX_ID_LENGTH];
-
-            if (!string.IsNullOrEmpty(DisplayName_EN) && DisplayName_EN.Length > MAX_NAME_LENGTH)
-                DisplayName_EN = DisplayName_EN[..MAX_NAME_LENGTH];
-
-            if (!string.IsNullOrEmpty(DisplayName_RU) && DisplayName_RU.Length > MAX_NAME_LENGTH)
-                DisplayName_RU = DisplayName_RU[..MAX_NAME_LENGTH];
-
-            if (!string.IsNullOrEmpty(InternalNotes) && InternalNotes.Length > MAX_NOTES_LENGTH)
-                InternalNotes = InternalNotes[..MAX_NOTES_LENGTH];
+            if (!string.IsNullOrEmpty(CharacterID) && CharacterID.Length > MAX_ID_LENGTH) CharacterID = CharacterID[..MAX_ID_LENGTH];
+            if (!string.IsNullOrEmpty(DisplayName_EN) && DisplayName_EN.Length > MAX_NAME_LENGTH) DisplayName_EN = DisplayName_EN[..MAX_NAME_LENGTH];
+            if (!string.IsNullOrEmpty(DisplayName_RU) && DisplayName_RU.Length > MAX_NAME_LENGTH) DisplayName_RU = DisplayName_RU[..MAX_NAME_LENGTH];
+            if (!string.IsNullOrEmpty(InternalNotes) && InternalNotes.Length > MAX_NOTES_LENGTH) InternalNotes = InternalNotes[..MAX_NOTES_LENGTH];
         }
     }
 }

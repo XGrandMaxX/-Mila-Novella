@@ -1,5 +1,6 @@
 ﻿using NovellaEngine.Data;
 using NovellaEngine.Runtime;
+using NovellaEngine.Runtime.UI;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -110,9 +111,6 @@ namespace NovellaEngine.Editor
             _player = FindFirstObjectByType<NovellaPlayer>();
             _launcher = FindFirstObjectByType<StoryLauncher>();
 
-            //if (_launcher != null && _player == null) _currentTab = 1;
-            //else if (_player != null && _currentTab == 1) _currentTab = 0;
-
             Canvas c = null;
             if (_player != null && _player.DialoguePanel != null) c = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
             else if (_launcher != null && _launcher.StoriesContainer != null) c = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
@@ -174,9 +172,6 @@ namespace NovellaEngine.Editor
                             _launcher.MCConfirmButton = btns.FirstOrDefault(b => b.name.Contains("Confirm") || b.name.Contains("Готово"));
 
                             _launcher.MCAvatarPreview = mcPanel.Find("AvatarPreview")?.GetComponent<Image>();
-                            _launcher.MCPrevLookButton = mcPanel.Find("Btn_PrevLook")?.GetComponent<Button>();
-                            _launcher.MCNextLookButton = mcPanel.Find("Btn_NextLook")?.GetComponent<Button>();
-
                             isDirty = true;
                         }
                     }
@@ -186,6 +181,8 @@ namespace NovellaEngine.Editor
         }
         private void OnGUI()
         {
+            NovellaTutorialManager.BlockBackgroundEvents(this);
+
             if (_player == null && _launcher == null)
             {
                 GUILayout.Space(20);
@@ -201,6 +198,8 @@ namespace NovellaEngine.Editor
             DrawSettingsPanel();
             DrawPreviewPanel();
             GUILayout.EndHorizontal();
+
+            NovellaTutorialManager.DrawOverlay(this);
         }
 
         private void ManageTempPreviews()
@@ -293,88 +292,72 @@ namespace NovellaEngine.Editor
             }
             else
             {
-                GUILayout.BeginVertical(EditorStyles.helpBox);
-
-                if (_launcher != null)
+                var mcUI = mcPanelTransform.GetComponent<NovellaMCCreationUI>();
+                if (mcUI != null)
                 {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label("🦸 " + ToolLang.Get("Base MC Asset:", "SO Персонажа:"), EditorStyles.boldLabel, GUILayout.Width(130));
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUILayout.Label("👥 " + ToolLang.Get("Available Characters:", "Доступные для выбора герои:"), EditorStyles.boldLabel);
 
-                    string mcName = _launcher.MainCharacterAsset != null ? _launcher.MainCharacterAsset.name : ToolLang.Get("None (Click to select)", "Не выбран (Нажмите)");
-                    string charDir = "Assets/NovellaEngine/Runtime/Data/Characters";
-
-                    if (GUILayout.Button(mcName, EditorStyles.popup))
+                    for (int i = 0; i < mcUI.AvailableCharacters.Count; i++)
                     {
-                        if (!Directory.Exists(charDir)) Directory.CreateDirectory(charDir);
+                        GUILayout.BeginHorizontal();
+                        string mcName = mcUI.AvailableCharacters[i] != null ? mcUI.AvailableCharacters[i].name : ToolLang.Get("None (Click to select)", "Не выбран (Нажмите)");
+                        string charDir = "Assets/NovellaEngine/Runtime/Data/Characters";
 
-                        NovellaGalleryWindow.ShowWindow(obj => {
-                            NovellaCharacter mc = obj as NovellaCharacter;
-                            if (mc != null)
+                        if (GUILayout.Button(mcName, EditorStyles.popup))
+                        {
+                            int idx = i;
+                            if (!System.IO.Directory.Exists(charDir)) System.IO.Directory.CreateDirectory(charDir);
+                            NovellaGalleryWindow.ShowWindow(obj => {
+                                NovellaCharacter mc = obj as NovellaCharacter;
+                                if (mc != null)
+                                {
+                                    if (!mc.IsPlayerCharacter)
+                                    {
+                                        EditorUtility.DisplayDialog(ToolLang.Get("Error", "Ошибка"), ToolLang.Get("This character must have 'Is Main Character' enabled!", "У этого персонажа должна быть включена галочка 'Это Главный Герой (Игрок)'!"), "OK");
+                                        return;
+                                    }
+                                    Undo.RecordObject(mcUI, "Assign MC");
+                                    mcUI.AvailableCharacters[idx] = mc;
+                                    EditorUtility.SetDirty(mcUI);
+                                    Repaint();
+                                }
+                            }, NovellaGalleryWindow.EGalleryFilter.Character, charDir);
+                        }
+
+                        // ИСПРАВЛЕНИЕ: Кнопка-шорткат в редактор персонажа
+                        if (mcUI.AvailableCharacters[i] != null)
+                        {
+                            GUI.backgroundColor = new Color(0.2f, 0.6f, 1f);
+                            if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25)))
                             {
-                                Undo.RecordObject(_launcher, "Assign MC");
-                                _launcher.MainCharacterAsset = mc;
-                                EditorUtility.SetDirty(_launcher);
-                                Repaint();
+                                NovellaCharacterEditor.OpenWithCharacter(mcUI.AvailableCharacters[i]);
                             }
-                        }, NovellaGalleryWindow.EGalleryFilter.Character, charDir);
-                    }
+                            GUI.backgroundColor = Color.white;
+                        }
 
-                    if (_launcher.MainCharacterAsset != null)
-                    {
                         GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
                         if (GUILayout.Button("✖", GUILayout.Width(25)))
                         {
-                            Undo.RecordObject(_launcher, "Clear MC Asset");
-                            _launcher.MainCharacterAsset = null;
-                            EditorUtility.SetDirty(_launcher);
+                            Undo.RecordObject(mcUI, "Remove MC Asset");
+                            mcUI.AvailableCharacters.RemoveAt(i);
+                            EditorUtility.SetDirty(mcUI);
+                            GUIUtility.ExitGUI();
                         }
                         GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
                     }
-                    else
+
+                    GUILayout.Space(5);
+                    GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Character Slot", "Добавить слот персонажа"), EditorStyles.miniButton))
                     {
-                        GUI.backgroundColor = new Color(0.4f, 0.9f, 0.4f);
-                        if (GUILayout.Button("+ " + ToolLang.Get("Create", "Создать"), EditorStyles.miniButton, GUILayout.Width(70)))
-                        {
-                            if (!Directory.Exists(charDir)) Directory.CreateDirectory(charDir);
-
-                            NovellaCharacter newMc = ScriptableObject.CreateInstance<NovellaCharacter>();
-                            newMc.IsPlayerCharacter = true;
-                            newMc.CharacterID = "Player";
-                            newMc.DisplayName_EN = "Player";
-                            newMc.DisplayName_RU = "Игрок";
-
-                            string path = AssetDatabase.GenerateUniqueAssetPath($"{charDir}/MC_Player.asset");
-                            AssetDatabase.CreateAsset(newMc, path);
-                            AssetDatabase.SaveAssets();
-
-                            Undo.RecordObject(_launcher, "Assign MC");
-                            _launcher.MainCharacterAsset = newMc;
-                            EditorUtility.SetDirty(_launcher);
-                        }
-                        GUI.backgroundColor = Color.white;
+                        Undo.RecordObject(mcUI, "Add Slot");
+                        mcUI.AvailableCharacters.Add(null);
+                        EditorUtility.SetDirty(mcUI);
                     }
-                    GUILayout.EndHorizontal();
-
-                    if (_launcher.MainCharacterAsset != null)
-                    {
-                        GUILayout.Space(5);
-                        GUILayout.BeginVertical(GUI.skin.box);
-
-                        SerializedObject so = new SerializedObject(_launcher.MainCharacterAsset);
-                        so.Update();
-
-                        EditorGUI.BeginChangeCheck();
-                        EditorGUILayout.PropertyField(so.FindProperty("IsPlayerCharacter"), new GUIContent(ToolLang.Get("Is Main Character", "Это Главный Герой")));
-                        GUILayout.Space(5);
-                        EditorGUILayout.PropertyField(so.FindProperty("AvailableBaseBodies"), new GUIContent(ToolLang.Get("Base Looks (Sprites)", "Базовые спрайты (Внешность)")), true);
-
-                        if (EditorGUI.EndChangeCheck())
-                        {
-                            so.ApplyModifiedProperties();
-                            EditorUtility.SetDirty(_launcher.MainCharacterAsset);
-                        }
-                        GUILayout.EndVertical();
-                    }
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.EndVertical();
                     GUILayout.Space(10);
                 }
 
@@ -426,7 +409,6 @@ namespace NovellaEngine.Editor
                         }
                     }
                 }
-                GUILayout.EndVertical();
             }
         }
         private void DrawLayoutContainerEditor(string title, RectTransform rect)
@@ -519,6 +501,7 @@ namespace NovellaEngine.Editor
                 if (EditorGUI.EndChangeCheck()) { EditorUtility.SetDirty(txt.gameObject); Canvas.ForceUpdateCanvases(); }
             }
         }
+
         private void GenerateMCCreationPanel(Transform rootTransform, bool isGameScene)
         {
             Undo.RegisterFullObjectHierarchyUndo(rootTransform.gameObject, "Generate MC Panel");
@@ -537,60 +520,123 @@ namespace NovellaEngine.Editor
             rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
             panel.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.1f, 0.95f);
 
-            // АВАТАР ПЕРСОНАЖА (1001 СЛОЙ)
-            GameObject avatarObj = new GameObject("AvatarPreview");
-            avatarObj.transform.SetParent(panel.transform, false);
-            var avRt = avatarObj.AddComponent<RectTransform>();
-            avRt.anchorMin = new Vector2(0.5f, 0.5f); avRt.anchorMax = new Vector2(0.5f, 0.5f);
-            avRt.anchoredPosition = new Vector2(0, 30);
-            avRt.sizeDelta = new Vector2(300, 450);
-            var avImg = avatarObj.AddComponent<Image>();
-            avImg.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
-            avImg.preserveAspect = true;
-
-            var avCanvas = avatarObj.AddComponent<Canvas>();
-            avCanvas.overrideSorting = true;
-            avCanvas.sortingOrder = 1001;
-
-            // СТРЕЛКИ ГЕНЕРИРУЮТСЯ ТОЛЬКО ЕСЛИ МЫ НЕ В ИГРЕ
-            if (!isGameScene)
+            string prefabPath = "Assets/NovellaEngine/Runtime/Prefabs/WardrobeControl.prefab";
+            GameObject controlPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (controlPrefab == null)
             {
-                GameObject btnPrev = new GameObject("Btn_PrevLook");
-                btnPrev.transform.SetParent(panel.transform, false);
-                var bpRt = btnPrev.AddComponent<RectTransform>();
-                bpRt.anchorMin = new Vector2(0.5f, 0.5f); bpRt.anchorMax = new Vector2(0.5f, 0.5f);
-                bpRt.anchoredPosition = new Vector2(-300, 0);
-                bpRt.sizeDelta = new Vector2(60, 60);
-                btnPrev.AddComponent<Image>().color = new Color(0.3f, 0.3f, 0.3f, 1f);
-                btnPrev.AddComponent<Button>();
+                if (!System.IO.Directory.Exists("Assets/NovellaEngine/Runtime/Prefabs"))
+                    System.IO.Directory.CreateDirectory("Assets/NovellaEngine/Runtime/Prefabs");
 
-                GameObject txtPrev = new GameObject("Text");
-                txtPrev.transform.SetParent(btnPrev.transform, false);
-                var tpRt = txtPrev.AddComponent<RectTransform>();
-                tpRt.anchorMin = Vector2.zero; tpRt.anchorMax = Vector2.one;
-                tpRt.offsetMin = Vector2.zero; tpRt.offsetMax = Vector2.zero;
-                var tTmpP = txtPrev.AddComponent<TextMeshProUGUI>();
-                tTmpP.text = "<"; tTmpP.fontSize = 40; tTmpP.alignment = TextAlignmentOptions.Center;
-
-                GameObject btnNext = new GameObject("Btn_NextLook");
-                btnNext.transform.SetParent(panel.transform, false);
-                var bnRt = btnNext.AddComponent<RectTransform>();
-                bnRt.anchorMin = new Vector2(0.5f, 0.5f); bnRt.anchorMax = new Vector2(0.5f, 0.5f);
-                bnRt.anchoredPosition = new Vector2(300, 0);
-                bnRt.sizeDelta = new Vector2(60, 60);
-                btnNext.AddComponent<Image>().color = new Color(0.3f, 0.3f, 0.3f, 1f);
-                btnNext.AddComponent<Button>();
-
-                GameObject txtNext = new GameObject("Text");
-                txtNext.transform.SetParent(btnNext.transform, false);
-                var tnRt = txtNext.AddComponent<RectTransform>();
-                tnRt.anchorMin = Vector2.zero; tnRt.anchorMax = Vector2.one;
-                tnRt.offsetMin = Vector2.zero; tnRt.offsetMax = Vector2.zero;
-                var tTmpN = txtNext.AddComponent<TextMeshProUGUI>();
-                tTmpN.text = ">"; tTmpN.fontSize = 40; tTmpN.alignment = TextAlignmentOptions.Center;
+                GameObject ctrlObj = new GameObject("WardrobeControlTemplate");
+                var rtCtrl = ctrlObj.AddComponent<RectTransform>(); rtCtrl.sizeDelta = new Vector2(300, 60);
+                var hlg = ctrlObj.AddComponent<HorizontalLayoutGroup>(); hlg.childAlignment = TextAnchor.MiddleCenter; hlg.childControlWidth = false; hlg.childControlHeight = false; hlg.spacing = 15;
+                GameObject btnL = new GameObject("Btn_Left"); btnL.transform.SetParent(ctrlObj.transform, false); btnL.AddComponent<Image>().color = new Color(0.2f, 0.6f, 0.8f, 1f); btnL.AddComponent<Button>(); btnL.GetComponent<RectTransform>().sizeDelta = new Vector2(50, 50);
+                var txtLObj = new GameObject("Text"); txtLObj.transform.SetParent(btnL.transform, false); var txtL = txtLObj.AddComponent<TextMeshProUGUI>(); txtL.text = "<"; txtL.alignment = TextAlignmentOptions.Center; txtL.fontSize = 30; txtL.GetComponent<RectTransform>().anchorMin = Vector2.zero; txtL.GetComponent<RectTransform>().anchorMax = Vector2.one; txtL.GetComponent<RectTransform>().offsetMin = Vector2.zero; txtL.GetComponent<RectTransform>().offsetMax = Vector2.zero;
+                GameObject labelObj = new GameObject("Label"); labelObj.transform.SetParent(ctrlObj.transform, false); var txtLabel = labelObj.AddComponent<TextMeshProUGUI>(); txtLabel.text = "Layer Name"; txtLabel.alignment = TextAlignmentOptions.Center; txtLabel.fontSize = 24; txtLabel.GetComponent<RectTransform>().sizeDelta = new Vector2(150, 50);
+                GameObject btnR = new GameObject("Btn_Right"); btnR.transform.SetParent(ctrlObj.transform, false); btnR.AddComponent<Image>().color = new Color(0.2f, 0.6f, 0.8f, 1f); btnR.AddComponent<Button>(); btnR.GetComponent<RectTransform>().sizeDelta = new Vector2(50, 50);
+                var txtRObj = new GameObject("Text"); txtRObj.transform.SetParent(btnR.transform, false); var txtR = txtRObj.AddComponent<TextMeshProUGUI>(); txtR.text = ">"; txtR.alignment = TextAlignmentOptions.Center; txtR.fontSize = 30; txtR.GetComponent<RectTransform>().anchorMin = Vector2.zero; txtR.GetComponent<RectTransform>().anchorMax = Vector2.one; txtR.GetComponent<RectTransform>().offsetMin = Vector2.zero; txtR.GetComponent<RectTransform>().offsetMax = Vector2.zero;
+                controlPrefab = PrefabUtility.SaveAsPrefabAsset(ctrlObj, prefabPath); DestroyImmediate(ctrlObj);
             }
 
-            // Заголовок
+            GameObject avatarMaskObj = new GameObject("AvatarMaskContainer");
+            avatarMaskObj.transform.SetParent(panel.transform, false);
+            var maskRt = avatarMaskObj.AddComponent<RectTransform>();
+            maskRt.anchorMin = new Vector2(0.5f, 0f); maskRt.anchorMax = new Vector2(0.5f, 0f);
+            maskRt.pivot = new Vector2(0.5f, 0f);
+            maskRt.anchoredPosition = new Vector2(0, 50);
+            maskRt.sizeDelta = new Vector2(600, 850);
+
+            var maskImg = avatarMaskObj.AddComponent<Image>();
+            maskImg.color = new Color(1, 1, 1, 0.05f);
+            avatarMaskObj.AddComponent<RectMask2D>();
+
+            GameObject leftArrow = new GameObject("Btn_PrevChar");
+            leftArrow.transform.SetParent(panel.transform, false);
+            var laRt = leftArrow.AddComponent<RectTransform>();
+            laRt.anchorMin = new Vector2(0.5f, 0f); laRt.anchorMax = new Vector2(0.5f, 0f);
+            laRt.pivot = new Vector2(0.5f, 0.5f);
+            laRt.anchoredPosition = new Vector2(-380, 50 + (850 / 2f));
+            laRt.sizeDelta = new Vector2(80, 80);
+            leftArrow.AddComponent<Image>().color = new Color(1f, 0.6f, 0f, 1f);
+            var btnPrev = leftArrow.AddComponent<Button>();
+            var laTxt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+            laTxt.transform.SetParent(leftArrow.transform, false);
+            laTxt.GetComponent<RectTransform>().anchorMin = Vector2.zero; laTxt.GetComponent<RectTransform>().anchorMax = Vector2.one; laTxt.GetComponent<RectTransform>().offsetMin = Vector2.zero; laTxt.GetComponent<RectTransform>().offsetMax = Vector2.zero;
+            laTxt.text = "<"; laTxt.fontSize = 50; laTxt.alignment = TextAlignmentOptions.Center;
+
+            GameObject rightArrow = new GameObject("Btn_NextChar");
+            rightArrow.transform.SetParent(panel.transform, false);
+            var raRt = rightArrow.AddComponent<RectTransform>();
+            raRt.anchorMin = new Vector2(0.5f, 0f); raRt.anchorMax = new Vector2(0.5f, 0f);
+            raRt.pivot = new Vector2(0.5f, 0.5f);
+            raRt.anchoredPosition = new Vector2(380, 50 + (850 / 2f));
+            raRt.sizeDelta = new Vector2(80, 80);
+            rightArrow.AddComponent<Image>().color = new Color(1f, 0.6f, 0f, 1f);
+            var btnNext = rightArrow.AddComponent<Button>();
+            var raTxt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+            raTxt.transform.SetParent(rightArrow.transform, false);
+            raTxt.GetComponent<RectTransform>().anchorMin = Vector2.zero; raTxt.GetComponent<RectTransform>().anchorMax = Vector2.one; raTxt.GetComponent<RectTransform>().offsetMin = Vector2.zero; raTxt.GetComponent<RectTransform>().offsetMax = Vector2.zero;
+            raTxt.text = ">"; raTxt.fontSize = 50; raTxt.alignment = TextAlignmentOptions.Center;
+
+            GameObject controlsObj = new GameObject("ControlsContainer");
+            controlsObj.transform.SetParent(panel.transform, false);
+            var cRt = controlsObj.AddComponent<RectTransform>();
+            cRt.anchorMin = new Vector2(1f, 1f); cRt.anchorMax = new Vector2(1f, 1f);
+            cRt.pivot = new Vector2(1f, 1f);
+            cRt.anchoredPosition = new Vector2(-50, -150);
+            cRt.sizeDelta = new Vector2(350, 600);
+            var vlgControls = controlsObj.AddComponent<VerticalLayoutGroup>();
+            vlgControls.spacing = 15; vlgControls.childAlignment = TextAnchor.UpperRight;
+            vlgControls.childControlHeight = false; vlgControls.childControlWidth = false;
+
+            GameObject inputBg = new GameObject("NameInput");
+            inputBg.transform.SetParent(panel.transform, false);
+            var inRt = inputBg.AddComponent<RectTransform>();
+            inRt.anchorMin = new Vector2(0f, 0f); inRt.anchorMax = new Vector2(0f, 0f);
+            inRt.pivot = new Vector2(0f, 0f);
+            inRt.anchoredPosition = new Vector2(50, 50);
+            inRt.sizeDelta = new Vector2(400, 80);
+            inputBg.AddComponent<Image>().color = new Color(0.2f, 0.2f, 0.2f, 1f);
+
+            GameObject textAreaObj = new GameObject("TextArea"); textAreaObj.transform.SetParent(inputBg.transform, false);
+            var taRt = textAreaObj.AddComponent<RectTransform>(); taRt.anchorMin = Vector2.zero; taRt.anchorMax = Vector2.one; taRt.offsetMin = new Vector2(15, 0); taRt.offsetMax = new Vector2(-15, 0); textAreaObj.AddComponent<RectMask2D>();
+            GameObject inputText = new GameObject("Text"); inputText.transform.SetParent(textAreaObj.transform, false);
+            var txtRt = inputText.AddComponent<RectTransform>(); txtRt.anchorMin = Vector2.zero; txtRt.anchorMax = Vector2.one; txtRt.offsetMin = Vector2.zero; txtRt.offsetMax = Vector2.zero;
+            var inputTMP = inputText.AddComponent<TextMeshProUGUI>(); inputTMP.fontSize = 40; inputTMP.alignment = TextAlignmentOptions.Center; inputTMP.textWrappingMode = TextWrappingModes.NoWrap;
+            GameObject placeholderText = new GameObject("Placeholder"); placeholderText.transform.SetParent(textAreaObj.transform, false);
+            var phRt = placeholderText.AddComponent<RectTransform>(); phRt.anchorMin = Vector2.zero; phRt.anchorMax = Vector2.one; phRt.offsetMin = Vector2.zero; phRt.offsetMax = Vector2.zero;
+            var phTMP = placeholderText.AddComponent<TextMeshProUGUI>(); phTMP.text = ToolLang.Get("Alex...", "Алекс..."); phTMP.fontSize = 40; phTMP.alignment = TextAlignmentOptions.Center; phTMP.color = new Color(1, 1, 1, 0.3f); phTMP.textWrappingMode = TextWrappingModes.NoWrap;
+            var inputField = inputBg.AddComponent<TMP_InputField>(); inputField.textComponent = inputTMP; inputField.placeholder = phTMP; inputField.characterLimit = 25;
+            if (isGameScene) inputField.interactable = false;
+
+            GameObject hintObj = new GameObject("HintText");
+            hintObj.transform.SetParent(panel.transform, false);
+            var hintRt = hintObj.AddComponent<RectTransform>();
+            hintRt.anchorMin = new Vector2(0f, 0f); hintRt.anchorMax = new Vector2(0f, 0f);
+            hintRt.pivot = new Vector2(0f, 0f);
+            hintRt.anchoredPosition = new Vector2(50, 140);
+            hintRt.sizeDelta = new Vector2(400, 50);
+            var hintTxt = hintObj.AddComponent<TextMeshProUGUI>();
+            hintTxt.text = isGameScene ? ToolLang.Get("Current Name:", "Имя персонажа:") : ToolLang.Get("Enter character name:", "Введите имя персонажа:");
+            hintTxt.fontSize = 32; hintTxt.alignment = TextAlignmentOptions.Center;
+            hintTxt.color = new Color(0.7f, 0.7f, 0.7f);
+
+            GameObject btnObj = new GameObject("Btn_ConfirmMC");
+            btnObj.transform.SetParent(panel.transform, false);
+            var brt = btnObj.AddComponent<RectTransform>();
+            brt.anchorMin = new Vector2(1f, 0f); brt.anchorMax = new Vector2(1f, 0f);
+            brt.pivot = new Vector2(1f, 0f);
+            brt.anchoredPosition = new Vector2(-50, 50);
+            brt.sizeDelta = new Vector2(350, 80);
+            btnObj.AddComponent<Image>().color = new Color(0.2f, 0.8f, 0.4f, 1f);
+            btnObj.AddComponent<Button>();
+
+            GameObject btnTxt = new GameObject("Text"); btnTxt.transform.SetParent(btnObj.transform, false);
+            var bTrt = btnTxt.AddComponent<RectTransform>(); bTrt.anchorMin = Vector2.zero; bTrt.anchorMax = Vector2.one; bTrt.offsetMin = Vector2.zero; bTrt.offsetMax = Vector2.zero;
+            var bTmp = btnTxt.AddComponent<TextMeshProUGUI>();
+            bTmp.text = isGameScene ? ToolLang.Get("Close Profile", "Закрыть профиль") : ToolLang.Get("Start Story", "Начать Историю");
+            bTmp.fontSize = 40; bTmp.alignment = TextAlignmentOptions.Center;
+
             GameObject titleObj = new GameObject("TitleText");
             titleObj.transform.SetParent(panel.transform, false);
             var titleRt = titleObj.AddComponent<RectTransform>();
@@ -602,78 +648,19 @@ namespace NovellaEngine.Editor
             titleTxt.text = isGameScene ? ToolLang.Get("Character Profile", "Профиль персонажа") : ToolLang.Get("Create Your Character", "Создание Персонажа");
             titleTxt.fontSize = 60; titleTxt.alignment = TextAlignmentOptions.Center;
 
-            // Подсказка (Хинт)
-            GameObject hintObj = new GameObject("HintText");
-            hintObj.transform.SetParent(panel.transform, false);
-            var hintRt = hintObj.AddComponent<RectTransform>();
-            hintRt.anchorMin = new Vector2(0.5f, 0.5f); hintRt.anchorMax = new Vector2(0.5f, 0.5f);
-            hintRt.anchoredPosition = new Vector2(0, -230);
-            hintRt.sizeDelta = new Vector2(500, 50);
-            var hintTxt = hintObj.AddComponent<TextMeshProUGUI>();
-            hintTxt.text = isGameScene ? ToolLang.Get("Current Name:", "Имя персонажа:") : ToolLang.Get("Enter character name:", "Введите имя персонажа:");
-            hintTxt.fontSize = 32; hintTxt.alignment = TextAlignmentOptions.Center;
-            hintTxt.color = new Color(0.7f, 0.7f, 0.7f);
+            var mcUI = panel.AddComponent<NovellaMCCreationUI>();
+            mcUI.AvatarMaskContainer = avatarMaskObj.transform;
+            mcUI.ControlsContainer = controlsObj.transform;
+            mcUI.ControlPrefab = controlPrefab;
+            mcUI.PrevCharBtn = btnPrev;
+            mcUI.NextCharBtn = btnNext;
 
-            // Поле ввода имени (Input Field Base)
-            GameObject inputBg = new GameObject("NameInput");
-            inputBg.transform.SetParent(panel.transform, false);
-            var inRt = inputBg.AddComponent<RectTransform>();
-            inRt.anchorMin = new Vector2(0.5f, 0.5f); inRt.anchorMax = new Vector2(0.5f, 0.5f);
-            inRt.anchoredPosition = new Vector2(0, -290);
-            inRt.sizeDelta = new Vector2(500, 80);
-            inputBg.AddComponent<Image>().color = new Color(0.2f, 0.2f, 0.2f, 1f);
+            if (_launcher != null && _launcher.MainCharacterAsset != null)
+            {
+                mcUI.AvailableCharacters.Add(_launcher.MainCharacterAsset);
+            }
 
-            GameObject textAreaObj = new GameObject("TextArea");
-            textAreaObj.transform.SetParent(inputBg.transform, false);
-            var taRt = textAreaObj.AddComponent<RectTransform>();
-            taRt.anchorMin = Vector2.zero; taRt.anchorMax = Vector2.one;
-            taRt.offsetMin = new Vector2(15, 0); taRt.offsetMax = new Vector2(-15, 0);
-            textAreaObj.AddComponent<RectMask2D>();
-
-            GameObject inputText = new GameObject("Text");
-            inputText.transform.SetParent(textAreaObj.transform, false);
-            var txtRt = inputText.AddComponent<RectTransform>();
-            txtRt.anchorMin = Vector2.zero; txtRt.anchorMax = Vector2.one;
-            txtRt.offsetMin = Vector2.zero; txtRt.offsetMax = Vector2.zero;
-            var inputTMP = inputText.AddComponent<TextMeshProUGUI>();
-            inputTMP.fontSize = 40; inputTMP.alignment = TextAlignmentOptions.Center;
-            inputTMP.textWrappingMode = TextWrappingModes.NoWrap;
-
-            GameObject placeholderText = new GameObject("Placeholder");
-            placeholderText.transform.SetParent(textAreaObj.transform, false);
-            var phRt = placeholderText.AddComponent<RectTransform>();
-            phRt.anchorMin = Vector2.zero; phRt.anchorMax = Vector2.one;
-            phRt.offsetMin = Vector2.zero; phRt.offsetMax = Vector2.zero;
-            var phTMP = placeholderText.AddComponent<TextMeshProUGUI>();
-            phTMP.text = ToolLang.Get("Alex...", "Алекс...");
-            phTMP.fontSize = 40; phTMP.alignment = TextAlignmentOptions.Center;
-            phTMP.color = new Color(1, 1, 1, 0.3f);
-            phTMP.textWrappingMode = TextWrappingModes.NoWrap;
-
-            var inputField = inputBg.AddComponent<TMP_InputField>();
-            inputField.textComponent = inputTMP;
-            inputField.placeholder = phTMP;
-            inputField.characterLimit = 25;
-            if (isGameScene) inputField.interactable = false;
-
-            GameObject btnObj = new GameObject("Btn_ConfirmMC");
-            btnObj.transform.SetParent(panel.transform, false);
-            var brt = btnObj.AddComponent<RectTransform>();
-            brt.anchorMin = new Vector2(0.5f, 0f); brt.anchorMax = new Vector2(0.5f, 0f);
-            brt.pivot = new Vector2(0.5f, 0f);
-            brt.anchoredPosition = new Vector2(700, 30);
-            brt.sizeDelta = new Vector2(400, 80);
-            btnObj.AddComponent<Image>().color = new Color(0.2f, 0.8f, 0.4f, 1f);
-            btnObj.AddComponent<Button>();
-
-            GameObject btnTxt = new GameObject("Text");
-            btnTxt.transform.SetParent(btnObj.transform, false);
-            var bTrt = btnTxt.AddComponent<RectTransform>();
-            bTrt.anchorMin = Vector2.zero; bTrt.anchorMax = Vector2.one;
-            bTrt.offsetMin = Vector2.zero; bTrt.offsetMax = Vector2.zero;
-            var bTmp = btnTxt.AddComponent<TextMeshProUGUI>();
-            bTmp.text = isGameScene ? ToolLang.Get("Close Profile", "Закрыть профиль") : ToolLang.Get("Start Story", "Начать Историю");
-            bTmp.fontSize = 40; bTmp.alignment = TextAlignmentOptions.Center;
+            AdjustMCCreationPanelLayout();
 
             panel.SetActive(false);
             EditorUtility.SetDirty(rootTransform.gameObject);
@@ -2618,6 +2605,60 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndVertical();
         }
+
+        private void AdjustMCCreationPanelLayout()
+        {
+            var mcPanels = Resources.FindObjectsOfTypeAll<RectTransform>().Where(rt => rt.name == "MCCreationPanel" && rt.gameObject.scene.isLoaded).ToList();
+
+            foreach (var mcPanel in mcPanels)
+            {
+                var avatarMask = mcPanel.Find("AvatarMaskContainer") as RectTransform;
+                var btnPrev = mcPanel.Find("Btn_PrevChar") as RectTransform;
+                var btnNext = mcPanel.Find("Btn_NextChar") as RectTransform;
+                var controls = mcPanel.Find("ControlsContainer") as RectTransform;
+                var inputBg = mcPanel.Find("NameInput") as RectTransform;
+                var hintObj = mcPanel.Find("HintText") as RectTransform;
+                var btnConfirm = mcPanel.Find("Btn_ConfirmMC") as RectTransform;
+
+                if (avatarMask == null) continue;
+
+                Undo.RecordObjects(new UnityEngine.Object[] { avatarMask, btnPrev, btnNext, controls, inputBg, hintObj, btnConfirm }.Where(o => o != null).ToArray(), "Adjust MC Panel Layout");
+
+                if (_isMobileMode)
+                {
+                    avatarMask.anchorMin = new Vector2(0.5f, 0f); avatarMask.anchorMax = new Vector2(0.5f, 0f); avatarMask.pivot = new Vector2(0.5f, 0f);
+                    avatarMask.anchoredPosition = new Vector2(0, 450);
+
+                    if (btnPrev != null) { btnPrev.anchorMin = new Vector2(0.5f, 0f); btnPrev.anchorMax = new Vector2(0.5f, 0f); btnPrev.pivot = new Vector2(0.5f, 0.5f); btnPrev.anchoredPosition = new Vector2(-360, 450 + (850 / 2f)); }
+                    if (btnNext != null) { btnNext.anchorMin = new Vector2(0.5f, 0f); btnNext.anchorMax = new Vector2(0.5f, 0f); btnNext.pivot = new Vector2(0.5f, 0.5f); btnNext.anchoredPosition = new Vector2(360, 450 + (850 / 2f)); }
+
+                    if (inputBg != null) { inputBg.anchorMin = new Vector2(0.5f, 0f); inputBg.anchorMax = new Vector2(0.5f, 0f); inputBg.pivot = new Vector2(0.5f, 0f); inputBg.anchoredPosition = new Vector2(0, 160); }
+                    if (hintObj != null) { hintObj.anchorMin = new Vector2(0.5f, 0f); hintObj.anchorMax = new Vector2(0.5f, 0f); hintObj.pivot = new Vector2(0.5f, 0f); hintObj.anchoredPosition = new Vector2(0, 250); }
+
+                    if (btnConfirm != null) { btnConfirm.anchorMin = new Vector2(0.5f, 0f); btnConfirm.anchorMax = new Vector2(0.5f, 0f); btnConfirm.pivot = new Vector2(0.5f, 0f); btnConfirm.anchoredPosition = new Vector2(0, 50); }
+
+                    if (controls != null) { controls.anchorMin = new Vector2(1f, 1f); controls.anchorMax = new Vector2(1f, 1f); controls.pivot = new Vector2(1f, 1f); controls.localScale = new Vector3(0.75f, 0.75f, 1f); controls.anchoredPosition = new Vector2(-20, -120); }
+                }
+                else
+                {
+                    avatarMask.anchorMin = new Vector2(0.5f, 0f); avatarMask.anchorMax = new Vector2(0.5f, 0f); avatarMask.pivot = new Vector2(0.5f, 0f);
+                    avatarMask.anchoredPosition = new Vector2(0, 50);
+
+                    if (btnPrev != null) { btnPrev.anchorMin = new Vector2(0.5f, 0f); btnPrev.anchorMax = new Vector2(0.5f, 0f); btnPrev.pivot = new Vector2(0.5f, 0.5f); btnPrev.anchoredPosition = new Vector2(-380, 50 + (850 / 2f)); }
+                    if (btnNext != null) { btnNext.anchorMin = new Vector2(0.5f, 0f); btnNext.anchorMax = new Vector2(0.5f, 0f); btnNext.pivot = new Vector2(0.5f, 0.5f); btnNext.anchoredPosition = new Vector2(380, 50 + (850 / 2f)); }
+
+ 
+                    if (inputBg != null) { inputBg.anchorMin = new Vector2(0f, 0f); inputBg.anchorMax = new Vector2(0f, 0f); inputBg.pivot = new Vector2(0f, 0f); inputBg.anchoredPosition = new Vector2(50, 50); }
+                    if (hintObj != null) { hintObj.anchorMin = new Vector2(0f, 0f); hintObj.anchorMax = new Vector2(0f, 0f); hintObj.pivot = new Vector2(0f, 0f); hintObj.anchoredPosition = new Vector2(50, 140); }
+
+                    if (btnConfirm != null) { btnConfirm.anchorMin = new Vector2(1f, 0f); btnConfirm.anchorMax = new Vector2(1f, 0f); btnConfirm.pivot = new Vector2(1f, 0f); btnConfirm.anchoredPosition = new Vector2(-50, 50); }
+
+                    if (controls != null) { controls.anchorMin = new Vector2(1f, 1f); controls.anchorMax = new Vector2(1f, 1f); controls.pivot = new Vector2(1f, 1f); controls.localScale = Vector3.one; controls.anchoredPosition = new Vector2(-50, -150); }
+                }
+
+                EditorUtility.SetDirty(mcPanel.gameObject);
+            }
+        }
         private void UpdateCanvasScaler()
         {
             var scalers = FindObjectsByType<UnityEngine.UI.CanvasScaler>(FindObjectsInactive.Include, FindObjectsSortMode.None);
@@ -2632,8 +2673,13 @@ namespace NovellaEngine.Editor
 
                 EditorUtility.SetDirty(scaler);
             }
+
+            AdjustMCCreationPanelLayout();
+
             Canvas.ForceUpdateCanvases();
+            GetWindow<NovellaUIEditorWindow>().Repaint();
         }
+
         private void SpawnStoryButtonToScene(NovellaStory story)
         {
             GameObject prefabToSpawn = story.CustomStoryCardPrefab != null ? story.CustomStoryCardPrefab : _launcher.StoryButtonPrefab;

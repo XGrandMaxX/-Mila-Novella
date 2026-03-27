@@ -20,13 +20,13 @@ MonoBehaviour:
   - rid: 6664540747352244305
   - rid: 6664540747352244306
   - rid: 6664540747352244307
-  - rid: 6664540724970127467
-  - rid: 6664540747352244289
-  - rid: 6664540747352244297
-  - rid: 6664540724970127462
-  - rid: 6664540747352244295
-  - rid: 6664540747352244308
   - rid: 6664540755987005507
+  - rid: 6664540724970127467
+  - rid: 6664540747352244297
+  - rid: 6664540747352244289
+  - rid: 6664540747352244295
+  - rid: 6664540724970127462
+  - rid: 6664540747352244308
   Groups: []
   references:
     version: 2
@@ -36,7 +36,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f5966
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 124, y: 116}
+        GraphPosition: {x: 124, y: 115}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -47,7 +47,7 @@ MonoBehaviour:
           Emotion: Default
           PosX: 0
           PosY: 0
-          IsExpanded: 1
+          IsExpanded: 0
           FlipX: 0
           FlipY: 0
         DialogueLines:
@@ -168,7 +168,7 @@ MonoBehaviour:
       data:
         NodeID: Animation_e7336
         NodeTitle: Animation 1
-        GraphPosition: {x: 361, y: 18}
+        GraphPosition: {x: 361, y: 20}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -180,7 +180,7 @@ MonoBehaviour:
       data:
         NodeID: Audio_143a6
         NodeTitle: Audio 1
-        GraphPosition: {x: 355, y: -66}
+        GraphPosition: {x: 363, y: -62}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         AudioAsset: {fileID: 0}
@@ -216,7 +216,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f6c24
         NodeTitle: Dialogue 2
-        GraphPosition: {x: 517, y: 169}
+        GraphPosition: {x: 516, y: 169}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -227,7 +227,7 @@ MonoBehaviour:
           Emotion: Default
           PosX: -4.37
           PosY: -0.49
-          IsExpanded: 1
+          IsExpanded: 0
           FlipX: 0
           FlipY: 0
         - CharacterAsset: {fileID: 11400000, guid: 56139cb6efdbfd9478b8146a03eda261, type: 2}
@@ -237,7 +237,7 @@ MonoBehaviour:
           Emotion: Default
           PosX: 0
           PosY: 0
-          IsExpanded: 1
+          IsExpanded: 0
           FlipX: 0
           FlipY: 0
         DialogueLines:
@@ -409,7 +409,7 @@ MonoBehaviour:
       data:
         NodeID: SceneSettings_9f8b4
         NodeTitle: SceneSettings 2
-        GraphPosition: {x: 356, y: 134}
+        GraphPosition: {x: 363, y: 102}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -509,7 +509,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_34a0f
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 785, y: 159}
+        GraphPosition: {x: 786, y: 159}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -520,17 +520,7 @@ MonoBehaviour:
           Emotion: Default
           PosX: 0
           PosY: 0
-          IsExpanded: 1
-          FlipX: 0
-          FlipY: 0
-        - CharacterAsset: {fileID: 0}
-          Plane: 0
-          PositionPreset: 0
-          Scale: 1
-          Emotion: Default
-          PosX: 0
-          PosY: 0
-          IsExpanded: 1
+          IsExpanded: 0
           FlipX: 0
           FlipY: 0
         DialogueLines:
@@ -651,7 +641,7 @@ MonoBehaviour:
       data:
         NodeID: Save_e3c89
         NodeTitle: Save 1
-        GraphPosition: {x: -129, y: 133}
+        GraphPosition: {x: -104, y: 95}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_f5966

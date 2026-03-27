@@ -1083,78 +1083,59 @@ namespace NovellaEngine.Runtime
                 {
                     GameObject go = new GameObject("Char_" + config.CharacterAsset.name);
                     go.transform.SetParent(CharactersContainer, false);
-                    go.AddComponent<SpriteRenderer>();
                     entity = go.AddComponent<NovellaSceneEntity>();
                     entity.Initialize(config.CharacterAsset.CharacterID);
+                    entities.Add(entity);
                 }
 
-                var renderer = entity.GetComponent<SpriteRenderer>();
-                if (renderer != null)
+                string emotionToSet = config.Emotion;
+                float baseX = 0f;
+                if (config.PositionPreset == ECharacterPosition.Left) baseX = -3.5f;
+                else if (config.PositionPreset == ECharacterPosition.Right) baseX = 3.5f;
+                else if (config.PositionPreset == ECharacterPosition.FarLeft) baseX = -6.5f;
+                else if (config.PositionPreset == ECharacterPosition.FarRight) baseX = 6.5f;
+                else if (config.PositionPreset == ECharacterPosition.Custom) baseX = config.PosX;
+
+                int targetPlane = (int)config.Plane;
+                float targetScale = config.Scale;
+                Vector3 targetPos = new Vector3(baseX, config.PosY, 0);
+                bool targetFlipX = config.FlipX;
+                bool targetFlipY = config.FlipY;
+
+                if (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID)
                 {
-                    Sprite targetSprite = config.CharacterAsset.DefaultSprite;
-                    string emotionToSet = config.Emotion;
+                    emotionToSet = currentLine.Mood;
+                    targetFlipX = config.FlipX ^ currentLine.FlipX;
+                    targetFlipY = config.FlipY ^ currentLine.FlipY;
 
-                    float baseX = 0f;
-                    if (config.PositionPreset == ECharacterPosition.Left) baseX = -3.5f;
-                    else if (config.PositionPreset == ECharacterPosition.Right) baseX = 3.5f;
-                    else if (config.PositionPreset == ECharacterPosition.FarLeft) baseX = -6.5f;
-                    else if (config.PositionPreset == ECharacterPosition.FarRight) baseX = 6.5f;
-                    else if (config.PositionPreset == ECharacterPosition.Custom) baseX = config.PosX;
-
-                    if (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID)
+                    if (currentLine.CustomizeSpeakerLayout)
                     {
-                        emotionToSet = currentLine.Mood;
-                        if (currentLine.CustomizeSpeakerLayout)
-                        {
-                            renderer.sortingOrder = (int)currentLine.SpeakerPlane;
-                            float activeX = 0f;
-                            if (currentLine.SpeakerPositionPreset == ECharacterPosition.Left) activeX = -3.5f;
-                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Right) activeX = 3.5f;
-                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarLeft) activeX = -6.5f;
-                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarRight) activeX = 6.5f;
-                            else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Custom) activeX = currentLine.SpeakerPosX;
+                        targetPlane = (int)currentLine.SpeakerPlane;
+                        targetScale = config.Scale * currentLine.SpeakerScale;
+                        float activeX = 0f;
+                        if (currentLine.SpeakerPositionPreset == ECharacterPosition.Left) activeX = -3.5f;
+                        else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Right) activeX = 3.5f;
+                        else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarLeft) activeX = -6.5f;
+                        else if (currentLine.SpeakerPositionPreset == ECharacterPosition.FarRight) activeX = 6.5f;
+                        else if (currentLine.SpeakerPositionPreset == ECharacterPosition.Custom) activeX = currentLine.SpeakerPosX;
 
-                            entity.transform.localScale = Vector3.one * (config.Scale * currentLine.SpeakerScale);
-                            entity.transform.localPosition = new Vector3(baseX + activeX, config.PosY + currentLine.SpeakerPosY, 0);
-                        }
-                        else
-                        {
-                            renderer.sortingOrder = (int)ECharacterPlane.Speaker;
-                            entity.transform.localScale = Vector3.one * config.Scale;
-                            entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
-                        }
+                        targetPos = new Vector3(baseX + activeX, config.PosY + currentLine.SpeakerPosY, 0);
                     }
                     else
                     {
-                        renderer.sortingOrder = (int)config.Plane;
-                        entity.transform.localScale = Vector3.one * config.Scale;
-                        entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
+                        targetPlane = (int)ECharacterPlane.Speaker;
                     }
-
-                    if (config.CharacterAsset.IsPlayerCharacter && StoryTree != null)
-                    {
-                        int lookIndex = PlayerPrefs.GetInt($"NovellaSave_{StoryTree.name}_MCBodyID", 0);
-                        if (lookIndex >= 0 && lookIndex < config.CharacterAsset.AvailableBaseBodies.Count)
-                        {
-                            targetSprite = config.CharacterAsset.AvailableBaseBodies[lookIndex];
-                        }
-                    }
-                    else if (emotionToSet != "Default")
-                    {
-                        var emotionData = config.CharacterAsset.Emotions.FirstOrDefault(e => e.EmotionName == emotionToSet);
-                        if (emotionData.EmotionSprite != null) targetSprite = emotionData.EmotionSprite;
-                    }
-
-                    renderer.sprite = targetSprite;
-
-                    bool isSpeaker = (currentLine != null && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID);
-                    renderer.flipX = isSpeaker ? (config.FlipX ^ currentLine.FlipX) : config.FlipX;
-                    renderer.flipY = isSpeaker ? (config.FlipY ^ currentLine.FlipY) : config.FlipY;
                 }
+
+                entity.transform.localScale = Vector3.one * targetScale;
+                entity.transform.localPosition = targetPos;
+
+                entity.ApplyAppearance(config.CharacterAsset, emotionToSet);
+                entity.SetSortingOrder(targetPlane);
+                entity.SetFlip(targetFlipX, targetFlipY);
 
                 bool shouldHide = false;
                 if (currentLine != null && currentLine.HideSpeakerSprite && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID) shouldHide = true;
-
                 entity.gameObject.SetActive(!shouldHide);
             }
 

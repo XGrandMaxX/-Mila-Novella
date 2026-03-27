@@ -2129,70 +2129,49 @@ namespace NovellaEngine.Editor
                 {
                     GameObject go = new GameObject("Char_" + config.CharacterAsset.name);
                     if (charsContainer != null) go.transform.SetParent(charsContainer, false);
-                    var sr = go.AddComponent<SpriteRenderer>();
+
                     entity = go.AddComponent<NovellaSceneEntity>();
                     entity.Initialize(config.CharacterAsset.CharacterID);
                     Undo.RegisterCreatedObjectUndo(go, "Spawn Character");
                     entities.Add(entity);
                 }
 
-                var renderer = entity.GetComponent<SpriteRenderer>();
-                if (renderer != null)
+                string emotionToSet = config.Emotion;
+                float baseX = GetCharXOffset(config.PositionPreset, config.PosX);
+
+                int targetPlane = (int)config.Plane;
+                float targetScale = config.Scale;
+                Vector3 targetPos = new Vector3(baseX, config.PosY, 0);
+                bool targetFlipX = config.FlipX;
+                bool targetFlipY = config.FlipY;
+
+                if (activeLine != null && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID)
                 {
-                    Sprite targetSprite = config.CharacterAsset.DefaultSprite;
-                    string emotionToSet = config.Emotion;
+                    emotionToSet = activeLine.Mood;
+                    targetFlipX = activeLine.FlipX;
+                    targetFlipY = activeLine.FlipY;
 
-                    float baseX = GetCharXOffset(config.PositionPreset, config.PosX);
-
-                    if (activeLine != null && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID)
+                    if (activeLine.CustomizeSpeakerLayout)
                     {
-                        emotionToSet = activeLine.Mood;
-                        if (activeLine.CustomizeSpeakerLayout)
-                        {
-                            renderer.sortingOrder = (int)activeLine.SpeakerPlane;
-
-                            entity.transform.localScale = Vector3.one * (config.Scale * activeLine.SpeakerScale);
-                            entity.transform.localPosition = new Vector3(baseX + activeLine.SpeakerPosX, config.PosY + activeLine.SpeakerPosY, 0);
-                        }
-                        else
-                        {
-                            renderer.sortingOrder = (int)ECharacterPlane.Speaker;
-                            entity.transform.localScale = Vector3.one * config.Scale;
-                            entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
-                        }
+                        targetPlane = (int)activeLine.SpeakerPlane;
+                        targetScale = config.Scale * activeLine.SpeakerScale;
+                        targetPos = new Vector3(baseX + activeLine.SpeakerPosX, config.PosY + activeLine.SpeakerPosY, 0);
                     }
                     else
                     {
-                        renderer.sortingOrder = (int)config.Plane;
-                        entity.transform.localScale = Vector3.one * config.Scale;
-                        entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
-                    }
-
-                    if (emotionToSet != "Default")
-                    {
-                        var emotionData = config.CharacterAsset.Emotions.FirstOrDefault(e => e.EmotionName == emotionToSet);
-                        if (emotionData.EmotionSprite != null) targetSprite = emotionData.EmotionSprite;
-                    }
-                    renderer.sprite = targetSprite;
-
-                    if (activeLine != null && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID)
-                    {
-                        renderer.flipX = activeLine.FlipX;
-                        renderer.flipY = activeLine.FlipY;
-                    }
-                    else
-                    {
-                        renderer.flipX = false;
-                        renderer.flipY = false;
+                        targetPlane = (int)ECharacterPlane.Speaker;
                     }
                 }
+
+                entity.transform.localScale = Vector3.one * targetScale;
+                entity.transform.localPosition = targetPos;
+
+                entity.ApplyAppearance(config.CharacterAsset, emotionToSet);
+                entity.SetSortingOrder(targetPlane);
+                entity.SetFlip(targetFlipX, targetFlipY);
 
                 bool shouldHide = false;
-                if (activeLine != null && activeLine.HideSpeakerSprite && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID)
-                {
-                    shouldHide = true;
-                }
-
+                if (activeLine != null && activeLine.HideSpeakerSprite && activeLine.Speaker != null && config.CharacterAsset.CharacterID == activeLine.Speaker.CharacterID) shouldHide = true;
                 entity.gameObject.SetActive(!shouldHide);
             }
 

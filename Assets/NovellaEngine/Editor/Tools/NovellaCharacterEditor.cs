@@ -69,23 +69,22 @@ namespace NovellaEngine.Editor
 
         private void OnGUI()
         {
+            NovellaTutorialManager.BlockBackgroundEvents(this);
+
             Event evt = Event.current;
 
-            if (evt.type == EventType.KeyDown && evt.keyCode == KeyCode.Delete)
+            if (evt.type == EventType.KeyDown && evt.keyCode == KeyCode.Delete && _selectedCharacter != null)
             {
-                if (_selectedCharacter != null)
+                if (EditorUtility.DisplayDialog(ToolLang.Get("Delete Character?", "Удалить персонажа?"),
+                    ToolLang.Get($"Are you sure you want to delete '{_selectedCharacter.name}'?", $"Вы уверены, что хотите удалить '{_selectedCharacter.name}'?"),
+                    ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена")))
                 {
-                    if (EditorUtility.DisplayDialog(ToolLang.Get("Delete Character?", "Удалить персонажа?"),
-                        ToolLang.Get($"Are you sure you want to delete '{_selectedCharacter.name}'?", $"Вы уверены, что хотите удалить '{_selectedCharacter.name}'?"),
-                        ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена")))
-                    {
-                        string path = AssetDatabase.GetAssetPath(_selectedCharacter);
-                        AssetDatabase.DeleteAsset(path);
-                        SelectCharacter(null);
-                        _needsRefresh = true;
-                        evt.Use();
-                        GUIUtility.ExitGUI();
-                    }
+                    string path = AssetDatabase.GetAssetPath(_selectedCharacter);
+                    AssetDatabase.DeleteAsset(path);
+                    SelectCharacter(null);
+                    _needsRefresh = true;
+                    evt.Use();
+                    GUIUtility.ExitGUI();
                 }
             }
 
@@ -100,6 +99,8 @@ namespace NovellaEngine.Editor
             DrawCenterPanel();
             DrawSpritePanel();
             GUILayout.EndHorizontal();
+
+            NovellaTutorialManager.DrawOverlay(this);
         }
 
         private void SelectCharacter(NovellaCharacter newChar)
@@ -120,8 +121,8 @@ namespace NovellaEngine.Editor
             _previewZoom = 1f;
             _previewPan = Vector2.zero;
 
-            if (_selectedCharacter != null && _selectedCharacter.DefaultSprite != null)
-                _editingSpritePath = AssetDatabase.GetAssetPath(_selectedCharacter.DefaultSprite);
+            if (_selectedCharacter != null && _selectedCharacter.BaseLayers.Count > 0 && _selectedCharacter.BaseLayers[0].DefaultSprite != null)
+                _editingSpritePath = AssetDatabase.GetAssetPath(_selectedCharacter.BaseLayers[0].DefaultSprite);
             else
                 _editingSpritePath = "";
 
@@ -171,7 +172,15 @@ namespace NovellaEngine.Editor
                                                       c.name.ToLower().Contains(_searchQuery.ToLower()) ||
                                                       c.CharacterID.ToLower().Contains(_searchQuery.ToLower()))).ToList();
 
-            var favorites = filteredList.Where(c => c.IsFavorite).ToList();
+            var mainChars = filteredList.Where(c => c.IsPlayerCharacter).ToList();
+            if (mainChars.Count > 0)
+            {
+                GUILayout.Label(ToolLang.Get("🦸 MAIN CHARACTERS", "🦸 ГЛАВНЫЕ ГЕРОИ"), EditorStyles.boldLabel);
+                DrawCharacterCollection(mainChars);
+                GUILayout.Space(10);
+            }
+
+            var favorites = filteredList.Where(c => c.IsFavorite && !c.IsPlayerCharacter).ToList();
             if (favorites.Count > 0)
             {
                 GUILayout.Label(ToolLang.Get("⭐ FAVORITES", "⭐ ИЗБРАННЫЕ"), EditorStyles.boldLabel);
@@ -179,7 +188,7 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(10);
             }
 
-            var others = filteredList.Where(c => !c.IsFavorite).ToList();
+            var others = filteredList.Where(c => !c.IsFavorite && !c.IsPlayerCharacter).ToList();
             if (others.Count > 0)
             {
                 GUILayout.Label(ToolLang.Get("📝 ALL CHARACTERS", "📝 ВСЕ ПЕРСОНАЖИ"), EditorStyles.boldLabel);
@@ -264,7 +273,9 @@ namespace NovellaEngine.Editor
 
         private void DrawCenterPanel()
         {
-            GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(350), GUILayout.ExpandHeight(true));
+            // ИСПРАВЛЕНИЕ: Мы definitively фиксируем ширину панели! Спрайты её больше не сдавят.
+            float fixedWidth = 400f;
+            GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(fixedWidth), GUILayout.ExpandHeight(true));
 
             if (_selectedCharacter == null)
             {
@@ -274,7 +285,15 @@ namespace NovellaEngine.Editor
             }
             else
             {
+                GUILayout.BeginHorizontal();
                 GUILayout.Label($"{ToolLang.Get("Editing:", "Редактируем:")} {_selectedCharacter.name}", EditorStyles.largeLabel);
+                GUILayout.FlexibleSpace();
+
+                bool showHints = EditorPrefs.GetBool("NovellaCharHints", true);
+                bool newHints = GUILayout.Toggle(showHints, ToolLang.Get(" Tips", " Подсказки"), EditorStyles.toolbarButton);
+                if (newHints != showHints) EditorPrefs.SetBool("NovellaCharHints", newHints);
+
+                GUILayout.EndHorizontal();
                 GUILayout.Space(10);
 
                 _inspectorScrollPos = GUILayout.BeginScrollView(_inspectorScrollPos);
@@ -304,105 +323,212 @@ namespace NovellaEngine.Editor
                 EditorGUILayout.PropertyField(_serializedObject.FindProperty("ThemeColor"), new GUIContent(ToolLang.Get("Speaker Color", "Цвет спикера")));
 
                 GUILayout.Space(10);
-                GUILayout.Label(ToolLang.Get("Visuals", "Визуализация"), EditorStyles.boldLabel);
+                GUILayout.BeginVertical(EditorStyles.helpBox);
 
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(ToolLang.Get("Default Sprite", "Стандартный спрайт"), GUILayout.Width(140));
+                var isPlayerProp = _serializedObject.FindProperty("IsPlayerCharacter");
+                isPlayerProp.boolValue = EditorGUILayout.ToggleLeft(ToolLang.Get("Is Main Character (Player)", "Это Главный Герой (Игрок)"), isPlayerProp.boolValue, EditorStyles.boldLabel);
 
-                SerializedProperty defSprProp = _serializedObject.FindProperty("DefaultSprite");
-                bool hasDefaultSpr = defSprProp.objectReferenceValue != null;
-                string defSprName = hasDefaultSpr ? defSprProp.objectReferenceValue.name : ToolLang.Get("Select from Gallery...", "Выбрать из галереи...");
-                if (defSprName.Length > 16) defSprName = defSprName.Substring(0, 14) + "..";
-
-                if (GUILayout.Button("🖼 " + defSprName, EditorStyles.popup, GUILayout.MinWidth(50), GUILayout.ExpandWidth(true)))
+                if (isPlayerProp.boolValue && showHints)
                 {
-                    NovellaGalleryWindow.ShowWindow(obj => {
-                        _serializedObject.Update();
-                        Sprite spr = obj is Sprite ? (Sprite)obj : AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GetAssetPath(obj));
-                        defSprProp.objectReferenceValue = spr;
-                        _serializedObject.ApplyModifiedProperties();
-                        GUI.changed = true;
-                        if (spr != null) SelectSpriteForEdit(spr);
-                    }, NovellaGalleryWindow.EGalleryFilter.Image);
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "This character is marked as the Player. They will be available for selection in the UI Forge.",
+                        "Персонаж отмечен как Игрок. Вы сможете использовать его в Кузнице UI для меню создания персонажа."
+                    ), MessageType.Info);
+                }
+                GUILayout.EndVertical();
+
+                GUILayout.Space(15);
+                GUILayout.Label("📚 " + ToolLang.Get("Base Layers (Paper Doll)", "Базовые слои (Кукла)"), EditorStyles.boldLabel);
+
+                if (showHints)
+                {
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "HOW IT WORKS:\nLayers are drawn from top to bottom. Example:\nLayer 1: Body (Bottom)\nLayer 2: Clothes\nLayer 3: Face\nLayer 4: Hair (Top)",
+                        "КАК ЭТО РАБОТАЕТ:\nСлои рисуются сверху вниз. Пример правильного порядка:\nСлой 1: Базовое тело (Позади всех)\nСлой 2: Одежда\nСлой 3: Лицо (Глаза, рот)\nСлой 4: Прическа (Спереди всех)"
+                    ), MessageType.Info);
                 }
 
-                EditorGUI.BeginDisabledGroup(!hasDefaultSpr);
-                if (GUILayout.Button("⚙", GUILayout.Width(25))) SelectSpriteForEdit(defSprProp.objectReferenceValue as Sprite);
-                EditorGUI.EndDisabledGroup();
+                SerializedProperty baseLayersProp = _serializedObject.FindProperty("BaseLayers");
+                List<string> layerNames = new List<string>();
 
-                GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
-                if (GUILayout.Button("✖", GUILayout.Width(25))) { defSprProp.objectReferenceValue = null; GUI.changed = true; }
-                GUI.backgroundColor = Color.white;
+                for (int i = 0; i < baseLayersProp.arraySize; i++)
+                {
+                    var layerProp = baseLayersProp.GetArrayElementAtIndex(i);
+                    var nameP = layerProp.FindPropertyRelative("LayerName");
+                    var sprP = layerProp.FindPropertyRelative("DefaultSprite");
+                    var optionsP = layerProp.FindPropertyRelative("WardrobeOptions");
 
-                GUILayout.EndHorizontal();
-                GUILayout.Space(10);
+                    layerNames.Add(nameP.stringValue);
 
+                    GUILayout.BeginVertical(EditorStyles.helpBox);
+                    GUILayout.BeginHorizontal();
+                    nameP.stringValue = EditorGUILayout.TextField(nameP.stringValue, GUILayout.Width(100));
+
+                    int layerIndex = i;
+
+                    // ИСПРАВЛЕНИЕ: Автоматически усекаем длинное название спрайта, чтобы оно не выдавливало панель.
+                    string sprFullName = sprP.objectReferenceValue != null ? sprP.objectReferenceValue.name : ToolLang.Get("Gallery...", "Галерея...");
+                    string sprDisplayName = sprFullName;
+                    if (sprFullName.Length > 20) sprDisplayName = sprFullName.Substring(0, 17) + "..."; // Оставляем только начало
+
+                    if (GUILayout.Button("🖼 " + sprDisplayName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+                    {
+                        NovellaGalleryWindow.ShowWindow(obj => {
+                            Undo.RecordObject(_selectedCharacter, "Change Base Layer Sprite");
+                            Sprite spr = obj is Sprite ? (Sprite)obj : AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GetAssetPath(obj));
+                            _selectedCharacter.BaseLayers[layerIndex].DefaultSprite = spr;
+                            EditorUtility.SetDirty(_selectedCharacter);
+                            if (spr != null) SelectSpriteForEdit(spr);
+                            Repaint();
+                        }, NovellaGalleryWindow.EGalleryFilter.Image);
+                    }
+
+                    if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25)))
+                        SelectSpriteForEdit(sprP.objectReferenceValue as Sprite);
+
+                    GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+                    if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                    {
+                        baseLayersProp.DeleteArrayElementAtIndex(i);
+                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+                        GUILayout.EndVertical();
+                        break;
+                    }
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.EndHorizontal();
+                    GUILayout.EndVertical();
+                }
+
+                if (GUILayout.Button("+ " + ToolLang.Get("Add Layer", "Добавить слой"), EditorStyles.miniButton))
+                {
+                    baseLayersProp.arraySize++;
+                    var newLayer = baseLayersProp.GetArrayElementAtIndex(baseLayersProp.arraySize - 1);
+                    newLayer.FindPropertyRelative("LayerName").stringValue = "New Layer";
+                    newLayer.FindPropertyRelative("DefaultSprite").objectReferenceValue = null;
+                }
+
+                GUILayout.Space(15);
                 SerializedProperty emotionsProp = _serializedObject.FindProperty("Emotions");
-                _showEmotions = EditorGUILayout.Foldout(_showEmotions, ToolLang.Get("Emotions", "Эмоции"), true, EditorStyles.foldoutHeader);
+                _showEmotions = EditorGUILayout.Foldout(_showEmotions, "😊 " + ToolLang.Get("Emotions (Overrides)", "Эмоции (Переопределение)"), true, EditorStyles.foldoutHeader);
 
                 if (_showEmotions)
                 {
+                    if (showHints)
+                    {
+                        EditorGUILayout.HelpBox(ToolLang.Get(
+                            "Emotions are PRESETS. Instead of redrawing the whole character, you just replace specific layers.\nExample: Emotion 'Smile' -> overrides layer 'Face'.",
+                            "Эмоции работают как ПРЕСЕТЫ. Вам не нужно перерисовывать всего персонажа!\nПример: Эмоция 'Smile' -> переопределяет только слой 'Лицо'. Тело и одежда остаются нетронутыми."
+                        ), MessageType.Info);
+                        GUILayout.Space(5);
+                    }
+
                     for (int i = 0; i < emotionsProp.arraySize; i++)
                     {
-                        var elem = emotionsProp.GetArrayElementAtIndex(i);
-                        var nameProp = elem.FindPropertyRelative("EmotionName");
-                        var sprProp = elem.FindPropertyRelative("EmotionSprite");
-                        bool hasEmSpr = sprProp.objectReferenceValue != null;
+                        var emProp = emotionsProp.GetArrayElementAtIndex(i);
+                        var emName = emProp.FindPropertyRelative("EmotionName");
+                        var overridesProp = emProp.FindPropertyRelative("LayerOverrides");
 
                         GUILayout.BeginVertical(EditorStyles.helpBox);
                         GUILayout.BeginHorizontal();
+                        GUILayout.Label(ToolLang.Get("Preset:", "Пресет:"), EditorStyles.boldLabel, GUILayout.Width(60));
+                        emName.stringValue = EditorGUILayout.TextField(emName.stringValue);
 
-                        GUILayout.BeginVertical();
-                        EditorGUILayout.PropertyField(nameProp, new GUIContent(ToolLang.Get("Name", "Имя")));
+                        GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+                        if (GUILayout.Button("DEL", GUILayout.Width(45)))
+                        {
+                            emotionsProp.DeleteArrayElementAtIndex(i);
+                            GUI.backgroundColor = Color.white;
+                            GUILayout.EndHorizontal();
+                            GUILayout.EndVertical();
+                            break;
+                        }
+                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+
+                        if (overridesProp.arraySize > 0) GUILayout.Space(5);
+
+                        for (int j = 0; j < overridesProp.arraySize; j++)
+                        {
+                            var overProp = overridesProp.GetArrayElementAtIndex(j);
+                            var lName = overProp.FindPropertyRelative("LayerName");
+                            var lSpr = overProp.FindPropertyRelative("OverrideSprite");
+
+                            GUILayout.BeginHorizontal();
+                            GUILayout.Space(15);
+                            GUILayout.Label("↳", GUILayout.Width(15));
+
+                            int lIdx = layerNames.IndexOf(lName.stringValue);
+                            if (lIdx == -1) lIdx = 0;
+
+                            if (layerNames.Count > 0)
+                            {
+                                lIdx = EditorGUILayout.Popup(lIdx, layerNames.ToArray(), GUILayout.Width(100));
+                                lName.stringValue = layerNames[lIdx];
+                            }
+                            else
+                            {
+                                lName.stringValue = EditorGUILayout.TextField(lName.stringValue, GUILayout.Width(100));
+                            }
+
+                            int eIdx = i;
+                            int oIdx = j;
+
+                            // ИСПРАВЛЕНИЕ: Автоматически усекаем длинное название спрайта эмоции.
+                            string overSprFullName = lSpr.objectReferenceValue != null ? lSpr.objectReferenceValue.name : ToolLang.Get("Gallery...", "Галерея...");
+                            string overSprDisplayName = overSprFullName;
+                            if (overSprFullName.Length > 20) overSprDisplayName = overSprFullName.Substring(0, 17) + "..."; // Оставляем начало
+
+                            if (GUILayout.Button("🖼 " + overSprDisplayName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+                            {
+                                NovellaGalleryWindow.ShowWindow(obj => {
+                                    Undo.RecordObject(_selectedCharacter, "Change Override Sprite");
+                                    Sprite spr = obj is Sprite ? (Sprite)obj : AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GetAssetPath(obj));
+                                    _selectedCharacter.Emotions[eIdx].LayerOverrides[oIdx].OverrideSprite = spr;
+                                    EditorUtility.SetDirty(_selectedCharacter);
+                                    if (spr != null) SelectSpriteForEdit(spr);
+                                    Repaint();
+                                }, NovellaGalleryWindow.EGalleryFilter.Image);
+                            }
+
+                            if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25)))
+                                SelectSpriteForEdit(lSpr.objectReferenceValue as Sprite);
+
+                            GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
+                            if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                            {
+                                overridesProp.DeleteArrayElementAtIndex(j);
+                                GUI.backgroundColor = Color.white;
+                                GUILayout.EndHorizontal();
+                                break;
+                            }
+                            GUI.backgroundColor = Color.white;
+                            GUILayout.EndHorizontal();
+                        }
 
                         GUILayout.BeginHorizontal();
-                        GUILayout.Label(ToolLang.Get("Sprite", "Спрайт"), GUILayout.Width(120));
-                        string emSprName = hasEmSpr ? sprProp.objectReferenceValue.name : ToolLang.Get("Select...", "Выбрать...");
-                        if (emSprName.Length > 15) emSprName = emSprName.Substring(0, 13) + "..";
-
-                        if (GUILayout.Button("🖼 " + emSprName, EditorStyles.popup, GUILayout.MinWidth(50), GUILayout.ExpandWidth(true)))
+                        GUILayout.Space(35);
+                        if (GUILayout.Button("+ " + ToolLang.Get("Add Layer Override", "Переопределить слой"), EditorStyles.miniButton))
                         {
-                            int indexToUpdate = i;
-                            NovellaGalleryWindow.ShowWindow(obj => {
-                                _serializedObject.Update();
-                                Sprite spr = obj is Sprite ? (Sprite)obj : AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GetAssetPath(obj));
-                                emotionsProp.GetArrayElementAtIndex(indexToUpdate).FindPropertyRelative("EmotionSprite").objectReferenceValue = spr;
-                                _serializedObject.ApplyModifiedProperties();
-                                GUI.changed = true;
-                                if (spr != null) SelectSpriteForEdit(spr);
-                            }, NovellaGalleryWindow.EGalleryFilter.Image);
+                            overridesProp.arraySize++;
+                            var newOver = overridesProp.GetArrayElementAtIndex(overridesProp.arraySize - 1);
+                            newOver.FindPropertyRelative("LayerName").stringValue = layerNames.Count > 0 ? layerNames[0] : "Base";
+                            newOver.FindPropertyRelative("OverrideSprite").objectReferenceValue = null;
                         }
                         GUILayout.EndHorizontal();
                         GUILayout.EndVertical();
-
-                        GUILayout.BeginVertical(GUILayout.Width(25));
-                        EditorGUI.BeginDisabledGroup(!hasEmSpr);
-                        if (GUILayout.Button("⚙", GUILayout.Width(25), GUILayout.Height(20))) SelectSpriteForEdit(sprProp.objectReferenceValue as Sprite);
-                        EditorGUI.EndDisabledGroup();
-
-                        GUI.backgroundColor = new Color(0.9f, 0.3f, 0.3f);
-                        if (GUILayout.Button("✖", GUILayout.Width(25), GUILayout.Height(20))) { sprProp.objectReferenceValue = null; GUI.changed = true; }
-                        GUI.backgroundColor = Color.white;
-                        GUILayout.EndVertical();
-
-                        GUI.backgroundColor = new Color(0.8f, 0.2f, 0.2f);
-                        if (GUILayout.Button("DEL", GUILayout.Width(45), GUILayout.ExpandHeight(true))) { emotionsProp.DeleteArrayElementAtIndex(i); i--; }
-                        GUI.backgroundColor = Color.white;
-
-                        GUILayout.EndHorizontal();
-                        GUILayout.EndVertical();
                     }
 
-                    if (GUILayout.Button($"+ {ToolLang.Get("Add Emotion", "Добавить эмоцию")}"))
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Emotion Preset", "Добавить пресет эмоции")))
                     {
-                        emotionsProp.InsertArrayElementAtIndex(emotionsProp.arraySize);
-                        var newElem = emotionsProp.GetArrayElementAtIndex(emotionsProp.arraySize - 1);
-                        newElem.FindPropertyRelative("EmotionName").stringValue = "NewEmotion";
-                        newElem.FindPropertyRelative("EmotionSprite").objectReferenceValue = null;
+                        emotionsProp.arraySize++;
+                        var newEm = emotionsProp.GetArrayElementAtIndex(emotionsProp.arraySize - 1);
+                        newEm.FindPropertyRelative("EmotionName").stringValue = "NewEmotion";
+                        newEm.FindPropertyRelative("LayerOverrides").arraySize = 0;
                     }
                 }
 
-                GUILayout.Space(10);
+                GUILayout.Space(15);
 
                 var notesProp = _serializedObject.FindProperty("InternalNotes");
                 DrawLimitHeader(ToolLang.Get("Internal Notes", "Внутренние заметки"), notesProp.stringValue.Length, NovellaCharacter.MAX_NOTES_LENGTH);
@@ -463,7 +589,6 @@ namespace NovellaEngine.Editor
             }
             GUILayout.EndVertical();
         }
-
         private void DrawSpritePanel()
         {
             GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));

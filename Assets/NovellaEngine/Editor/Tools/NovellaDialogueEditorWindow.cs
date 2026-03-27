@@ -247,8 +247,16 @@ namespace NovellaEngine.Editor
                     if (line.Mood != "Default" && line.Speaker.Emotions != null)
                     {
                         int emotionIndex = line.Speaker.Emotions.FindIndex(e => e.EmotionName == line.Mood);
-                        if (emotionIndex != -1 && line.Speaker.Emotions[emotionIndex].EmotionSprite != null)
-                            targetSprite = line.Speaker.Emotions[emotionIndex].EmotionSprite;
+                        if (emotionIndex != -1)
+                        {
+                            var overrides = line.Speaker.Emotions[emotionIndex].LayerOverrides;
+                            if (overrides != null && overrides.Count > 0)
+                            {
+                                var firstOverride = overrides.FirstOrDefault(o => o.OverrideSprite != null);
+                                if (firstOverride != null)
+                                    targetSprite = firstOverride.OverrideSprite;
+                            }
+                        }
                     }
                 }
 

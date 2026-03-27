@@ -18,6 +18,7 @@ namespace NovellaEngine.Editor
         private NovellaNodeInspectorUI _inspectorUI;
         private VisualElement _rightPanel;
         private IMGUIContainer _inspectorContainer;
+        private IMGUIContainer _tutorialContainer; // [ИСПРАВЛЕНИЕ 1] Контейнер для туториала
 
         private VisualElement _leftPanel;
         private bool _isLeftPanelOpen = true;
@@ -114,7 +115,15 @@ namespace NovellaEngine.Editor
                     _graphView.ClearSelection();
                 }
             }
+
+            // [ИСПРАВЛЕНИЕ 2] Блокируем клики по туториалу, если он выключен
+            if (_tutorialContainer != null)
+            {
+                _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
+            }
         }
+
+        // [ИСПРАВЛЕНИЕ 3] Удаляем старый OnGUI(). Его заменил _tutorialContainer в ConstructGraph.
 
         public void ConstructGraph()
         {
@@ -283,6 +292,24 @@ namespace NovellaEngine.Editor
 
             _needsFocusFrame = true;
             _focusFramesDelay = 3;
+
+            // [ИСПРАВЛЕНИЕ 4] Добавляем IMGUI-контейнер для туториала поверх всего окна
+            _tutorialContainer = new IMGUIContainer(() =>
+            {
+                NovellaTutorialManager.BlockBackgroundEvents(this);
+                NovellaTutorialManager.DrawOverlay(this);
+            });
+
+            _tutorialContainer.style.position = Position.Absolute;
+            _tutorialContainer.style.left = 0;
+            _tutorialContainer.style.right = 0;
+            _tutorialContainer.style.top = 0;
+            _tutorialContainer.style.bottom = 0;
+
+            // Если туториал не запущен, отключаем перехват кликов, иначе он заблокирует граф
+            _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
+
+            rootVisualElement.Add(_tutorialContainer);
         }
 
         private void ExportGraphToJSON()

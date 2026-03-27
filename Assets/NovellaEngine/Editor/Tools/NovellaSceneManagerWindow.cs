@@ -40,10 +40,14 @@ namespace NovellaEngine.Editor
 
         private void OnGUI()
         {
+            NovellaTutorialManager.BlockBackgroundEvents(this);
+
             DrawHeader();
             DrawSceneList();
             GUILayout.Space(15);
             DrawCurrentSceneContext();
+
+            NovellaTutorialManager.DrawOverlay(this);
         }
 
         private void DrawHeader()
@@ -682,6 +686,39 @@ namespace NovellaEngine.Editor
                 saveNotifTransform = notifObj.transform;
             }
             player.SaveNotification = saveNotifTransform.gameObject;
+
+            Transform uiTransform = canvas.transform.parent;
+            Camera mainCam = canvas.worldCamera;
+
+            Transform mcCanvasTr = uiTransform.Find("MC Creation Canvas");
+            if (mcCanvasTr == null)
+            {
+                GameObject mcGO = new GameObject("MC Creation Canvas");
+                mcGO.transform.SetParent(uiTransform, false);
+                Canvas mcCanvas = mcGO.AddComponent<Canvas>();
+                mcCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+                mcCanvas.worldCamera = mainCam;
+                mcCanvas.planeDistance = 3f;
+                mcCanvas.sortingOrder = 150;
+
+                var mcScaler = mcGO.AddComponent<UnityEngine.UI.CanvasScaler>();
+                mcScaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                mcScaler.referenceResolution = new Vector2(1920, 1080);
+                mcScaler.matchWidthOrHeight = 0.5f;
+                mcGO.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
+                GameObject mcPanel = new GameObject("MCCreationPanel");
+                mcPanel.transform.SetParent(mcGO.transform, false);
+                var mcPanelRect = mcPanel.AddComponent<RectTransform>();
+                mcPanelRect.anchorMin = Vector2.zero; mcPanelRect.anchorMax = Vector2.one;
+                mcPanelRect.offsetMin = Vector2.zero; mcPanelRect.offsetMax = Vector2.zero;
+
+                var mcImg = mcPanel.AddComponent<UnityEngine.UI.Image>();
+                mcImg.color = new Color(0.05f, 0.05f, 0.05f, 0.95f);
+
+                mcPanel.SetActive(false);
+            }
+
 
             EditorUtility.SetDirty(player);
             _sceneTagsCache.Clear();
