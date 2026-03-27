@@ -20,14 +20,13 @@ MonoBehaviour:
   - rid: 6664540747352244305
   - rid: 6664540747352244306
   - rid: 6664540747352244307
-  - rid: 6664540755987005507
   - rid: 6664540724970127467
   - rid: 6664540747352244289
   - rid: 6664540747352244297
   - rid: 6664540724970127462
   - rid: 6664540747352244295
   - rid: 6664540747352244308
-  - rid: 6664540819270402113
+  - rid: 6664540755987005507
   Groups: []
   references:
     version: 2
@@ -652,18 +651,7 @@ MonoBehaviour:
       data:
         NodeID: Save_e3c89
         NodeTitle: Save 1
-        GraphPosition: {x: -100, y: 191}
+        GraphPosition: {x: -129, y: 133}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_f5966
-    - rid: 6664540819270402113
-      type: {class: EventBroadcastNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: EventBroadcast_73911
-        NodeTitle: EventBroadcast 1
-        GraphPosition: {x: -235, y: 420}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        BroadcastEventName: MyCustomEvent
-        BroadcastEventParam: 
-        NextNodeID: 

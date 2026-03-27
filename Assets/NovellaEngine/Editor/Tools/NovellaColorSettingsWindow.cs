@@ -62,7 +62,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(10);
             GUILayout.Label(ToolLang.Get("Cinematography", "Режиссура"), EditorStyles.miniBoldLabel);
-            DrawTabBtn(ENodeType.SceneSettings, "🖼", ToolLang.Get("Background", "Фон / Сцена"));
+            DrawTabBtn(ENodeType.SceneSettings, "🖼", ToolLang.Get("Scene Settings", "Настройки сцены"));
             DrawTabBtn(ENodeType.Audio, "🎵", ToolLang.Get("Audio", "Аудио"));
             DrawTabBtn(ENodeType.Animation, "✨", ToolLang.Get("Animation", "Анимация"));
             DrawTabBtn(ENodeType.Wait, "⏳", ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)"));

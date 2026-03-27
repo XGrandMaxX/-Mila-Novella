@@ -49,6 +49,7 @@ namespace NovellaEngine.Editor
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
+
         private void DrawVariablesTab()
         {
             EditorGUILayout.HelpBox(ToolLang.Get(
@@ -58,8 +59,11 @@ namespace NovellaEngine.Editor
             GUILayout.Space(15);
 
             GUILayout.Label(ToolLang.Get("1. Reading Variables", "1. Чтение переменных"), EditorStyles.boldLabel);
+
+            string commentRead = ToolLang.Get("// Returns variable value. If it doesn't exist - returns default value.", "// Возвращает значение переменной. Если её нет - вернет стартовое значение.");
+
             DrawCodeBlock(
-                "<color=#608b4e>// Возвращает значение переменной. Если её нет - вернет стартовое значение.</color>\n" +
+                $"<color=#608b4e>{commentRead}</color>\n" +
                 "<color=#569cd6>int</color> gold = <color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>GetInt</color>(<color=#ce9178>\"GOLD\"</color>);\n" +
                 "<color=#569cd6>bool</color> isUnlocked = <color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>GetBool</color>(<color=#ce9178>\"DOOR_UNLOCKED\"</color>);\n" +
                 "<color=#569cd6>string</color> pName = <color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>GetString</color>(<color=#ce9178>\"PLAYER_NAME\"</color>);"
@@ -68,8 +72,11 @@ namespace NovellaEngine.Editor
             GUILayout.Space(15);
 
             GUILayout.Label(ToolLang.Get("2. Writing Variables", "2. Изменение переменных"), EditorStyles.boldLabel);
+
+            string commentWrite = ToolLang.Get("// Automatically saves global variables to PlayerPrefs!", "// Автоматически сохраняет глобальные переменные в PlayerPrefs!");
+
             DrawCodeBlock(
-                "<color=#608b4e>// Автоматически сохраняет глобальные переменные в PlayerPrefs!</color>\n" +
+                $"<color=#608b4e>{commentWrite}</color>\n" +
                 "<color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>SetInt</color>(<color=#ce9178>\"GOLD\"</color>, gold + <color=#b5cea8>100</color>);\n" +
                 "<color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>SetBool</color>(<color=#ce9178>\"DOOR_UNLOCKED\"</color>, <color=#569cd6>true</color>);\n" +
                 "<color=#4ec9b0>NovellaVariables</color>.<color=#dcdcaa>SetString</color>(<color=#ce9178>\"PLAYER_NAME\"</color>, <color=#ce9178>\"Alex\"</color>);"
@@ -85,20 +92,26 @@ namespace NovellaEngine.Editor
             GUILayout.Space(15);
 
             GUILayout.Label(ToolLang.Get("Catching Graph Events", "Перехват событий графа"), EditorStyles.boldLabel);
+
+            string commentSub = ToolLang.Get("// Must subscribe and unsubscribe from the event", "// Обязательно подписываемся и отписываемся от события");
+            string commentHandler = ToolLang.Get("// Handler method. eventId - event name from node, param - passed text", "// Метод-обработчик. eventId - имя события из ноды, param - переданный текст");
+            string commentLog = ToolLang.Get("// Player received item", "// Игрок получил предмет");
+
             DrawCodeBlock(
                 "<color=#569cd6>public class</color> <color=#4ec9b0>MyGameManager</color> : <color=#4ec9b0>MonoBehaviour</color>\n" +
                 "{\n" +
-                "    <color=#608b4e>// Обязательно подписываемся и отписываемся от события</color>\n" +
+                $"    <color=#608b4e>{commentSub}</color>\n" +
                 "    <color=#569cd6>private void</color> <color=#dcdcaa>OnEnable</color>() {\n" +
                 "        <color=#4ec9b0>NovellaPlayer</color>.OnNovellaEvent += <color=#dcdcaa>HandleGraphEvent</color>;\n" +
                 "    }\n\n" +
                 "    <color=#569cd6>private void</color> <color=#dcdcaa>OnDisable</color>() {\n" +
                 "        <color=#4ec9b0>NovellaPlayer</color>.OnNovellaEvent -= <color=#dcdcaa>HandleGraphEvent</color>;\n" +
                 "    }\n\n" +
-                "    <color=#608b4e>// Метод-обработчик. eventId - имя события из ноды, param - переданный текст</color>\n" +
+                $"    <color=#608b4e>{commentHandler}</color>\n" +
                 "    <color=#569cd6>private void</color> <color=#dcdcaa>HandleGraphEvent</color>(<color=#569cd6>string</color> eventId, <color=#569cd6>string</color> param) {\n" +
                 "        <color=#c586c0>if</color> (eventId == <color=#ce9178>\"GiveItem\"</color>) {\n" +
-                "            <color=#4ec9b0>Debug</color>.<color=#dcdcaa>Log</color>(<color=#ce9178>\"Player received item: \"</color> + param);\n" +
+                $"            <color=#608b4e>{commentLog}: </color>\n" +
+                "            <color=#4ec9b0>Debug</color>.<color=#dcdcaa>Log</color>(<color=#ce9178>\"Item: \"</color> + param);\n" +
                 "        }\n" +
                 "    }\n" +
                 "}"
