@@ -47,7 +47,7 @@ namespace NovellaEngine.Data
             {
                 if (_instance == null)
                 {
-                    _instance = Resources.Load<NovellaVariableSettings>("NovellaVariableSettings");
+                    _instance = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
 
 #if UNITY_EDITOR
                     if (_instance == null)
@@ -60,7 +60,10 @@ namespace NovellaEngine.Data
                         if (!AssetDatabase.IsValidFolder("Assets/NovellaEngine/Resources"))
                             AssetDatabase.CreateFolder("Assets/NovellaEngine", "Resources");
 
-                        AssetDatabase.CreateAsset(_instance, "Assets/NovellaEngine/Resources/NovellaVariableSettings.asset");
+                        if (!AssetDatabase.IsValidFolder("Assets/NovellaEngine/Resources/NovellaEngine"))
+                            AssetDatabase.CreateFolder("Assets/NovellaEngine/Resources", "NovellaEngine");
+
+                        AssetDatabase.CreateAsset(_instance, "Assets/NovellaEngine/Resources/NovellaEngine/NovellaVariableSettings.asset");
                         AssetDatabase.SaveAssets();
                     }
 #endif

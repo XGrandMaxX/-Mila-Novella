@@ -10,8 +10,8 @@ namespace NovellaEngine.Editor
     {
         private Vector2 _scrollPos;
         private int _currentTab = 0;
-        private string[] _tabs;
 
+        private NovellaTabState _tabState = new NovellaTabState();
         private Dictionary<string, bool> _expandedStates = new Dictionary<string, bool>();
 
         private class DLCItem
@@ -28,7 +28,7 @@ namespace NovellaEngine.Editor
         public static void ShowWindow()
         {
             var win = GetWindow<NovellaDLCManagerWindow>(ToolLang.Get("DLC Manager", "Менеджер DLC"));
-            win.minSize = new Vector2(450, 450);
+            win.minSize = new Vector2(650, 500);
 
             win.ShowUtility();
             win.Focus();
@@ -36,15 +36,49 @@ namespace NovellaEngine.Editor
 
         private void OnEnable()
         {
-            _tabs = new string[] { "🧩 " + ToolLang.Get("Active Modules", "Активные модули"), "🗑 " + ToolLang.Get("Trash Bin", "Корзина") };
+            _tabState.Initialize(Repaint);
+            _tabState.SetActive(_currentTab.ToString());
+
+            EditorApplication.update += _tabState.Update;
+        }
+
+        private void OnDisable()
+        {
+            EditorApplication.update -= _tabState.Update;
         }
 
         private void OnGUI()
         {
             GUILayout.Space(10);
-            _currentTab = GUILayout.Toolbar(_currentTab, _tabs, GUILayout.Height(30));
+            GUILayout.Label("🔌 " + ToolLang.Get("DLC Modules Manager", "Менеджер модулей DLC"),
+                new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter });
             GUILayout.Space(10);
 
+            GUILayout.BeginHorizontal();
+
+            GUILayout.BeginVertical(GUILayout.Width(225));
+
+            if (NovellaEditorLayout.DrawAnimatedTab("0", "🧩", ToolLang.Get("Active Modules", "Активные модули"),
+                _tabState, new Color(0.15f, 0.5f, 0.75f), 180f, 220f))
+            {
+                _currentTab = 0;
+                _tabState.SetActive("0");
+                GUI.FocusControl(null);
+            }
+
+            GUILayout.Space(5);
+
+            if (NovellaEditorLayout.DrawAnimatedTab("1", "🗑", ToolLang.Get("Trash Bin", "Корзина"),
+                _tabState, new Color(0.8f, 0.3f, 0.3f), 180f, 220f))
+            {
+                _currentTab = 1;
+                _tabState.SetActive("1");
+                GUI.FocusControl(null);
+            }
+
+            GUILayout.EndVertical();
+
+            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandHeight(true));
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             List<DLCItem> allDLCs = GetAllDLCs();
@@ -53,6 +87,9 @@ namespace NovellaEngine.Editor
             else DrawTrashBin(allDLCs.Where(d => d.IsTrashed).ToList());
 
             GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+
+            GUILayout.EndHorizontal();
         }
 
         private List<DLCItem> GetAllDLCs()
@@ -107,7 +144,12 @@ namespace NovellaEngine.Editor
             GUILayout.Space(10);
 
             var activeGraph = Resources.FindObjectsOfTypeAll<NovellaGraphWindow>().FirstOrDefault();
-            NovellaTree currentTree = activeGraph != null ? activeGraph.GetType().GetField("_currentTree", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(activeGraph) as NovellaTree : null;
+            NovellaTree currentTree = null;
+            if (activeGraph != null)
+            {
+                var field = activeGraph.GetType().GetField("_currentTree", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                currentTree = field?.GetValue(activeGraph) as NovellaTree;
+            }
 
             foreach (var item in activeList)
             {

@@ -15,10 +15,12 @@ namespace NovellaEngine.Editor
 
         private List<Type> _dlcTypes = new List<Type>();
 
+        private NovellaTabState _tabState = new NovellaTabState();
+
         public static void ShowWindow()
         {
             var window = GetWindow<NovellaColorSettingsWindow>("Node Colors");
-            window.minSize = new Vector2(500, 450);
+            window.minSize = new Vector2(600, 500);
             window.Show();
         }
 
@@ -27,6 +29,18 @@ namespace NovellaEngine.Editor
             _dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
                 .Where(t => t.GetCustomAttributes(typeof(NovellaDLCNodeAttribute), false).Length > 0)
                 .ToList();
+
+            _tabState.Initialize(Repaint);
+
+            string initialKey = string.IsNullOrEmpty(_selectedDLC_ID) ? _selectedType.ToString() : _selectedDLC_ID;
+            _tabState.SetActive(initialKey);
+
+            EditorApplication.update += _tabState.Update;
+        }
+
+        private void OnDisable()
+        {
+            EditorApplication.update -= _tabState.Update;
         }
 
         private void OnGUI()
@@ -37,7 +51,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.BeginHorizontal();
 
-            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(220), GUILayout.ExpandHeight(true));
+            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(235), GUILayout.ExpandHeight(true));
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             DrawTabBtn(ENodeType.End, "🛑", ToolLang.Get("End Scene", "Конец Сцены"));
@@ -56,7 +70,6 @@ namespace NovellaEngine.Editor
             GUILayout.Space(10);
             GUILayout.Label(ToolLang.Get("System", "Система"), EditorStyles.miniBoldLabel);
             DrawTabBtn(ENodeType.EventBroadcast, "⚡", ToolLang.Get("Event Broadcast", "Вызов События"));
-
             DrawTabBtn(ENodeType.Save, "💾", ToolLang.Get("Save Checkpoint", "Сохранение"));
 
             if (_dlcTypes.Count > 0)
@@ -150,35 +163,24 @@ namespace NovellaEngine.Editor
 
         private void DrawTabBtn(ENodeType type, string icon, string label)
         {
-            bool isSelected = string.IsNullOrEmpty(_selectedDLC_ID) && _selectedType == type;
-            GUI.backgroundColor = isSelected ? new Color(0.4f, 0.6f, 1f) : Color.white;
-
-            GUIStyle btnStyle = new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft, fontSize = 13, fixedHeight = 25 };
-            if (isSelected) btnStyle.normal.textColor = Color.white;
-
-            if (GUILayout.Button($"{icon} {label}", btnStyle))
+            string key = type.ToString();
+            if (NovellaEditorLayout.DrawAnimatedTab(key, icon, label, _tabState, new Color(0.15f, 0.5f, 0.75f), 185f, 225f))
             {
                 _selectedType = type;
                 _selectedDLC_ID = "";
+                _tabState.SetActive(key);
                 GUI.FocusControl(null);
             }
-            GUI.backgroundColor = Color.white;
         }
 
         private void DrawDLCTabBtn(string dlcID, string icon, string label)
         {
-            bool isSelected = _selectedDLC_ID == dlcID;
-            GUI.backgroundColor = isSelected ? new Color(0.4f, 0.6f, 1f) : Color.white;
-
-            GUIStyle btnStyle = new GUIStyle(EditorStyles.toolbarButton) { alignment = TextAnchor.MiddleLeft, fontSize = 13, fixedHeight = 25 };
-            if (isSelected) btnStyle.normal.textColor = Color.white;
-
-            if (GUILayout.Button($"{icon} {label}", btnStyle))
+            if (NovellaEditorLayout.DrawAnimatedTab(dlcID, icon, label, _tabState, new Color(0.15f, 0.5f, 0.75f), 185f, 225f))
             {
                 _selectedDLC_ID = dlcID;
+                _tabState.SetActive(dlcID);
                 GUI.FocusControl(null);
             }
-            GUI.backgroundColor = Color.white;
         }
 
         public static Color GetNodeColor(ENodeType type)
@@ -254,7 +256,6 @@ namespace NovellaEngine.Editor
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Animation.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.EventBroadcast.ToString());
             EditorPrefs.DeleteKey("NovellaColor_" + ENodeType.Save.ToString());
-
 
             if (_dlcTypes != null)
             {

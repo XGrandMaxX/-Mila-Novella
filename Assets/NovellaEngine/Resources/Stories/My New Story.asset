@@ -15,4 +15,5 @@ MonoBehaviour:
   Title: My New Story
   Description: A story about choices, consequences, and debugging C# code.
   CoverImage: {fileID: 0}
-  StartingChapter: {fileID: 11400000, guid: 41aea3461e8bd774ea9c6bf73ace0b52, type: 2}
+  CustomStoryCardPrefab: {fileID: 6863765986306532694, guid: 465d415d2b903ce4b94af456a6e97f23, type: 3}
+  StartingChapter: {fileID: 11400000, guid: 5ce7916df6cedd24c94827ca67a503f2, type: 2}

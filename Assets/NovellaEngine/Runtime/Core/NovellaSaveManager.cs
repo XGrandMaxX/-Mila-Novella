@@ -23,17 +23,19 @@ namespace NovellaEngine.Runtime
         {
             PlayerPrefs.SetString($"NovellaSave_{storyName}_Node", nodeID);
 
-            NovellaSaveData data = new NovellaSaveData();
-            data.CurrentLineIndex = currentLineIndex;
+            NovellaSaveData data = new()
+            {
+                CurrentLineIndex = currentLineIndex,
 
-            data.IntKeys = NovellaPlayer.IntVars.Keys.ToList();
-            data.IntValues = NovellaPlayer.IntVars.Values.ToList();
+                IntKeys = NovellaVariables.IntVars.Keys.ToList(),
+                IntValues = NovellaVariables.IntVars.Values.ToList(),
 
-            data.BoolKeys = NovellaPlayer.BoolVars.Keys.ToList();
-            data.BoolValues = NovellaPlayer.BoolVars.Values.ToList();
+                BoolKeys = NovellaVariables.BoolVars.Keys.ToList(),
+                BoolValues = NovellaVariables.BoolVars.Values.ToList(),
 
-            data.StringKeys = NovellaPlayer.StringVars.Keys.ToList();
-            data.StringValues = NovellaPlayer.StringVars.Values.ToList();
+                StringKeys = NovellaVariables.StringVars.Keys.ToList(),
+                StringValues = NovellaVariables.StringVars.Values.ToList()
+            };
 
             string json = JsonUtility.ToJson(data);
             PlayerPrefs.SetString($"NovellaSave_{storyName}_Vars", json);
@@ -48,13 +50,13 @@ namespace NovellaEngine.Runtime
             NovellaSaveData data = JsonUtility.FromJson<NovellaSaveData>(json);
             if (data == null) return null;
 
-            NovellaPlayer.IntVars.Clear();
-            NovellaPlayer.BoolVars.Clear();
-            NovellaPlayer.StringVars.Clear();
+            NovellaVariables.IntVars.Clear();
+            NovellaVariables.BoolVars.Clear();
+            NovellaVariables.StringVars.Clear();
 
-            for (int i = 0; i < data.IntKeys.Count; i++) NovellaPlayer.IntVars[data.IntKeys[i]] = data.IntValues[i];
-            for (int i = 0; i < data.BoolKeys.Count; i++) NovellaPlayer.BoolVars[data.BoolKeys[i]] = data.BoolValues[i];
-            for (int i = 0; i < data.StringKeys.Count; i++) NovellaPlayer.StringVars[data.StringKeys[i]] = data.StringValues[i];
+            for (int i = 0; i < data.IntKeys.Count; i++) NovellaVariables.IntVars[data.IntKeys[i]] = data.IntValues[i];
+            for (int i = 0; i < data.BoolKeys.Count; i++) NovellaVariables.BoolVars[data.BoolKeys[i]] = data.BoolValues[i];
+            for (int i = 0; i < data.StringKeys.Count; i++) NovellaVariables.StringVars[data.StringKeys[i]] = data.StringValues[i];
 
             return data;
         }

@@ -146,6 +146,12 @@ namespace NovellaEngine.Runtime
 
         private void LoadStoriesFromResources()
         {
+            if (StoriesContainer != null && StoriesContainer.childCount > 0)
+            {
+                var existingBtns = StoriesContainer.GetComponentsInChildren<Button>(true);
+                if (existingBtns.Length > 0) return;
+            }
+
             List<NovellaStory> storiesToLoad = new List<NovellaStory>();
 
             if (SpecificStories != null && SpecificStories.Count > 0)
@@ -162,7 +168,10 @@ namespace NovellaEngine.Runtime
             {
                 if (story.StartingChapter == null) continue;
 
-                GameObject btnGO = Instantiate(StoryButtonPrefab, StoriesContainer);
+                GameObject prefabToSpawn = story.CustomStoryCardPrefab != null ? story.CustomStoryCardPrefab : StoryButtonPrefab;
+                if (prefabToSpawn == null) continue;
+
+                GameObject btnGO = Instantiate(prefabToSpawn, StoriesContainer);
                 btnGO.name = "StoryBtn_" + story.name;
 
                 TMP_Text[] texts = btnGO.GetComponentsInChildren<TMP_Text>();
@@ -173,7 +182,8 @@ namespace NovellaEngine.Runtime
                 if (images.Length > 1 && story.CoverImage != null) images[1].sprite = story.CoverImage;
 
                 Button btn = btnGO.GetComponent<Button>();
-                btn.onClick.AddListener(() => TryLaunchStory(story));
+                if (btn == null) btn = btnGO.GetComponentInChildren<Button>(true);
+                if (btn != null) btn.onClick.AddListener(() => TryLaunchStory(story));
             }
         }
 

@@ -306,7 +306,6 @@ namespace NovellaEngine.Editor
 
                 GUILayout.BeginHorizontal();
 
-                // === ОБНОВЛЕННЫЙ ВЫЗОВ ПОИСКА ===
                 if (GUILayout.Button("🔍 " + ToolLang.Get("Find References", "Найти Зависимости"), GUILayout.Height(35), GUILayout.Width(200)))
                 {
                     NovellaReferenceFinderWindow.ShowWindow(v.Name);

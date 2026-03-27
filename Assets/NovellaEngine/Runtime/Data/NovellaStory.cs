@@ -13,8 +13,12 @@ namespace NovellaEngine.Data
         [Header("Visuals")]
         public Sprite CoverImage;
 
+        [Header("UI Override")]
+        [Tooltip("Особый префаб карточки для этой истории (если пуст, берется базовый)")]
+        public GameObject CustomStoryCardPrefab;
+
         [Header("Entry Point")]
-        [Tooltip("The very first chapter that will be loaded when the player clicks Play.")]
+        [Tooltip("The very first chapter that will be loaded when the player clicks Play")]
         public NovellaTree StartingChapter;
     }
 }

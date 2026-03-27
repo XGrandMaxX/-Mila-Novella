@@ -35,10 +35,6 @@ namespace NovellaEngine.Runtime
         [Header("Scene Elements")]
         public Transform CharactersContainer;
 
-        public static Dictionary<string, int> IntVars = new Dictionary<string, int>();
-        public static Dictionary<string, bool> BoolVars = new Dictionary<string, bool>();
-        public static Dictionary<string, string> StringVars = new Dictionary<string, string>();
-
         private NovellaPoolManager _poolManager;
 
         private NovellaNodeBase _currentNodeBase;
@@ -48,8 +44,6 @@ namespace NovellaEngine.Runtime
         private bool _isWaitingForClick = false;
         private bool _isTyping = false;
         private Coroutine _typewriterCoroutine;
-
-        private const int SECURE_XOR_KEY = 777;
 
         private GameObject _defaultDialoguePanel;
         private TMP_Text _defaultSpeakerNameText;
@@ -85,7 +79,7 @@ namespace NovellaEngine.Runtime
                 if (tempWait != null) Destroy(tempWait.gameObject);
             }
 
-            InitializeVariables();
+            NovellaVariables.Initialize();
 
             string selectedStoryID = PlayerPrefs.GetString("SelectedStoryID", "");
             if (!string.IsNullOrEmpty(selectedStoryID))
@@ -220,77 +214,11 @@ namespace NovellaEngine.Runtime
             SaveNotification.SetActive(false);
         }
 
-        private void InitializeVariables()
-        {
-            IntVars.Clear(); BoolVars.Clear(); StringVars.Clear();
-            var settings = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-            if (settings == null) return;
-
-            foreach (var v in settings.Variables)
-            {
-                if (v.Scope == EVarScope.Global)
-                {
-                    if (v.Type == EVarType.Integer) IntVars[v.Name] = GetGlobalInt(v.Name, v.DefaultInt, v.IsPremiumCurrency);
-                    else if (v.Type == EVarType.Boolean) BoolVars[v.Name] = PlayerPrefs.GetInt("NV_" + v.Name, v.DefaultBool ? 1 : 0) == 1;
-                    else if (v.Type == EVarType.String) StringVars[v.Name] = PlayerPrefs.GetString("NV_" + v.Name, v.DefaultString);
-                }
-                else
-                {
-                    if (v.Type == EVarType.Integer) IntVars[v.Name] = v.DefaultInt;
-                    else if (v.Type == EVarType.Boolean) BoolVars[v.Name] = v.DefaultBool;
-                    else if (v.Type == EVarType.String) StringVars[v.Name] = v.DefaultString;
-                }
-            }
-        }
-
-        private int GetGlobalInt(string key, int defaultValue, bool isPremium)
-        {
-            if (isPremium)
-            {
-                string secureKey = "NV_SEC_" + key;
-                if (!PlayerPrefs.HasKey(secureKey)) return defaultValue;
-                try
-                {
-                    string base64 = PlayerPrefs.GetString(secureKey);
-                    byte[] bytes = Convert.FromBase64String(base64);
-                    string xoredString = System.Text.Encoding.UTF8.GetString(bytes);
-                    if (int.TryParse(xoredString, out int xoredValue)) return xoredValue ^ SECURE_XOR_KEY;
-                }
-                catch { return defaultValue; }
-                return defaultValue;
-            }
-            else return PlayerPrefs.GetInt("NV_" + key, defaultValue);
-        }
-
-        private void SetGlobalInt(string key, int value, bool isPremium)
-        {
-            if (isPremium)
-            {
-                string xoredString = (value ^ SECURE_XOR_KEY).ToString();
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(xoredString);
-                string base64 = Convert.ToBase64String(bytes);
-                PlayerPrefs.SetString("NV_SEC_" + key, base64);
-            }
-            else PlayerPrefs.SetInt("NV_" + key, value);
-            PlayerPrefs.Save();
-        }
 
         public void PlayTree(NovellaTree tree)
         {
             StoryTree = tree;
-            var settings = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-            if (settings != null)
-            {
-                foreach (var v in settings.Variables)
-                {
-                    if (v.Scope == EVarScope.Local)
-                    {
-                        if (v.Type == EVarType.Integer) IntVars[v.Name] = v.DefaultInt;
-                        else if (v.Type == EVarType.Boolean) BoolVars[v.Name] = v.DefaultBool;
-                        else if (v.Type == EVarType.String) StringVars[v.Name] = v.DefaultString;
-                    }
-                }
-            }
+            NovellaVariables.ResetLocalVariables();
             ClearCharacters();
             PlayNode(tree.RootNodeID);
         }
@@ -813,27 +741,16 @@ namespace NovellaEngine.Runtime
                 var def = settings?.Variables.FirstOrDefault(x => x.Name == v.VariableName);
                 if (def == null) continue;
 
-                if (def.Type == EVarType.Integer)
+                if (v.VarOperation == EVarOperation.Set)
                 {
-                    int current = IntVars.ContainsKey(v.VariableName) ? IntVars[v.VariableName] : def.DefaultInt;
-
-                    if (v.VarOperation == EVarOperation.Set) current = v.VarValue;
-                    else if (v.VarOperation == EVarOperation.Add) current += v.VarValue;
-
-                    if (def.HasLimits) current = Mathf.Clamp(current, def.MinValue, def.MaxValue);
-
-                    IntVars[v.VariableName] = current;
-                    SetGlobalInt(v.VariableName, current, def.IsPremiumCurrency);
+                    if (def.Type == EVarType.Integer) NovellaVariables.SetInt(v.VariableName, v.VarValue);
+                    else if (def.Type == EVarType.Boolean) NovellaVariables.SetBool(v.VariableName, v.VarBool);
+                    else if (def.Type == EVarType.String) NovellaVariables.SetString(v.VariableName, v.VarString);
                 }
-                else if (def.Type == EVarType.Boolean)
+                else if (v.VarOperation == EVarOperation.Add && def.Type == EVarType.Integer)
                 {
-                    BoolVars[v.VariableName] = v.VarBool;
-                    if (def.Scope == EVarScope.Global) { PlayerPrefs.SetInt("NV_" + v.VariableName, v.VarBool ? 1 : 0); PlayerPrefs.Save(); }
-                }
-                else if (def.Type == EVarType.String)
-                {
-                    StringVars[v.VariableName] = v.VarString;
-                    if (def.Scope == EVarScope.Global) { PlayerPrefs.SetString("NV_" + v.VariableName, v.VarString); PlayerPrefs.Save(); }
+                    int current = NovellaVariables.GetInt(v.VariableName);
+                    NovellaVariables.SetInt(v.VariableName, current + v.VarValue);
                 }
             }
             PlayNode(varData.NextNodeID);
@@ -1071,7 +988,6 @@ namespace NovellaEngine.Runtime
                     {
                         SpeakerNameText.gameObject.SetActive(true);
 
-                        // --- ВАЖНО: ПОДТЯГИВАЕМ ИМЯ ИЗ СОХРАНЕНИЙ, ЕСЛИ ЭТО ГГ! ---
                         string displayName = "";
                         if (line.Speaker.IsPlayerCharacter && StoryTree != null)
                         {
@@ -1215,7 +1131,6 @@ namespace NovellaEngine.Runtime
                         entity.transform.localPosition = new Vector3(baseX, config.PosY, 0);
                     }
 
-                    // --- ВАЖНО: ПОДТЯГИВАЕМ СПРАЙТ ИЗ СОХРАНЕНИЙ, ЕСЛИ ЭТО ГГ! ---
                     if (config.CharacterAsset.IsPlayerCharacter && StoryTree != null)
                     {
                         int lookIndex = PlayerPrefs.GetInt($"NovellaSave_{StoryTree.name}_MCBodyID", 0);
@@ -1298,7 +1213,7 @@ namespace NovellaEngine.Runtime
 
             if (def.Type == EVarType.Integer)
             {
-                int current = IntVars.ContainsKey(varName) ? IntVars[varName] : def.DefaultInt;
+                int current = NovellaVariables.GetInt(varName);
                 switch (op)
                 {
                     case EConditionOperator.Equal: return current == targetInt;
@@ -1311,13 +1226,13 @@ namespace NovellaEngine.Runtime
             }
             else if (def.Type == EVarType.Boolean)
             {
-                bool current = BoolVars.ContainsKey(varName) ? BoolVars[varName] : def.DefaultBool;
+                bool current = NovellaVariables.GetBool(varName);
                 if (op == EConditionOperator.Equal) return current == targetBool;
                 if (op == EConditionOperator.NotEqual) return current != targetBool;
             }
             else if (def.Type == EVarType.String)
             {
-                string current = StringVars.ContainsKey(varName) ? StringVars[varName] : def.DefaultString;
+                string current = NovellaVariables.GetString(varName);
                 if (op == EConditionOperator.Equal) return current == targetString;
                 if (op == EConditionOperator.NotEqual) return current != targetString;
             }

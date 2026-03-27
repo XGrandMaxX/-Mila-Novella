@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: StartTree
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
   RootNodeID: Save_e3c89
-  StartPosition: {x: -359, y: 125}
+  StartPosition: {x: -359, y: 127}
   EnableAutoSave: 1
   AutoSaveInterval: 10
   Nodes:
@@ -27,6 +27,7 @@ MonoBehaviour:
   - rid: 6664540724970127462
   - rid: 6664540747352244295
   - rid: 6664540747352244308
+  - rid: 6664540819270402113
   Groups: []
   references:
     version: 2
@@ -655,3 +656,14 @@ MonoBehaviour:
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_f5966
+    - rid: 6664540819270402113
+      type: {class: EventBroadcastNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: EventBroadcast_73911
+        NodeTitle: EventBroadcast 1
+        GraphPosition: {x: -235, y: 420}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        BroadcastEventName: MyCustomEvent
+        BroadcastEventParam: 
+        NextNodeID: 
