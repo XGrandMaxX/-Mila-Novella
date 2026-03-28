@@ -14,5 +14,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaDLCSettings
   Modules:
   - DLC_ID: NovellaEngine.DLC.Inventory.ItemCheckNodeData
-    IsEnabled: 1
+    IsEnabled: 0
     IsTrashed: 0

@@ -10,6 +10,9 @@ namespace NovellaEngine.Data
         public string LayerName = "Base";
         public Sprite DefaultSprite;
 
+        public Vector2 Offset = Vector2.zero;
+        public Vector2 Scale = Vector2.one;
+
         public List<Sprite> WardrobeOptions = new List<Sprite>();
     }
 
@@ -18,6 +21,9 @@ namespace NovellaEngine.Data
     {
         public string LayerName;
         public Sprite OverrideSprite;
+
+        public Vector2 Offset = Vector2.zero;
+        public Vector2 Scale = Vector2.one;
     }
 
     [Serializable]
@@ -36,7 +42,6 @@ namespace NovellaEngine.Data
         [Tooltip("Отметьте, если это Главный Герой (внешность будет настраиваться игроком)")]
         public bool IsPlayerCharacter = false;
 
-        //TODO: В будущем здесь появятся списки для DLC Гардероба (волосы, одежда и т.д.)
         public List<Sprite> AvailableBaseBodies = new List<Sprite>();
 
         [Header("Standard Settings")]
@@ -48,7 +53,6 @@ namespace NovellaEngine.Data
         public List<CharacterLayer> BaseLayers = new List<CharacterLayer>();
         public List<CharacterEmotion> Emotions = new List<CharacterEmotion>();
 
-        // Для обратной совместимости старого кода (пока мы не обновим Редактор Персонажей)
         public Sprite DefaultSprite => BaseLayers.Count > 0 ? BaseLayers[0].DefaultSprite : null;
 
         [HideInInspector]

@@ -23,11 +23,9 @@ MonoBehaviour:
   DisplayName_RU: "\u041C\u0438\u043B\u0430\u043D\u0430"
   ThemeColor: {r: 0.5754717, g: 0.4261748, b: 0.4261748, a: 1}
   BaseLayers:
-  - LayerName: New Layer
+  - LayerName: Face
     DefaultSprite: {fileID: 21300000, guid: a3cd6bf0c72f70c438f4fe01808ced50, type: 3}
     WardrobeOptions: []
-  Emotions:
-  - EmotionName: NewEmotion
-    LayerOverrides: []
+  Emotions: []
   IsFavorite: 1
   InternalNotes: 

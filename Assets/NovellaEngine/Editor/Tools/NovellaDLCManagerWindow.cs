@@ -47,6 +47,49 @@ namespace NovellaEngine.Editor
             EditorApplication.update -= _tabState.Update;
         }
 
+        // === ИДЕАЛЬНОЕ СГЛАЖИВАНИЕ (ANTI-ALIASING) ===
+        private void DrawAACapsule(Rect rect, Color color)
+        {
+            Handles.color = color;
+            float radius = Mathf.Min(rect.width / 2f, rect.height / 2f);
+            int segments = 18;
+            Vector3[] points = new Vector3[segments * 2];
+
+            Vector2 leftCenter = new Vector2(rect.x + radius, rect.y + radius);
+            Vector2 rightCenter = new Vector2(rect.xMax - radius, rect.y + radius);
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = Mathf.PI * 0.5f + (i * Mathf.PI / (segments - 1));
+                points[i] = new Vector3(leftCenter.x + Mathf.Cos(angle) * radius, leftCenter.y + Mathf.Sin(angle) * radius, 0f);
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = Mathf.PI * 1.5f + (i * Mathf.PI / (segments - 1));
+                points[i + segments] = new Vector3(rightCenter.x + Mathf.Cos(angle) * radius, rightCenter.y + Mathf.Sin(angle) * radius, 0f);
+            }
+
+            Handles.DrawAAConvexPolygon(points);
+            Handles.color = Color.white;
+        }
+
+        private bool DrawToggleSwitch(Rect rect, bool value)
+        {
+            if (Event.current.type == EventType.Repaint)
+            {
+                Color bgColor = value ? new Color(0.2f, 0.7f, 0.3f) : new Color(0.35f, 0.35f, 0.35f);
+                DrawAACapsule(rect, bgColor);
+
+                Color knobColor = Color.white;
+                float radius = Mathf.Min(rect.width / 2f, rect.height / 2f);
+                float knobX = value ? rect.xMax - radius : rect.x + radius;
+                Rect knobRect = new Rect(knobX - radius + 2f, rect.y + 2f, radius * 2f - 4f, radius * 2f - 4f);
+                DrawAACapsule(knobRect, knobColor);
+            }
+            return GUI.Button(rect, GUIContent.none, GUIStyle.none) ? !value : value;
+        }
+
         private void OnGUI()
         {
             GUILayout.Space(10);
@@ -156,23 +199,23 @@ namespace NovellaEngine.Editor
                 bool isEnabled = settings.IsDLCEnabled(item.SystemName);
 
                 GUILayout.BeginVertical(EditorStyles.helpBox);
-                GUILayout.BeginHorizontal();
+                GUILayout.BeginHorizontal(GUILayout.Height(25));
 
                 ColorUtility.TryParseHtmlString(item.HexColor, out Color dlcColor);
                 GUI.color = isEnabled ? dlcColor : Color.gray;
-                GUILayout.Label(isEnabled ? "✔" : "✖", EditorStyles.boldLabel, GUILayout.Width(20));
+                GUILayout.Label(isEnabled ? "✔" : "✖", new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleLeft }, GUILayout.Width(20));
                 GUI.color = Color.white;
 
                 bool hasDescription = !string.IsNullOrWhiteSpace(item.Description);
                 bool isExpanded = hasDescription && _expandedStates.TryGetValue(item.SystemName, out bool exp) && exp;
 
-                GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = isEnabled ? Color.white : Color.gray } };
+                GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleLeft, normal = { textColor = isEnabled ? Color.white : Color.gray } };
 
                 if (hasDescription)
                 {
                     nameStyle.hover.textColor = Color.white;
                     string arrow = isExpanded ? "▼ " : "▶ ";
-                    if (GUILayout.Button(arrow + item.MenuName, nameStyle, GUILayout.ExpandWidth(false)))
+                    if (GUILayout.Button(arrow + item.MenuName, nameStyle, GUILayout.ExpandWidth(false), GUILayout.Height(25)))
                     {
                         _expandedStates[item.SystemName] = !isExpanded;
                     }
@@ -185,21 +228,26 @@ namespace NovellaEngine.Editor
                 if (currentTree != null && item.ClassType != null)
                 {
                     int count = currentTree.Nodes.Count(n => n.GetType() == item.ClassType);
-                    if (count > 0) GUILayout.Label($"({count} {ToolLang.Get("nodes", "нод")})", EditorStyles.miniBoldLabel);
+                    if (count > 0) GUILayout.Label($"({count} {ToolLang.Get("nodes", "нод")})", new GUIStyle(EditorStyles.miniBoldLabel) { alignment = TextAnchor.MiddleLeft }, GUILayout.Height(25));
                 }
 
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"v. {item.Version}", EditorStyles.miniLabel);
+                GUILayout.Label($"v. {item.Version}", new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleRight }, GUILayout.Height(25));
 
-                EditorGUI.BeginChangeCheck();
-                bool newEnabled = EditorGUILayout.Toggle(isEnabled, GUILayout.Width(20));
-                if (EditorGUI.EndChangeCheck())
+                GUILayout.Space(10);
+
+                Rect toggleRect = GUILayoutUtility.GetRect(40, 20);
+                toggleRect.y += 2;
+                bool newEnabled = DrawToggleSwitch(toggleRect, isEnabled);
+                if (newEnabled != isEnabled)
                 {
                     settings.SetDLCState(item.SystemName, newEnabled);
                     RefreshGraphs();
                 }
 
-                if (GUILayout.Button("🗑", EditorStyles.miniButton, GUILayout.Width(30)))
+                GUILayout.Space(10);
+
+                if (GUILayout.Button("🗑", EditorStyles.miniButton, GUILayout.Width(30), GUILayout.Height(25)))
                 {
                     settings.SetDLCTrashed(item.SystemName, true);
                     RefreshGraphs();
@@ -236,22 +284,22 @@ namespace NovellaEngine.Editor
             foreach (var item in trashedList)
             {
                 GUILayout.BeginVertical(EditorStyles.helpBox);
-                GUILayout.BeginHorizontal();
+                GUILayout.BeginHorizontal(GUILayout.Height(25));
 
                 GUI.color = Color.gray;
-                GUILayout.Label("✖", EditorStyles.boldLabel, GUILayout.Width(20));
+                GUILayout.Label("✖", new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleLeft }, GUILayout.Width(20));
                 GUI.color = Color.white;
 
                 bool hasDescription = !string.IsNullOrWhiteSpace(item.Description);
                 bool isExpanded = hasDescription && _expandedStates.TryGetValue(item.SystemName, out bool exp) && exp;
 
-                GUIStyle trashNameStyle = new GUIStyle(EditorStyles.boldLabel) { normal = { textColor = new Color(0.7f, 0.7f, 0.7f) } };
+                GUIStyle trashNameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleLeft, normal = { textColor = new Color(0.7f, 0.7f, 0.7f) } };
 
                 if (hasDescription)
                 {
                     trashNameStyle.hover.textColor = Color.white;
                     string arrow = isExpanded ? "▼ " : "▶ ";
-                    if (GUILayout.Button(arrow + item.MenuName, trashNameStyle, GUILayout.ExpandWidth(false)))
+                    if (GUILayout.Button(arrow + item.MenuName, trashNameStyle, GUILayout.ExpandWidth(false), GUILayout.Height(25)))
                     {
                         _expandedStates[item.SystemName] = !isExpanded;
                     }
@@ -264,14 +312,14 @@ namespace NovellaEngine.Editor
                 GUILayout.FlexibleSpace();
 
                 GUI.backgroundColor = new Color(0.4f, 0.8f, 0.4f);
-                if (GUILayout.Button("♻ " + ToolLang.Get("Restore", "Восстановить"), EditorStyles.miniButtonLeft, GUILayout.Width(100)))
+                if (GUILayout.Button("♻ " + ToolLang.Get("Restore", "Восстановить"), EditorStyles.miniButtonLeft, GUILayout.Width(100), GUILayout.Height(25)))
                 {
                     settings.SetDLCTrashed(item.SystemName, false);
                     RefreshGraphs();
                 }
 
                 GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
-                if (GUILayout.Button("🗑 " + ToolLang.Get("Delete", "Удалить"), EditorStyles.miniButtonRight, GUILayout.Width(80)))
+                if (GUILayout.Button("🗑 " + ToolLang.Get("Delete", "Удалить"), EditorStyles.miniButtonRight, GUILayout.Width(80), GUILayout.Height(25)))
                 {
                     if (EditorUtility.DisplayDialog("Delete", ToolLang.Get($"Delete '{item.MenuName}' permanently?", $"Навсегда удалить скрипт '{item.MenuName}'?"), ToolLang.Get("Yes", "Да"), ToolLang.Get("No", "Нет")))
                     {
