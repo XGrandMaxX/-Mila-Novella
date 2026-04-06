@@ -26,6 +26,9 @@ namespace NovellaEngine.Editor
         private readonly NovellaGraphView _graphView;
         private readonly Label _pinLabel;
 
+        // Кэш рефлексии для устранения лагов DLC нод при перетаскивании
+        private static Dictionary<System.Type, Dictionary<string, System.Reflection.FieldInfo>> _fieldCache = new Dictionary<System.Type, Dictionary<string, System.Reflection.FieldInfo>>();
+
         public NovellaNodeView(NovellaNodeBase data, NovellaGraphView graphView)
         {
             Data = data;
@@ -57,7 +60,6 @@ namespace NovellaEngine.Editor
                     outputContainer.Add(SceneSyncPort);
                 }
 
-                // ЗДЕСЬ ДОБАВЛЕН ENODETYPE.SAVE ДЛЯ ГЕНЕРАЦИИ ПОРТА
                 if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Variable || Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.SceneSettings || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast || Data.NodeType == ENodeType.CustomDLC || Data.NodeType == ENodeType.Save)
                 {
                     OutputPort = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
@@ -108,6 +110,26 @@ namespace NovellaEngine.Editor
             this.RegisterCallback<GeometryChangedEvent>(evt => { var collapseBtn = this.titleButtonContainer.Q("collapse-button"); if (collapseBtn != null) collapseBtn.style.display = DisplayStyle.None; });
 
             RefreshVisuals(); RefreshExpandedState(); RefreshPorts();
+        }
+
+        private System.Reflection.FieldInfo GetCachedField(System.Type type, string fieldName)
+        {
+            if (!_fieldCache.ContainsKey(type))
+                _fieldCache[type] = new Dictionary<string, System.Reflection.FieldInfo>();
+
+            if (!_fieldCache[type].ContainsKey(fieldName))
+                _fieldCache[type][fieldName] = type.GetField(fieldName);
+
+            return _fieldCache[type][fieldName];
+        }
+
+        public void FormatLongLabel(Label label)
+        {
+            if (label == null) return;
+            label.style.maxWidth = 140;
+            label.style.overflow = Overflow.Hidden;
+            label.style.textOverflow = TextOverflow.Ellipsis;
+            label.style.whiteSpace = WhiteSpace.NoWrap;
         }
 
         public void ToggleAudioNextPort(bool isSynced)
@@ -192,23 +214,37 @@ namespace NovellaEngine.Editor
 
             titleContainer.style.borderBottomWidth = 0;
 
+            Color nodeColor = Color.grey;
+
+            // Настройка цветов ноды
             if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Note || Data.NodeType == ENodeType.CustomDLC)
             {
-                titleContainer.style.backgroundColor = new StyleColor(Data.NodeCustomColor);
+                nodeColor = Data.NodeCustomColor;
+                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
             }
             else if (Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.SceneSettings || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Save)
             {
-                titleContainer.style.backgroundColor = new StyleColor(NovellaColorSettingsWindow.GetNodeColor(Data.NodeType));
+                nodeColor = NovellaColorSettingsWindow.GetNodeColor(Data.NodeType);
+                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
             }
             else
             {
-                titleContainer.style.backgroundColor = new StyleColor(NovellaColorSettingsWindow.GetNodeColor(Data.NodeType));
+                nodeColor = NovellaColorSettingsWindow.GetNodeColor(Data.NodeType);
+                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
                 if (Data.NodeType == ENodeType.Condition)
                 {
                     titleContainer.style.borderBottomColor = new StyleColor(new Color(1f, 0.7f, 0f));
                     titleContainer.style.borderBottomWidth = 3;
                 }
             }
+
+            // --- ПРОКАЧКА МИНИКАРТЫ (Окрашиваем фон самой ноды, чтобы миникарта это увидела) ---
+            var border = this.Q("node-border");
+            if (border != null)
+            {
+                border.style.backgroundColor = new StyleColor(new Color(nodeColor.r, nodeColor.g, nodeColor.b, 0.15f));
+            }
+            // -----------------------------------------------------------------------------------
 
             if (Data.NodeType == ENodeType.CustomDLC)
             {
@@ -217,7 +253,10 @@ namespace NovellaEngine.Editor
 
                 this.style.opacity = isEnabled ? 1f : 0.45f;
 
-                titleContainer.style.backgroundColor = new StyleColor(NovellaColorSettingsWindow.GetDLCNodeColor(Data.GetType().FullName));
+                nodeColor = NovellaColorSettingsWindow.GetDLCNodeColor(Data.GetType().FullName);
+                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
+
+                if (border != null) border.style.backgroundColor = new StyleColor(new Color(nodeColor.r, nodeColor.g, nodeColor.b, 0.15f));
 
                 var disabledLabel = this.Q<Label>("dlc-disabled-label");
                 if (!isEnabled)
@@ -271,6 +310,9 @@ namespace NovellaEngine.Editor
                 {
                     string bgName = bgD.BgSprite != null ? bgD.BgSprite.name : ToolLang.Get("Color", "Цвет");
                     var bgBlock = new Label($"🖼 {bgName}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter } };
+
+                    FormatLongLabel(bgBlock);
+
                     extensionContainer.Add(bgBlock);
                     hasExtensionData = true;
                 }
@@ -319,7 +361,6 @@ namespace NovellaEngine.Editor
                     titleContainer.style.paddingBottom = 8;
                 }
 
-                var border = this.Q("node-border");
                 if (border != null)
                 {
                     border.style.backgroundColor = noteD.ShowBackground ? new StyleColor(noteD.NodeCustomColor) : new StyleColor(Color.clear);
@@ -517,7 +558,8 @@ namespace NovellaEngine.Editor
             }
             else { extensionContainer.style.display = DisplayStyle.None; }
 
-            this.MarkDirtyRepaint(); RefreshExpandedState();
+            this.MarkDirtyRepaint();
+            RefreshExpandedState();
         }
 
         public override void OnSelected() { base.OnSelected(); _graphView?.OnNodeSelected?.Invoke(this); }
@@ -526,16 +568,28 @@ namespace NovellaEngine.Editor
         public void SaveNodeData()
         {
             if (Data == null) return;
-            Data.GraphPosition = GetPosition().position;
-            if (Data.NodeType == ENodeType.End || Data.NodeType == ENodeType.Character || Data.NodeType == ENodeType.Note) return;
 
-            if (Data is BranchNodeData bnd)
+            Data.GraphPosition = GetPosition().position;
+
+            if (Data is DialogueNodeData || Data is AudioNodeData || Data is SceneSettingsNodeData || Data is AnimationNodeData || Data is EventBroadcastNodeData || Data is WaitNodeData)
+            {
+                var nextNodeField = Data.GetType().GetField("NextNodeID");
+                if (nextNodeField != null)
+                {
+                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
+                    {
+                        nextNodeField.SetValue(Data, OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "");
+                    }
+                    else nextNodeField.SetValue(Data, "");
+                }
+            }
+            else if (Data is BranchNodeData bnd)
             {
                 var ports = outputContainer.Query<Port>().ToList();
                 for (int i = 0; i < bnd.Choices.Count; i++)
                 {
-                    if (i < ports.Count && ports[i].connected && ports[i].connections.Any()) bnd.Choices[i].NextNodeID = ports[i].connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else bnd.Choices[i].NextNodeID = "";
+                    if (i < ports.Count)
+                        bnd.Choices[i].NextNodeID = ports[i].connected && ports[i].connections.Any() ? (ports[i].connections.FirstOrDefault()?.input?.node as NovellaNodeView)?.Data.NodeID ?? "" : "";
                 }
             }
             else if (Data is ConditionNodeData cnd)
@@ -543,8 +597,8 @@ namespace NovellaEngine.Editor
                 var ports = outputContainer.Query<Port>().ToList();
                 for (int i = 0; i < cnd.Choices.Count; i++)
                 {
-                    if (i < ports.Count && ports[i].connected && ports[i].connections.Any()) cnd.Choices[i].NextNodeID = ports[i].connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else cnd.Choices[i].NextNodeID = "";
+                    if (i < ports.Count)
+                        cnd.Choices[i].NextNodeID = ports[i].connected && ports[i].connections.Any() ? (ports[i].connections.FirstOrDefault()?.input?.node as NovellaNodeView)?.Data.NodeID ?? "" : "";
                 }
             }
             else if (Data is RandomNodeData rnd)
@@ -552,85 +606,34 @@ namespace NovellaEngine.Editor
                 var ports = outputContainer.Query<Port>().ToList();
                 for (int i = 0; i < rnd.Choices.Count; i++)
                 {
-                    if (i < ports.Count && ports[i].connected && ports[i].connections.Any()) rnd.Choices[i].NextNodeID = ports[i].connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else rnd.Choices[i].NextNodeID = "";
+                    if (i < ports.Count)
+                        rnd.Choices[i].NextNodeID = ports[i].connected && ports[i].connections.Any() ? (ports[i].connections.FirstOrDefault()?.input?.node as NovellaNodeView)?.Data.NodeID ?? "" : "";
                 }
             }
-            else
+            else if (Data is VariableNodeData varData)
             {
-                if (Data is DialogueNodeData dialData)
+                if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
+                    varData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
+                else varData.NextNodeID = "";
+            }
+            else if (Data is SaveNodeData saveD)
+            {
+                if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
+                    saveD.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
+                else saveD.NextNodeID = "";
+            }
+            else if (Data.NodeType == ENodeType.CustomDLC)
+            {
+                var ports = outputContainer.Query<Port>().ToList();
+                foreach (var port in ports)
                 {
-                    if (AudioSyncPort != null && AudioSyncPort.connected && AudioSyncPort.connections.Any())
-                        dialData.AudioSyncNodeID = (AudioSyncPort.connections.First().input.node as NovellaNodeView).Data.NodeID;
-                    else dialData.AudioSyncNodeID = "";
-
-                    if (AnimSyncPort != null && AnimSyncPort.connected && AnimSyncPort.connections.Any())
-                        dialData.AnimSyncNodeID = (AnimSyncPort.connections.First().input.node as NovellaNodeView).Data.NodeID;
-                    else dialData.AnimSyncNodeID = "";
-
-                    if (SceneSyncPort != null && SceneSyncPort.connected && SceneSyncPort.connections.Any())
-                        dialData.SceneSyncNodeID = (SceneSyncPort.connections.First().input.node as NovellaNodeView).Data.NodeID;
-                    else dialData.SceneSyncNodeID = "";
-
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        dialData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else dialData.NextNodeID = "";
-                }
-                else if (Data is WaitNodeData waitData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        waitData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else waitData.NextNodeID = "";
-                }
-                else if (Data is SceneSettingsNodeData bgData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        bgData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else bgData.NextNodeID = "";
-                }
-                else if (Data is EventBroadcastNodeData evntData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        evntData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else evntData.NextNodeID = "";
-                }
-                else if (Data is AudioNodeData audData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        audData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else audData.NextNodeID = "";
-                }
-                else if (Data is AnimationNodeData animData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        animData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else animData.NextNodeID = "";
-                }
-                else if (Data is VariableNodeData varData)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        varData.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else varData.NextNodeID = "";
-                }
-                else if (Data is SaveNodeData saveD)
-                {
-                    if (OutputPort != null && OutputPort.connected && OutputPort.connections.Any())
-                        saveD.NextNodeID = OutputPort.connections.FirstOrDefault()?.input?.node is NovellaNodeView targetNode ? targetNode.Data.NodeID : "";
-                    else saveD.NextNodeID = "";
-                }
-                else if (Data.NodeType == ENodeType.CustomDLC)
-                {
-                    var ports = outputContainer.Query<Port>().ToList();
-                    foreach (var port in ports)
+                    var field = GetCachedField(Data.GetType(), port.name);
+                    if (field != null && field.FieldType == typeof(string))
                     {
-                        var field = Data.GetType().GetField(port.name);
-                        if (field != null && field.FieldType == typeof(string))
-                        {
-                            string targetNodeID = port.connected && port.connections.Any()
-                                ? (port.connections.FirstOrDefault()?.input?.node as NovellaNodeView)?.Data.NodeID ?? ""
-                                : "";
-                            field.SetValue(Data, targetNodeID);
-                        }
+                        string targetNodeID = port.connected && port.connections.Any()
+                            ? (port.connections.FirstOrDefault()?.input?.node as NovellaNodeView)?.Data.NodeID ?? ""
+                            : "";
+                        field.SetValue(Data, targetNodeID);
                     }
                 }
             }

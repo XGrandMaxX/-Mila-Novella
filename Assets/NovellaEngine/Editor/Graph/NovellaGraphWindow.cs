@@ -9,16 +9,16 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGraphWindow : EditorWindow
     {
-        public const string DISCORD_LINK = "https://discord.com/users/384220331188944896"; //TODO: заменить на серверню ссылку.
+        public const string DISCORD_LINK = "https://discord.com/users/384220331188944896";
         public const string TELEGRAM_LINK = "https://t.me/pbgj241";
-        public const string ASSET_STORE_LINK = "https://assetstore.unity.com/"; //TODO: заменить на ссылку на ассет стор.
+        public const string ASSET_STORE_LINK = "https://assetstore.unity.com/";
 
         private NovellaTree _currentTree;
         private NovellaGraphView _graphView;
         private NovellaNodeInspectorUI _inspectorUI;
         private VisualElement _rightPanel;
         private IMGUIContainer _inspectorContainer;
-        private IMGUIContainer _tutorialContainer; // [ИСПРАВЛЕНИЕ 1] Контейнер для туториала
+        private IMGUIContainer _tutorialContainer;
 
         private VisualElement _leftPanel;
         private bool _isLeftPanelOpen = true;
@@ -116,14 +116,11 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            // [ИСПРАВЛЕНИЕ 2] Блокируем клики по туториалу, если он выключен
             if (_tutorialContainer != null)
             {
                 _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
             }
         }
-
-        // [ИСПРАВЛЕНИЕ 3] Удаляем старый OnGUI(). Его заменил _tutorialContainer в ConstructGraph.
 
         public void ConstructGraph()
         {
@@ -293,7 +290,6 @@ namespace NovellaEngine.Editor
             _needsFocusFrame = true;
             _focusFramesDelay = 3;
 
-            // [ИСПРАВЛЕНИЕ 4] Добавляем IMGUI-контейнер для туториала поверх всего окна
             _tutorialContainer = new IMGUIContainer(() =>
             {
                 NovellaTutorialManager.BlockBackgroundEvents(this);
@@ -306,7 +302,6 @@ namespace NovellaEngine.Editor
             _tutorialContainer.style.top = 0;
             _tutorialContainer.style.bottom = 0;
 
-            // Если туториал не запущен, отключаем перехват кликов, иначе он заблокирует граф
             _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
 
             rootVisualElement.Add(_tutorialContainer);
@@ -386,7 +381,38 @@ namespace NovellaEngine.Editor
                 var toggleLabel = autoSaveToggle.Q<Label>();
                 if (toggleLabel != null) { toggleLabel.style.minWidth = StyleKeyword.Auto; toggleLabel.style.paddingRight = 5; }
                 toolbarContainer.Add(autoSaveToggle);
+
+                var autoLayoutBtn = new Button(() =>
+                {
+                    if (_graphView != null)
+                    {
+                        _graphView.AutoLayout();
+                        MarkUnsaved();
+                        _graphView.FrameSelection();
+                    }
+                })
+                { text = "✨ " + ToolLang.Get("Auto-Layout", "Выровнять Граф") };
+                autoLayoutBtn.style.marginLeft = 15;
+                autoLayoutBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
+                autoLayoutBtn.style.backgroundColor = new StyleColor(new Color(0.2f, 0.4f, 0.6f));
+                autoLayoutBtn.style.color = Color.white;
+                toolbarContainer.Add(autoLayoutBtn);
             }
+
+            var miniMapToggle = new Toggle("🗺️ " + ToolLang.Get("Map", "Карта")) { value = true };
+            miniMapToggle.style.marginLeft = 15;
+            miniMapToggle.style.alignSelf = Align.Center;
+            var mapToggleLabel = miniMapToggle.Q<Label>();
+            if (mapToggleLabel != null) { mapToggleLabel.style.minWidth = StyleKeyword.Auto; mapToggleLabel.style.paddingRight = 5; }
+            miniMapToggle.RegisterValueChangedCallback(evt => {
+                if (_graphView != null && _graphView.MiniMapInstance != null)
+                {
+                    _graphView.MiniMapInstance.style.display = evt.newValue ? DisplayStyle.Flex : DisplayStyle.None;
+                    _graphView.MiniMapInstance.visible = evt.newValue;
+                }
+            });
+            toolbarContainer.Add(miniMapToggle);
+            // --------------------------------------
 
             var langButton = new Button(() => { ToolLang.Toggle(); ConstructGraph(); }) { text = ToolLang.IsRU ? "UI: RU" : "UI: EN" };
             langButton.style.marginLeft = 15;
@@ -399,7 +425,7 @@ namespace NovellaEngine.Editor
                 PreviewLanguage = evt.newValue;
                 EditorPrefs.SetString("NovellaGraph_PreviewLang", PreviewLanguage);
                 _inspectorContainer.MarkDirtyRepaint();
-                _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
+                if (_graphView != null) _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
             });
 
             toolbarContainer.Add(langButton);
@@ -428,8 +454,9 @@ namespace NovellaEngine.Editor
                     bool isDisabledDLC = false;
                     if (_selectedNodeView != null && _selectedNodeView.Data != null && _selectedNodeView.Data.NodeType == ENodeType.CustomDLC)
                     {
-                        var settings = NovellaDLCSettings.GetOrCreateSettings();
-                        isDisabledDLC = !settings.IsDLCEnabled(_selectedNodeView.Data.GetType().FullName);
+                        // ФИКС ЛАГОВ: Используем кэш Instance вместо тяжелого поиска по AssetDatabase каждый кадр!
+                        var settings = NovellaDLCSettings.Instance;
+                        if (settings != null) isDisabledDLC = !settings.IsDLCEnabled(_selectedNodeView.Data.GetType().FullName);
                     }
 
                     if (isDisabledDLC) EditorGUI.BeginDisabledGroup(true);

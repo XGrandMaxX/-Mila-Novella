@@ -127,8 +127,8 @@ namespace NovellaEngine.Editor
                 menu.AddItem(new GUIContent(cineCat + ToolLang.Get("Wait (Delay)", "Ожидание (Пауза)")), false, () => _graphView.CreateNode(localPos, ENodeType.Wait, port));
 
                 menu.AddItem(new GUIContent(sysCat + ToolLang.Get("Event Broadcast", "Вызов События")), false, () => _graphView.CreateNode(localPos, ENodeType.EventBroadcast, port));
-                
-                if (!(port.node is NovellaStartNodeView)) 
+
+                if (!(port.node is NovellaStartNodeView))
                     menu.AddItem(new GUIContent(sysCat + ToolLang.Get("END Node", "Конец Сцены")), false, () => _graphView.CreateNode(localPos, ENodeType.End, port));
 
                 var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
@@ -164,28 +164,217 @@ namespace NovellaEngine.Editor
 
         public NovellaStartNodeView StartNodeView { get; private set; }
         private NovellaEdgeConnectorListener _edgeListener;
+        public MiniMap MiniMapInstance { get; private set; }
 
         public NovellaGraphView(NovellaGraphWindow window, NovellaTree tree)
         {
-            Window = window; Tree = tree;
+            Window = window;
+            Tree = tree;
             _edgeListener = new NovellaEdgeConnectorListener(this);
+
             SetupZoom(0.5f, 5.0f);
-            this.AddManipulator(new ContentDragger()); this.AddManipulator(new SelectionDragger()); this.AddManipulator(new RectangleSelector());
-            var grid = new GridBackground(); Insert(0, grid); grid.StretchToParentSize();
+            this.AddManipulator(new ContentDragger());
+            this.AddManipulator(new SelectionDragger());
+            this.AddManipulator(new RectangleSelector());
+
+            var grid = new GridBackground();
+            Insert(0, grid);
+            grid.StretchToParentSize();
+
             AddElement(GenerateEntryPointNode());
+
+            MiniMapInstance = new MiniMap { anchored = true };
+            MiniMapInstance.style.position = Position.Absolute;
+            MiniMapInstance.style.bottom = 20;
+            MiniMapInstance.style.right = 20;
+            MiniMapInstance.style.width = 250;
+            MiniMapInstance.style.height = 150;
+            MiniMapInstance.style.backgroundColor = new StyleColor(new Color(0.15f, 0.15f, 0.15f, 0.9f));
+            Add(MiniMapInstance);
+
             graphViewChanged += OnGraphViewChanged;
 
             RegisterCallback<AttachToPanelEvent>(e => Undo.undoRedoPerformed += OnUndoRedo);
             RegisterCallback<DetachFromPanelEvent>(e => Undo.undoRedoPerformed -= OnUndoRedo);
 
+            RegisterCallback<DragUpdatedEvent>(OnDragUpdated);
+            RegisterCallback<DragPerformEvent>(OnDragPerform);
+
             serializeGraphElements = OnSerializeGraphElements;
             unserializeAndPaste = OnUnserializeAndPaste;
-            canPasteSerializedData = (data) => !string.IsNullOrEmpty(data); 
+            canPasteSerializedData = (data) => !string.IsNullOrEmpty(data);
+        }
+        public void AutoLayout()
+        {
+            if (StartNodeView == null) return;
+            Undo.RegisterCompleteObjectUndo(Tree, "Auto Layout Graph");
+
+            var nodeDict = nodes.ToList().OfType<NovellaNodeView>().ToDictionary(n => n.Data.NodeID);
+            var visited = new HashSet<string>();
+            var depthMap = new Dictionary<string, int>();
+            var depthLists = new Dictionary<int, List<NovellaNodeView>>();
+
+            void Traverse(string nodeId, int depth)
+            {
+                if (string.IsNullOrEmpty(nodeId) || !nodeDict.ContainsKey(nodeId)) return;
+                if (visited.Contains(nodeId))
+                {
+                    if (depth > depthMap[nodeId]) depthMap[nodeId] = depth;
+                    return;
+                }
+
+                visited.Add(nodeId);
+                depthMap[nodeId] = depth;
+
+                var nodeView = nodeDict[nodeId];
+                var ports = nodeView.outputContainer.Query<Port>().ToList();
+                foreach (var port in ports)
+                {
+                    if (port.connected)
+                    {
+                        foreach (var edge in port.connections)
+                        {
+                            if (edge.input.node is NovellaNodeView targetNode) Traverse(targetNode.Data.NodeID, depth + 1);
+                        }
+                    }
+                }
+            }
+
+            var startPort = StartNodeView.outputContainer.Q<Port>();
+            if (startPort != null && startPort.connected)
+            {
+                foreach (var edge in startPort.connections)
+                {
+                    if (edge.input.node is NovellaNodeView targetNode) Traverse(targetNode.Data.NodeID, 1);
+                }
+            }
+
+            foreach (var nv in nodeDict.Values)
+            {
+                if (!visited.Contains(nv.Data.NodeID)) Traverse(nv.Data.NodeID, 0);
+            }
+
+            foreach (var kvp in depthMap)
+            {
+                if (!depthLists.ContainsKey(kvp.Value)) depthLists[kvp.Value] = new List<NovellaNodeView>();
+                depthLists[kvp.Value].Add(nodeDict[kvp.Key]);
+            }
+
+            float xOffset = 270f;
+            float baseNodeHeight = 180f;
+            float yGap = 20f;
+            float yOffset = baseNodeHeight + yGap;
+
+            Vector2 startPos = StartNodeView.GetPosition().position;
+
+            foreach (var kvp in depthLists)
+            {
+                int currentDepth = kvp.Key;
+                var columnNodes = kvp.Value;
+
+                columnNodes = columnNodes.OrderBy(n => n.GetPosition().y).ToList();
+
+                float totalHeight = (columnNodes.Count - 1) * yOffset;
+                float startY = startPos.y - (totalHeight / 2f);
+
+                float staggerOffset = (currentDepth % 2 != 0) ? (yOffset / 2f) : 0f;
+
+                for (int i = 0; i < columnNodes.Count; i++)
+                {
+                    var nv = columnNodes[i];
+                    float posX = startPos.x + (currentDepth * xOffset);
+                    float posY = startY + (i * yOffset) + staggerOffset;
+
+                    Vector2 newPos = new Vector2(posX, posY);
+                    nv.SetPosition(new Rect(newPos, nv.GetPosition().size));
+                    nv.Data.GraphPosition = newPos;
+                }
+            }
+
+            SyncGraphToData();
+        }
+
+        private void OnDragUpdated(DragUpdatedEvent evt)
+        {
+            if (DragAndDrop.objectReferences.Length > 0)
+            {
+                DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                evt.StopPropagation();
+            }
+        }
+
+        private void OnDragPerform(DragPerformEvent evt)
+        {
+            if (DragAndDrop.objectReferences.Length == 0) return;
+
+            Vector2 localPos = contentViewContainer.WorldToLocal(evt.mousePosition);
+            bool handled = false;
+
+            var characters = DragAndDrop.objectReferences.OfType<NovellaCharacter>().ToList();
+            if (characters.Count > 0)
+            {
+                CreateNode(localPos, ENodeType.Dialogue);
+                var newNode = nodes.ToList().OfType<NovellaNodeView>().LastOrDefault();
+                if (newNode != null && newNode.Data is DialogueNodeData dnd)
+                {
+                    foreach (var character in characters)
+                    {
+                        dnd.ActiveCharacters.Add(new CharacterInDialogue { CharacterAsset = character });
+                    }
+                    newNode.RefreshVisuals();
+                }
+                localPos += new Vector2(30, 30);
+                handled = true;
+            }
+
+            var clips = DragAndDrop.objectReferences.OfType<AudioClip>().ToList();
+            foreach (var clip in clips)
+            {
+                CreateNode(localPos, ENodeType.Audio);
+                var newNode = nodes.ToList().OfType<NovellaNodeView>().LastOrDefault();
+                if (newNode != null && newNode.Data is AudioNodeData and)
+                {
+                    and.AudioAsset = clip;
+                    and.AudioAction = EAudioAction.Play;
+                    newNode.RefreshVisuals();
+                }
+                localPos += new Vector2(30, 30);
+                handled = true;
+            }
+
+            var sprites = DragAndDrop.objectReferences.OfType<Sprite>().ToList();
+            var textures = DragAndDrop.objectReferences.OfType<Texture2D>().ToList();
+            foreach (var tex in textures)
+            {
+                string path = AssetDatabase.GetAssetPath(tex);
+                Sprite s = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                if (s != null && !sprites.Contains(s)) sprites.Add(s);
+            }
+
+            foreach (var sprite in sprites)
+            {
+                CreateNode(localPos, ENodeType.SceneSettings);
+                var newNode = nodes.ToList().OfType<NovellaNodeView>().LastOrDefault();
+                if (newNode != null && newNode.Data is SceneSettingsNodeData snd)
+                {
+                    snd.BgSprite = sprite;
+                    newNode.RefreshVisuals();
+                }
+                localPos += new Vector2(30, 30);
+                handled = true;
+            }
+
+            if (handled)
+            {
+                DragAndDrop.AcceptDrag();
+                Window.MarkUnsaved();
+                evt.StopPropagation();
+            }
         }
 
         private string OnSerializeGraphElements(IEnumerable<GraphElement> elements)
         {
-            if (elements == null) return ""; 
+            if (elements == null) return "";
 
             var nodesToCopy = elements.OfType<NovellaNodeView>().Select(n => n.Data).ToList();
             var groupsToCopy = elements.OfType<NovellaGroupView>().Select(g => g.Data).ToList();
@@ -217,7 +406,7 @@ namespace NovellaEngine.Editor
             Undo.RegisterCompleteObjectUndo(Tree, "Paste Elements");
             ClearSelection();
 
-            var idMap = new Dictionary<string, string>(); 
+            var idMap = new Dictionary<string, string>();
 
             foreach (var node in clipboard.Nodes)
             {
@@ -248,7 +437,7 @@ namespace NovellaEngine.Editor
 
                     if (dialData.AnimSyncNodeID != null && idMap.ContainsKey(dialData.AnimSyncNodeID)) dialData.AnimSyncNodeID = idMap[dialData.AnimSyncNodeID];
                     else dialData.AnimSyncNodeID = "";
-                    
+
                     if (dialData.SceneSyncNodeID != null && idMap.ContainsKey(dialData.SceneSyncNodeID)) dialData.SceneSyncNodeID = idMap[dialData.SceneSyncNodeID];
                     else dialData.SceneSyncNodeID = "";
                 }
@@ -296,13 +485,13 @@ namespace NovellaEngine.Editor
             }
 
             var newIds = idMap.Values.ToList();
-            
-            EditorApplication.delayCall += () => 
-            { 
+
+            EditorApplication.delayCall += () =>
+            {
                 if (this == null || Window == null) return;
                 LoadGraph(); ClearSelection();
-                foreach(var nv in nodes.ToList().OfType<NovellaNodeView>()) if (newIds.Contains(nv.Data.NodeID)) AddToSelection(nv);
-                foreach(var gv in graphElements.ToList().OfType<NovellaGroupView>()) if (newGroupIds.Contains(gv.Data.GroupID)) AddToSelection(gv);
+                foreach (var nv in nodes.ToList().OfType<NovellaNodeView>()) if (newIds.Contains(nv.Data.NodeID)) AddToSelection(nv);
+                foreach (var gv in graphElements.ToList().OfType<NovellaGroupView>()) if (newGroupIds.Contains(gv.Data.GroupID)) AddToSelection(gv);
                 Window.MarkUnsaved();
             };
 
@@ -598,7 +787,7 @@ namespace NovellaEngine.Editor
             evt.menu.AppendAction(sysCat + ToolLang.Get("Event Broadcast", "Вызов События"), (a) => CreateNode(pos, ENodeType.EventBroadcast));
             evt.menu.AppendAction(sysCat + ToolLang.Get("Save Game (Auto-Save)", "Сохранить Игру (Автосейв)"), (a) => CreateNode(pos, ENodeType.Save));
 
-            if (!selection.OfType<NovellaStartNodeView>().Any()) 
+            if (!selection.OfType<NovellaStartNodeView>().Any())
                 evt.menu.AppendAction(sysCat + ToolLang.Get("END Node", "Конец Сцены"), (a) => CreateNode(pos, ENodeType.End));
 
             var dlcTypes = TypeCache.GetTypesDerivedFrom<NovellaNodeBase>()
@@ -737,23 +926,24 @@ namespace NovellaEngine.Editor
             HandleAutoConnect(view, autoConnectPort, type);
             Window.MarkUnsaved();
         }
+
         public void CreateDLCNode(Vector2 position, System.Type dlcType, NovellaDLCNodeAttribute attr)
         {
             Undo.RegisterCompleteObjectUndo(Tree, "Create DLC Node");
-            
+
             NovellaNodeBase nodeData = (NovellaNodeBase)System.Activator.CreateInstance(dlcType);
             nodeData.NodeID = "DLC_" + System.Guid.NewGuid().ToString().Substring(0, 5);
             nodeData.NodeTitle = attr.NodeTitle;
             nodeData.GraphPosition = position;
-            
+
             ColorUtility.TryParseHtmlString(attr.HexColor, out Color customCol);
             nodeData.NodeCustomColor = customCol;
 
             Tree.Nodes.Add(nodeData);
             var view = new NovellaNodeView(nodeData, this);
-            view.SetPosition(new Rect(position, new Vector2(200, 150))); 
+            view.SetPosition(new Rect(position, new Vector2(200, 150)));
             AddElement(view);
-            
+
             Window.MarkUnsaved();
         }
 
@@ -777,7 +967,7 @@ namespace NovellaEngine.Editor
                     }
                     AddElement(ConnectPorts(autoConnectPort, view.InputPort));
                     if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.AudioSyncNodeID = view.Data.NodeID;
-                    if (view.Data is AudioNodeData vAuD) vAuD.SyncWithDialogue = true; 
+                    if (view.Data is AudioNodeData vAuD) vAuD.SyncWithDialogue = true;
                     view.ToggleAudioNextPort(true); view.RefreshVisuals();
                 }
                 else if (autoConnectPort.portName == animSyncName && type == ENodeType.Animation)
@@ -790,7 +980,7 @@ namespace NovellaEngine.Editor
                     }
                     AddElement(ConnectPorts(autoConnectPort, view.InputPort));
                     if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.AnimSyncNodeID = view.Data.NodeID;
-                    if (view.Data is AnimationNodeData vAnD) vAnD.SyncWithDialogue = true; 
+                    if (view.Data is AnimationNodeData vAnD) vAnD.SyncWithDialogue = true;
                     view.ToggleAnimNextPort(true); view.RefreshVisuals();
                 }
                 else if (autoConnectPort.portName == sceneSyncName && type == ENodeType.SceneSettings)
@@ -803,8 +993,8 @@ namespace NovellaEngine.Editor
                     }
                     AddElement(ConnectPorts(autoConnectPort, view.InputPort));
                     if (autoConnectPort.node is NovellaNodeView sourceNode && sourceNode.Data is DialogueNodeData sDnd) sDnd.SceneSyncNodeID = view.Data.NodeID;
-                    if (view.Data is SceneSettingsNodeData vScD) vScD.SyncWithDialogue = true; 
-                    
+                    if (view.Data is SceneSettingsNodeData vScD) vScD.SyncWithDialogue = true;
+
                     if (view.OutputPort != null) view.OutputPort.style.display = DisplayStyle.None;
                     view.RefreshVisuals();
                 }
@@ -947,7 +1137,7 @@ namespace NovellaEngine.Editor
                         if (nodeView.AudioSyncPort != null && audioNode.InputPort != null)
                         {
                             AddElement(ConnectPorts(nodeView.AudioSyncPort, audioNode.InputPort));
-                            if (audioNode.Data is AudioNodeData audD) audD.SyncWithDialogue = true; 
+                            if (audioNode.Data is AudioNodeData audD) audD.SyncWithDialogue = true;
                             audioNode.ToggleAudioNextPort(true); audioNode.RefreshVisuals();
                         }
                     }

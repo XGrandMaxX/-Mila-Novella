@@ -125,6 +125,13 @@ namespace NovellaEngine.Editor
                 new TutorialStep {
                     Text = ToolLang.Get("Right Panel: Live Preview! Instantly check how your UI looks on PC and Mobile devices without starting the game.", "Правая панель: Живой предпросмотр!\nМгновенно проверяйте, как выглядит ваш UI на ПК и Телефонах без запуска самой игры."),
                     HighlightRect = w => new Rect(650, 0, w.position.width - 650, w.position.height)
+                },
+                new TutorialStep {
+                Text = ToolLang.Get(
+                    "Important: The UI Forge is a great starting point if you're not familiar with Unity's interface. However, its current implementation is basic. To create truly complex and unique interfaces, we highly recommend learning the fundamentals of the Unity Canvas system!",
+                    "Важно: Кузница UI (UI Editor) — это отличный инструмент для старта, если вы не разбираетесь в интерфейсе Unity. Однако текущая реализация является базовой. Для создания по-настоящему сложных и уникальных интерфейсов мы настоятельно рекомендуем изучить систему Unity Canvas хотя бы на базовом уровне!"
+                ),
+                    HighlightRect = w => new Rect(0, 0, w.position.width, w.position.height)
                 }
             };
 

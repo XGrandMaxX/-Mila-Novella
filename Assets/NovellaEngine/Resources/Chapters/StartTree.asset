@@ -13,19 +13,19 @@ MonoBehaviour:
   m_Name: StartTree
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
   RootNodeID: Save_e3c89
-  StartPosition: {x: -596, y: 92}
+  StartPosition: {x: -519, y: 123}
   EnableAutoSave: 1
   AutoSaveInterval: 10
   Nodes:
+  - rid: 6664540841315139657
+  - rid: 6664540755987005507
+  - rid: 6664540724970127462
   - rid: 6664540747352244305
   - rid: 6664540747352244306
   - rid: 6664540747352244307
-  - rid: 6664540724970127462
-  - rid: 6664540841315139657
+  - rid: 6664540747352244308
   - rid: 6664540841315139659
   - rid: 6664540841315139658
-  - rid: 6664540755987005507
-  - rid: 6664540747352244308
   Groups: []
   references:
     version: 2
@@ -35,7 +35,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f5966
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 29, y: 139}
+        GraphPosition: {x: 21, y: 123}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -167,7 +167,7 @@ MonoBehaviour:
       data:
         NodeID: Audio_bd48d
         NodeTitle: Audio 1
-        GraphPosition: {x: 1008, y: -27}
+        GraphPosition: {x: 1101, y: -77}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         AudioAsset: {fileID: 0}
@@ -203,7 +203,7 @@ MonoBehaviour:
       data:
         NodeID: Animation_c85fa
         NodeTitle: Animation 1
-        GraphPosition: {x: 1010, y: 76}
+        GraphPosition: {x: 1101, y: 123}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -224,7 +224,7 @@ MonoBehaviour:
       data:
         NodeID: SceneSettings_28a4e
         NodeTitle: SceneSettings 2
-        GraphPosition: {x: 1015, y: 169}
+        GraphPosition: {x: 1101, y: 323}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -250,7 +250,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_34a0f
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 786, y: 159}
+        GraphPosition: {x: 831, y: 223}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
@@ -382,7 +382,7 @@ MonoBehaviour:
       data:
         NodeID: Save_e3c89
         NodeTitle: Save 1
-        GraphPosition: {x: -181, y: 115}
+        GraphPosition: {x: -249, y: 223}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_f5966
@@ -391,7 +391,7 @@ MonoBehaviour:
       data:
         NodeID: Branch_c3528
         NodeTitle: Branch 1
-        GraphPosition: {x: 245, y: 204}
+        GraphPosition: {x: 291, y: 223}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         Choices:
@@ -422,7 +422,7 @@ MonoBehaviour:
       data:
         NodeID: CustomDLC_f55aa
         NodeTitle: "\U0001F457 Wardrobe"
-        GraphPosition: {x: 458, y: 159}
+        GraphPosition: {x: 561, y: 23}
         NodeCustomColor: {r: 0.8784314, g: 0.2509804, b: 0.9843137, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_34a0f
@@ -435,7 +435,7 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_38449
         NodeTitle: Dialogue 3
-        GraphPosition: {x: 415, y: 308}
+        GraphPosition: {x: 561, y: 223}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters: []

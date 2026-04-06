@@ -38,7 +38,6 @@ namespace NovellaEngine.Editor
         {
             _tabState.Initialize(Repaint);
             _tabState.SetActive(_currentTab.ToString());
-
             EditorApplication.update += _tabState.Update;
         }
 
@@ -47,7 +46,6 @@ namespace NovellaEngine.Editor
             EditorApplication.update -= _tabState.Update;
         }
 
-        // === ИДЕАЛЬНОЕ СГЛАЖИВАНИЕ (ANTI-ALIASING) ===
         private void DrawAACapsule(Rect rect, Color color)
         {
             Handles.color = color;
@@ -349,6 +347,9 @@ namespace NovellaEngine.Editor
             foreach (var gw in graphWindows) { gw.RefreshAllNodes(); gw.Repaint(); }
         }
 
+        // =========================================================
+        // ПУЛЕНЕПРОБИВАЕМОЕ УДАЛЕНИЕ ПАПОК DLC
+        // =========================================================
         private void DeletePermanently(DLCItem item)
         {
             string[] scriptGuids = AssetDatabase.FindAssets("t:MonoScript " + item.ClassType.Name);
@@ -356,14 +357,43 @@ namespace NovellaEngine.Editor
             {
                 string sPath = AssetDatabase.GUIDToAssetPath(sGuid);
                 var script = AssetDatabase.LoadAssetAtPath<MonoScript>(sPath);
+
                 if (script != null && script.GetClass() == item.ClassType)
                 {
                     NovellaDLCSettings.Instance.RemoveDLCRecord(item.SystemName);
 
                     EditorApplication.delayCall += () => {
-                        AssetDatabase.DeleteAsset(sPath);
+                        string normalizedPath = sPath.Replace("\\", "/");
+                        string dlcMarker = "/DLC/";
+                        int markerIdx = normalizedPath.IndexOf(dlcMarker);
+
+                        // Если скрипт находится внутри какой-то папки DLC
+                        if (markerIdx != -1)
+                        {
+                            int startOfFolder = markerIdx + dlcMarker.Length;
+                            int endOfFolder = normalizedPath.IndexOf('/', startOfFolder);
+
+                            if (endOfFolder != -1)
+                            {
+                                // Формируем путь к коренной папке модуля (например "Assets/NovellaEngine/DLC/Wardrobe")
+                                string rootDlcPath = normalizedPath.Substring(0, endOfFolder);
+                                AssetDatabase.DeleteAsset(rootDlcPath);
+                            }
+                            else
+                            {
+                                // Скрипт лежит прямо в корне DLC, удаляем только его
+                                AssetDatabase.DeleteAsset(sPath);
+                            }
+                        }
+                        else
+                        {
+                            // Если пользователь вытащил скрипт из папки DLC в Runtime/Scripts, удаляем только сам скрипт!
+                            AssetDatabase.DeleteAsset(sPath);
+                        }
+
                         AssetDatabase.Refresh();
                     };
+
                     GUIUtility.ExitGUI();
                     break;
                 }

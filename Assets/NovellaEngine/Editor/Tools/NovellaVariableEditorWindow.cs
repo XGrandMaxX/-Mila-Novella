@@ -216,8 +216,15 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 float lw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 80;
 
-                v.Type = (EVarType)EditorGUILayout.EnumPopup(ToolLang.Get("Type:", "Тип:"), v.Type, GUILayout.Height(25));
-                GUILayout.Space(20);
+                string[] displayNames = ToolLang.IsRU
+                    ? new string[] { "Число (Number)", "Флаг / Да-Нет (Boolean)", "Текст (String)" }
+                    : new string[] { "Number (Integer)", "True/False (Boolean)", "Text (String)" };
+
+                v.Type = (EVarType)EditorGUILayout.Popup(
+                    ToolLang.Get("Variable Type", "Тип переменной"),
+                    (int)v.Type,
+                    displayNames
+                ); GUILayout.Space(20);
 
                 GUI.backgroundColor = v.Scope == EVarScope.Global ? new Color(0.6f, 1f, 0.6f) : Color.white;
                 v.Scope = (EVarScope)EditorGUILayout.EnumPopup(ToolLang.Get("Scope:", "Жизнь:"), v.Scope, GUILayout.Height(25));
