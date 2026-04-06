@@ -6,6 +6,7 @@
 /// </summary>
 using NovellaEngine.Data;
 using NovellaEngine.Runtime;
+using NovellaEngine.DLC.Wardrobe;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -256,7 +257,24 @@ namespace NovellaEngine.Editor
             GUILayout.EndVertical();
             GUILayout.Space(5);
         }
-
+        private string[] GetAvailableLayersAcrossProject()
+        {
+            List<string> layers = new List<string>();
+            string[] guids = AssetDatabase.FindAssets("t:NovellaCharacter");
+            foreach (var guid in guids)
+            {
+                var ch = AssetDatabase.LoadAssetAtPath<NovellaCharacter>(AssetDatabase.GUIDToAssetPath(guid));
+                if (ch != null)
+                {
+                    foreach (var layer in ch.BaseLayers)
+                    {
+                        if (!layers.Contains(layer.LayerName)) layers.Add(layer.LayerName);
+                    }
+                }
+            }
+            if (layers.Count == 0) layers.Add("Clothes");
+            return layers.ToArray();
+        }
         public void DrawGroupInspector(NovellaGroupView groupView)
         {
             _scrollPos = GUILayout.BeginScrollView(_scrollPos);
@@ -523,7 +541,6 @@ namespace NovellaEngine.Editor
             // ==========================================
             if (nodeData is NoteNodeData noteData)
             {
-                // ПРОХОЖДЕНИЕ ТУТОРИАЛА: ПРОВЕРКА НА КЛЮЧЕВОЕ СЛОВО
                 string currentNoteTextEN = noteData.LocalizedNoteText.GetText("EN");
                 string currentNoteTextRU = noteData.LocalizedNoteText.GetText("RU");
 
@@ -546,7 +563,6 @@ namespace NovellaEngine.Editor
                     {
                         EditorPrefs.SetBool("Novella_TutorialMode", true);
 
-                        // Открываем Менеджер сцен через рефлексию (чтобы не требовать прямую ссылку, если скрипт в другой папке)
                         Type type = Type.GetType("NovellaEngine.Editor.NovellaSceneManagerWindow");
                         if (type != null)
                         {
@@ -562,7 +578,6 @@ namespace NovellaEngine.Editor
                     EndLayout(); return;
                 }
 
-                // СТАНДАРТНАЯ ОТРИСОВКА ЗАМЕТКИ
                 DrawSectionHeader("📌", ToolLang.Get("Note Settings", "Настройки Заметки"));
 
                 EditorGUI.BeginChangeCheck();
@@ -1813,6 +1828,134 @@ namespace NovellaEngine.Editor
 
             }
 
+            // ==========================================
+            // === НОДА ГАРДЕРОБА (WARDROBE DLC) ===
+            // ==========================================
+            if (nodeData is WardrobeNodeData wardrobeData)
+            {
+                DrawSectionHeader("👗", ToolLang.Get("Wardrobe Settings", "Настройки Гардероба"));
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+
+                EditorGUILayout.HelpBox(ToolLang.Get(
+                    "This node opens the Wardrobe UI in-game. \n\n• STANDARD MODE: Opens full wardrobe for the player to mix and match.\n• GIFT MODE: Gives the player a choice of specific items (like a lootbox).",
+                    "Эта нода открывает интерфейс Гардероба в игре. \n\n• СТАНДАРТНЫЙ РЕЖИМ: Открывает полный гардероб для переодевания.\n• РЕЖИМ ПОДАРКА: Дает игроку выбор из конкретных предметов (как сундук с лутом)."
+                ), MessageType.Info);
+                GUILayout.Space(10);
+
+                EditorGUI.BeginChangeCheck();
+
+                wardrobeData.UseMainCharacter = EditorGUILayout.ToggleLeft(" " + ToolLang.Get("Use Main Character (From Menu)", "Использовать Главного Героя (Созданного в меню)"), wardrobeData.UseMainCharacter, EditorStyles.boldLabel);
+
+                if (!wardrobeData.UseMainCharacter)
+                {
+                    GUILayout.Space(5);
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Target Character", "Персонаж"), GUILayout.Width(130));
+                    string charName = wardrobeData.TargetCharacter != null ? wardrobeData.TargetCharacter.name : ToolLang.Get("Select...", "Выбрать...");
+                    if (GUILayout.Button($"👤 {charName}", EditorStyles.popup))
+                    {
+                        NovellaCharacterSelectorWindow.ShowWindow((selectedChar) => {
+                            Undo.RecordObject(_currentTree, "Change Wardrobe Character");
+                            wardrobeData.TargetCharacter = selectedChar;
+                            EditorUtility.SetDirty(_currentTree);
+                            _onMarkUnsaved?.Invoke();
+                            _window.Repaint();
+                        });
+                    }
+                    if (wardrobeData.TargetCharacter != null)
+                    {
+                        GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                        if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                        {
+                            Undo.RecordObject(_currentTree, "Clear Character");
+                            wardrobeData.TargetCharacter = null;
+                            _onMarkUnsaved?.Invoke();
+                        }
+                        GUI.backgroundColor = Color.white;
+                    }
+                    GUILayout.EndHorizontal();
+                }
+
+                GUILayout.Space(10);
+                wardrobeData.IsGiftMode = EditorGUILayout.ToggleLeft(ToolLang.Get(" Gift Mode (Choose 1 item)", " Режим Подарка (Выбор 1 предмета)"), wardrobeData.IsGiftMode, EditorStyles.boldLabel);
+
+                if (wardrobeData.IsGiftMode)
+                {
+                    GUILayout.Space(10);
+                    GUILayout.Label("🎁 " + ToolLang.Get("Items to Choose From", "Предметы на выбор"), EditorStyles.boldLabel);
+
+                    for (int i = 0; i < wardrobeData.ItemsToChoose.Count; i++)
+                    {
+                        var item = wardrobeData.ItemsToChoose[i];
+                        GUILayout.BeginVertical(EditorStyles.helpBox);
+
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label($"{i + 1}.", EditorStyles.miniLabel, GUILayout.Width(15));
+                        item.ItemName = EditorGUILayout.TextField(item.ItemName, GUILayout.ExpandWidth(true));
+
+                        GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
+                        if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25)))
+                        {
+                            Undo.RecordObject(_currentTree, "Remove Item");
+                            wardrobeData.ItemsToChoose.RemoveAt(i);
+                            _onMarkUnsaved?.Invoke();
+                            break;
+                        }
+                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label(ToolLang.Get("Layer:", "Слой:"), GUILayout.Width(45));
+                        string[] allLayers = GetAvailableLayersAcrossProject();
+                        int lIdx = System.Array.IndexOf(allLayers, item.TargetLayer);
+                        if (lIdx == -1) lIdx = 0;
+                        lIdx = EditorGUILayout.Popup(lIdx, allLayers, GUILayout.Width(100));
+                        item.TargetLayer = allLayers[lIdx];
+
+                        string sprName = item.ItemSprite != null ? item.ItemSprite.name : ToolLang.Get("Select Sprite...", "Выбрать спрайт...");
+                        if (GUILayout.Button("🖼 " + sprName, EditorStyles.popup))
+                        {
+                            int index = i;
+                            NovellaGalleryWindow.ShowWindow(obj => {
+                                Undo.RecordObject(_currentTree, "Change Wardrobe Item");
+                                wardrobeData.ItemsToChoose[index].ItemSprite = obj as Sprite;
+                                if (wardrobeData.ItemsToChoose[index].ItemSprite == null && obj is Texture2D tex)
+                                {
+                                    string path = AssetDatabase.GetAssetPath(tex);
+                                    wardrobeData.ItemsToChoose[index].ItemSprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+                                }
+                                _onMarkUnsaved?.Invoke();
+                                _window.Repaint();
+                            }, NovellaGalleryWindow.EGalleryFilter.Image);
+                        }
+                        GUILayout.EndHorizontal();
+                        GUILayout.EndVertical();
+                    }
+
+                    if (GUILayout.Button("+ " + ToolLang.Get("Add Item Choice", "Добавить вариант"), EditorStyles.miniButton))
+                    {
+                        Undo.RecordObject(_currentTree, "Add Wardrobe Item");
+                        wardrobeData.ItemsToChoose.Add(new WardrobeItemChoice());
+                        _onMarkUnsaved?.Invoke();
+                    }
+                }
+                else
+                {
+                    GUILayout.Space(5);
+                    EditorGUILayout.HelpBox(ToolLang.Get("Standard Mode: Opens the wardrobe screen with all currently unlocked items for the selected character.", "Стандартный режим: Открывает экран гардероба со всеми доступными вещами для выбранного персонажа."), MessageType.Info);
+                }
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    EditorUtility.SetDirty(_currentTree);
+                    selectedNodeView.RefreshVisuals();
+                }
+
+                GUILayout.EndVertical();
+                EndLayout(); return;
+            }
+
+            // ОСТАЛЬНЫЕ DLC
             if (nodeData.NodeType == ENodeType.CustomDLC)
             {
                 string dlcName = "DLC Module";

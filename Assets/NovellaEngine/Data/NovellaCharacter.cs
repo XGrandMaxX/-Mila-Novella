@@ -4,16 +4,37 @@ using UnityEngine;
 
 namespace NovellaEngine.Data
 {
+    public enum ECharacterGender
+    {
+        Male,
+        Female
+    }
+
+    public enum ECharacterLayer
+    {
+        Body,
+        Face,
+        Hair,
+        Clothes,
+        Accessories,
+        Extra // Для крыльев, аур, хвостов и т.д.
+    }
+
     [Serializable]
     public class CharacterLayer
     {
-        public string LayerName = "Base";
+        public ECharacterLayer LayerType = ECharacterLayer.Clothes;
+        public string CustomLayerName = "New Layer";
         public Sprite DefaultSprite;
 
         public Vector2 Offset = Vector2.zero;
         public Vector2 Scale = Vector2.one;
+        public Color Tint = Color.white;
 
         public List<Sprite> WardrobeOptions = new List<Sprite>();
+
+        // Автоматически возвращает либо имя из Enum, либо кастомное имя
+        public string LayerName => LayerType == ECharacterLayer.Extra ? CustomLayerName : LayerType.ToString();
     }
 
     [Serializable]
@@ -24,6 +45,7 @@ namespace NovellaEngine.Data
 
         public Vector2 Offset = Vector2.zero;
         public Vector2 Scale = Vector2.one;
+        public Color Tint = Color.white;
     }
 
     [Serializable]
@@ -41,6 +63,9 @@ namespace NovellaEngine.Data
         [Header("Main Character (Player) Settings")]
         [Tooltip("Отметьте, если это Главный Герой (внешность будет настраиваться игроком)")]
         public bool IsPlayerCharacter = false;
+
+        [Tooltip("Пол персонажа. Влияет на то, какие вещи будут доступны в Гардеробе.")]
+        public ECharacterGender Gender = ECharacterGender.Female;
 
         public List<Sprite> AvailableBaseBodies = new List<Sprite>();
 

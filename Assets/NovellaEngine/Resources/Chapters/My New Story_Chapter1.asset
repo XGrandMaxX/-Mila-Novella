@@ -17,24 +17,26 @@ MonoBehaviour:
   EnableAutoSave: 0
   AutoSaveInterval: 30
   Nodes:
-  - rid: 6664540819270402114
+  - rid: 6664540841315139651
+  - rid: 6664540841315139652
+  - rid: 6664540841315139654
   Groups: []
   references:
     version: 2
     RefIds:
-    - rid: 6664540819270402114
+    - rid: 6664540841315139651
       type: {class: BranchNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
       data:
         NodeID: Branch_7e410
         NodeTitle: Branch 1
-        GraphPosition: {x: 651, y: 265}
+        GraphPosition: {x: 601, y: 240}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         Choices:
         - PortID: Choice_fc852
           LocalizedText:
             Translations: []
-          NextNodeID: 
+          NextNodeID: DLC_5757f
           Conditions: []
           HasCondition: 0
           ConditionVariable: 
@@ -53,3 +55,85 @@ MonoBehaviour:
           ChanceModifiers: []
         UnlockChoiceLimit: 0
         OverrideChoiceButtonPrefab: {fileID: 0}
+    - rid: 6664540841315139652
+      type: {class: DialogueNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_ca05c
+        NodeTitle: Dialogue 1
+        GraphPosition: {x: 974, y: 267}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          FlipX: 0
+          FlipY: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        NextNodeID: 
+        AudioSyncNodeID: 
+        AnimSyncNodeID: 
+        SceneSyncNodeID: 
+        FontSize: 32
+    - rid: 6664540841315139654
+      type: {class: WardrobeNodeData, ns: NovellaEngine.DLC.Wardrobe, asm: Assembly-CSharp}
+      data:
+        NodeID: DLC_5757f
+        NodeTitle: "\U0001F457 \u0413\u0430\u0440\u0434\u0435\u0440\u043E\u0431"
+        GraphPosition: {x: 779, y: 182}
+        NodeCustomColor: {r: 0.8784314, g: 0.2509804, b: 0.9843137, a: 1}
+        IsPinned: 0
+        NextNodeID: 
+        TargetCharacter: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
+        IsGiftMode: 1
+        ItemsToChoose:
+        - ItemName: New Item
+          ItemSprite: {fileID: 0}
+          TargetLayer: Clothes

@@ -13,19 +13,18 @@ MonoBehaviour:
   m_Name: StartTree
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
   RootNodeID: Save_e3c89
-  StartPosition: {x: -359, y: 127}
+  StartPosition: {x: -596, y: 92}
   EnableAutoSave: 1
   AutoSaveInterval: 10
   Nodes:
   - rid: 6664540747352244305
   - rid: 6664540747352244306
   - rid: 6664540747352244307
-  - rid: 6664540755987005507
-  - rid: 6664540724970127467
-  - rid: 6664540747352244297
-  - rid: 6664540747352244289
-  - rid: 6664540747352244295
   - rid: 6664540724970127462
+  - rid: 6664540841315139657
+  - rid: 6664540841315139659
+  - rid: 6664540841315139658
+  - rid: 6664540755987005507
   - rid: 6664540747352244308
   Groups: []
   references:
@@ -36,11 +35,11 @@ MonoBehaviour:
       data:
         NodeID: Dialogue_f5966
         NodeTitle: Dialogue 1
-        GraphPosition: {x: 124, y: 115}
+        GraphPosition: {x: 29, y: 139}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         ActiveCharacters:
-        - CharacterAsset: {fileID: 11400000, guid: 949182ded0761b6428a47f3b46c3370a, type: 2}
+        - CharacterAsset: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Plane: 0
           PositionPreset: 0
           Scale: 1
@@ -51,7 +50,7 @@ MonoBehaviour:
           FlipX: 0
           FlipY: 0
         DialogueLines:
-        - Speaker: {fileID: 11400000, guid: 949182ded0761b6428a47f3b46c3370a, type: 2}
+        - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
           Mood: Default
           HideSpeakerName: 0
           CustomName: 
@@ -158,269 +157,11 @@ MonoBehaviour:
           FramePosY: 0
           FrameScale: 1
         UnlockDialogueLimit: 0
-        NextNodeID: Dialogue_f6c24
-        AudioSyncNodeID: Audio_143a6
-        AnimSyncNodeID: Animation_e7336
-        SceneSyncNodeID: SceneSettings_9f8b4
-        FontSize: 32
-    - rid: 6664540724970127467
-      type: {class: AnimationNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: Animation_e7336
-        NodeTitle: Animation 1
-        GraphPosition: {x: 361, y: 20}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        SyncWithDialogue: 1
-        UnlockAnimLimit: 0
-        AnimEvents: []
-        NextNodeID: 
-    - rid: 6664540747352244289
-      type: {class: AudioNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: Audio_143a6
-        NodeTitle: Audio 1
-        GraphPosition: {x: 363, y: -62}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        AudioAsset: {fileID: 0}
-        AudioAction: 0
-        AudioChannel: 0
-        AudioVolume: 1
-        SyncWithDialogue: 1
-        AudioEvents:
-        - LineIndex: 0
-          TriggerType: 0
-          TimeDelay: 0
-          AudioAsset: {fileID: 0}
-          AudioAction: 0
-          AudioChannel: 1
-          Volume: 1
-        - LineIndex: 1
-          TriggerType: 0
-          TimeDelay: 0
-          AudioAsset: {fileID: 0}
-          AudioAction: 0
-          AudioChannel: 1
-          Volume: 1
-        - LineIndex: -1
-          TriggerType: 3
-          TimeDelay: 0
-          AudioAsset: {fileID: 0}
-          AudioAction: 0
-          AudioChannel: 1
-          Volume: 1
-        NextNodeID: 
-    - rid: 6664540747352244295
-      type: {class: DialogueNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: Dialogue_f6c24
-        NodeTitle: Dialogue 2
-        GraphPosition: {x: 516, y: 169}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        ActiveCharacters:
-        - CharacterAsset: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
-          Plane: 0
-          PositionPreset: 3
-          Scale: 1
-          Emotion: Default
-          PosX: -4.37
-          PosY: -0.49
-          IsExpanded: 0
-          FlipX: 0
-          FlipY: 0
-        - CharacterAsset: {fileID: 11400000, guid: 56139cb6efdbfd9478b8146a03eda261, type: 2}
-          Plane: 0
-          PositionPreset: 0
-          Scale: 1
-          Emotion: Default
-          PosX: 0
-          PosY: 0
-          IsExpanded: 0
-          FlipX: 0
-          FlipY: 0
-        DialogueLines:
-        - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
-          Mood: Default
-          HideSpeakerName: 0
-          CustomName: 
-          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
-          HideSpeakerSprite: 0
-          CustomizeSpeakerLayout: 0
-          FlipX: 0
-          FlipY: 0
-          SpeakerPositionPreset: 0
-          SpeakerPosX: 0
-          SpeakerPosY: 0
-          SpeakerScale: 1
-          SpeakerPlane: 20
-          OverrideDialogueFrame: {fileID: 0}
-          DelayBefore: 0
-          FontSize: 32
-          LocalizedPhrase:
-            Translations:
-            - LanguageID: RU
-              Text: "\u0424\u0410\u041A \u042E"
-          UseTypewriter: 1
-          BaseSpeed: 40
-          UseCustomPacing: 0
-          PacingCurve:
-            serializedVersion: 2
-            m_Curve:
-            - serializedVersion: 3
-              time: 0
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            - serializedVersion: 3
-              time: 1
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            m_PreInfinity: 2
-            m_PostInfinity: 2
-            m_RotationOrder: 4
-          CustomizeFrameLayout: 0
-          FramePositionPreset: 0
-          FramePosX: 0
-          FramePosY: 0
-          FrameScale: 1
-        - Speaker: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
-          Mood: Default
-          HideSpeakerName: 0
-          CustomName: 
-          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
-          HideSpeakerSprite: 0
-          CustomizeSpeakerLayout: 0
-          FlipX: 0
-          FlipY: 0
-          SpeakerPositionPreset: 0
-          SpeakerPosX: 0
-          SpeakerPosY: 0
-          SpeakerScale: 1
-          SpeakerPlane: 20
-          OverrideDialogueFrame: {fileID: 0}
-          DelayBefore: 0
-          FontSize: 32
-          LocalizedPhrase:
-            Translations:
-            - LanguageID: RU
-              Text: "\u043D\u0438\u0433\u0433\u0435\u0440"
-          UseTypewriter: 1
-          BaseSpeed: 40
-          UseCustomPacing: 0
-          PacingCurve:
-            serializedVersion: 2
-            m_Curve:
-            - serializedVersion: 3
-              time: 0
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            - serializedVersion: 3
-              time: 1
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            m_PreInfinity: 2
-            m_PostInfinity: 2
-            m_RotationOrder: 4
-          CustomizeFrameLayout: 0
-          FramePositionPreset: 0
-          FramePosX: 0
-          FramePosY: 0
-          FrameScale: 1
-        - Speaker: {fileID: 0}
-          Mood: Default
-          HideSpeakerName: 0
-          CustomName: 
-          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
-          HideSpeakerSprite: 0
-          CustomizeSpeakerLayout: 0
-          FlipX: 0
-          FlipY: 0
-          SpeakerPositionPreset: 0
-          SpeakerPosX: 0
-          SpeakerPosY: 0
-          SpeakerScale: 1
-          SpeakerPlane: 20
-          OverrideDialogueFrame: {fileID: 0}
-          DelayBefore: 0
-          FontSize: 32
-          LocalizedPhrase:
-            Translations: []
-          UseTypewriter: 1
-          BaseSpeed: 40
-          UseCustomPacing: 0
-          PacingCurve:
-            serializedVersion: 2
-            m_Curve:
-            - serializedVersion: 3
-              time: 0
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            - serializedVersion: 3
-              time: 1
-              value: 1
-              inSlope: 0
-              outSlope: 0
-              tangentMode: 0
-              weightedMode: 0
-              inWeight: 0
-              outWeight: 0
-            m_PreInfinity: 2
-            m_PostInfinity: 2
-            m_RotationOrder: 4
-          CustomizeFrameLayout: 0
-          FramePositionPreset: 0
-          FramePosX: 0
-          FramePosY: 0
-          FrameScale: 1
-        UnlockDialogueLimit: 0
-        NextNodeID: Dialogue_34a0f
+        NextNodeID: Branch_c3528
         AudioSyncNodeID: 
         AnimSyncNodeID: 
         SceneSyncNodeID: 
         FontSize: 32
-    - rid: 6664540747352244297
-      type: {class: SceneSettingsNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
-      data:
-        NodeID: SceneSettings_9f8b4
-        NodeTitle: SceneSettings 2
-        GraphPosition: {x: 363, y: 102}
-        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
-        IsPinned: 0
-        SyncWithDialogue: 1
-        UnlockLimit: 0
-        BgSprite: {fileID: 0}
-        BgColor: {r: 1, g: 1, b: 1, a: 1}
-        BgTransition: 1
-        BgTransitionTime: 1
-        BgClearCharacters: 1
-        SceneEvents: []
-        NextNodeID: 
     - rid: 6664540747352244305
       type: {class: AudioNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
       data:
@@ -641,7 +382,118 @@ MonoBehaviour:
       data:
         NodeID: Save_e3c89
         NodeTitle: Save 1
-        GraphPosition: {x: -104, y: 95}
+        GraphPosition: {x: -181, y: 115}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         NextNodeID: Dialogue_f5966
+    - rid: 6664540841315139657
+      type: {class: BranchNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Branch_c3528
+        NodeTitle: Branch 1
+        GraphPosition: {x: 245, y: 204}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        Choices:
+        - PortID: Choice_5aa12
+          LocalizedText:
+            Translations: []
+          NextNodeID: CustomDLC_f55aa
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        - PortID: Choice_f1cf4
+          LocalizedText:
+            Translations: []
+          NextNodeID: Dialogue_38449
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+        UnlockChoiceLimit: 0
+        OverrideChoiceButtonPrefab: {fileID: 0}
+    - rid: 6664540841315139658
+      type: {class: WardrobeNodeData, ns: NovellaEngine.DLC.Wardrobe, asm: Assembly-CSharp}
+      data:
+        NodeID: CustomDLC_f55aa
+        NodeTitle: "\U0001F457 Wardrobe"
+        GraphPosition: {x: 458, y: 159}
+        NodeCustomColor: {r: 0.8784314, g: 0.2509804, b: 0.9843137, a: 1}
+        IsPinned: 0
+        NextNodeID: Dialogue_34a0f
+        UseMainCharacter: 1
+        TargetCharacter: {fileID: 11400000, guid: c3abcbed60984cf45b528f029a77ebd2, type: 2}
+        IsGiftMode: 0
+        ItemsToChoose: []
+    - rid: 6664540841315139659
+      type: {class: DialogueNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_38449
+        NodeTitle: Dialogue 3
+        GraphPosition: {x: 415, y: 308}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          FlipX: 0
+          FlipY: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+        UnlockDialogueLimit: 0
+        NextNodeID: Dialogue_34a0f
+        AudioSyncNodeID: 
+        AnimSyncNodeID: 
+        SceneSyncNodeID: 
+        FontSize: 32

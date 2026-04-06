@@ -33,9 +33,13 @@ namespace NovellaEngine.Data
         public string Version;
         public string Description;
 
-        public NovellaDLCNodeAttribute(string menuName, string nodeTitle, string hexColor, string version = "1.0")
+        public NovellaDLCNodeAttribute(string menuName, string nodeTitle, string hexColor, string description = "", string version = "1.0")
         {
-            MenuName = menuName; NodeTitle = nodeTitle; HexColor = hexColor; Version = version;
+            MenuName = menuName;
+            NodeTitle = nodeTitle;
+            HexColor = hexColor;
+            Description = description;
+            Version = version;
         }
     }
 
@@ -65,12 +69,13 @@ namespace NovellaEngine.Data
             _outputFields[t] = list; return list;
         }
     }
+
     [Serializable] public class NoteImageData { public Texture2D Image; public ENoteImageShape Shape = ENoteImageShape.Normal; public ENoteImageAlignment Alignment = ENoteImageAlignment.TopCenter; public Vector2 Offset = Vector2.zero; public Vector2 Size = new Vector2(100, 100); [Range(0f, 1f)] public float Alpha = 1f; }
     [Serializable] public class NoteLinkData { public string DisplayName = "Link"; public string URL = "https://"; }
     [Serializable] public class ChoiceCondition { public string Variable = "Reputation"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; }
     [Serializable] public class ChanceModifier { public string Variable = "Diamond"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; public int BonusWeight = 10; }
     [Serializable] public class DialogueAudioEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public AudioClip AudioAsset; public EAudioAction AudioAction = EAudioAction.Play; public EAudioChannel AudioChannel = EAudioChannel.SFX; [Range(0f, 1f)] public float Volume = 1f; }
-    [Serializable] public class NovellaAnimEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public EAnimTarget Target = EAnimTarget.Character; public NovellaCharacter TargetCharacter; public EAnimType AnimType = EAnimType.Shake; public float Duration = 0.5f; public float Strength = 10f; public Vector2 EndVector = Vector2.one; }
+    [Serializable] public class NovellaAnimEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public EAnimTarget Target = EAnimTarget.Camera; public NovellaCharacter TargetCharacter; public EAnimType AnimType = EAnimType.Shake; public float Duration = 0.5f; public float Strength = 10f; public Vector2 EndVector = Vector2.one; }
     [Serializable] public class CharacterInDialogue { public NovellaCharacter CharacterAsset; public ECharacterPlane Plane = ECharacterPlane.BackSlot1; public ECharacterPosition PositionPreset = ECharacterPosition.Center; public float Scale = 1.0f; public string Emotion = "Default"; public float PosX = 0f; public float PosY = 0f; public bool IsExpanded = true; public bool FlipX = false; public bool FlipY = false; }
 
     [Serializable]
@@ -128,7 +133,7 @@ namespace NovellaEngine.Data
         public string NextNodeID;
         public string AudioSyncNodeID;
         public string AnimSyncNodeID;
-        public string SceneSyncNodeID; // ÕŒ¬€… œŒ–“ —»Õ’–ŒÕ»«¿÷»» —÷≈Õ€
+        public string SceneSyncNodeID;
         [HideInInspector] public int FontSize = 32;
     }
 

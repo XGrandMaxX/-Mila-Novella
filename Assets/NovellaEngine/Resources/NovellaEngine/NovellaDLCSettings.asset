@@ -16,3 +16,6 @@ MonoBehaviour:
   - DLC_ID: NovellaEngine.DLC.Inventory.ItemCheckNodeData
     IsEnabled: 0
     IsTrashed: 0
+  - DLC_ID: NovellaEngine.DLC.Wardrobe.WardrobeNodeData
+    IsEnabled: 1
+    IsTrashed: 0
