@@ -23,11 +23,15 @@ namespace NovellaEngine.Editor
         private int _selectedTutorialIndex = 1;
 
         public bool _canClose = false;
+        public bool _isLaunchingTutorial = false;
 
         static NovellaWelcomeWindow() { EditorApplication.delayCall += ShowWindowOnFirstLaunch; }
 
         private static void ShowWindowOnFirstLaunch()
         {
+            // Автомиграция при первом запуске Unity: создаём ассеты туториалов если их нет.
+            NovellaEngine.Editor.Tutorials.NovellaTutorialMigrator.MigrateIfNeeded(force: false);
+
             if (!EditorPrefs.GetBool("Novella_HasShownWelcome", false))
             {
                 ShowWindow();
@@ -41,15 +45,53 @@ namespace NovellaEngine.Editor
         [MenuItem("Window/Novella Engine/📖 Welcome Tutorial", false, 0)]
         public static void ShowWindow()
         {
-            var window = GetWindow<NovellaWelcomeWindow>(true, "Novella Engine", true);
+            var existing = Resources.FindObjectsOfTypeAll<NovellaWelcomeWindow>();
+            foreach (var w in existing) { w._canClose = true; w.Close(); }
+
+            var window = CreateInstance<NovellaWelcomeWindow>();
             window._canClose = false;
+            window._isLaunchingTutorial = false;
 
-            Rect mainRect = EditorGUIUtility.GetMainWindowPosition();
-            window.position = mainRect;
-            window.minSize = new Vector2(mainRect.width, mainRect.height);
-            window.maxSize = new Vector2(mainRect.width, mainRect.height);
+            window.minSize = new Vector2(800, 600);
+            window.maxSize = new Vector2(10000, 10000);
 
-            window.ShowPopup();
+            // Вычисляем целевой прямоугольник ОДИН РАЗ при показе окна.
+            Rect target = ResolveTutorialTargetRect();
+
+            // ShowUtility вместо ShowPopup: окно МОЖНО перетаскивать, у него есть рамка
+            // и заголовок. ShowPopup делает окно бескаркасным и неперемещаемым (что было причиной
+            // жалобы "появилось на другом мониторе и не могу перетащить").
+            window.position = target;
+            window.ShowUtility();
+            window.titleContent = new GUIContent(ToolLang.Get("Novella Engine — Tutorial", "Novella Engine — Обучение"));
+            window.position = target; // повторяем после Show — Unity иногда сбрасывает позицию.
+            window.Focus();
+        }
+
+        /// <summary>
+        /// Находит "правильный" монитор и возвращает позицию для окна туториала.
+        /// Приоритет:
+        /// 1) Монитор, на котором сейчас находится главное окно Unity.
+        /// 2) Если оно по координатам не валидно (дисплей отключён) — используется
+        ///    основной системный дисплей (Display.displays[0] / Screen.currentResolution).
+        /// </summary>
+        private static Rect ResolveTutorialTargetRect()
+        {
+            Rect mainPos = EditorGUIUtility.GetMainWindowPosition();
+
+            // Если main window валидный и не нулевой — берём его монитор.
+            // Окно туториала будет показано на ТОМ ЖЕ мониторе, что и Unity.
+            if (mainPos.width > 200 && mainPos.height > 200)
+            {
+                // Возвращаем рект с небольшим отступом по краям, чтобы не клипалось taskbar/dock'ом.
+                // НЕ вылезаем за границы ректа главного окна.
+                return mainPos;
+            }
+
+            // Fallback: первый системный дисплей.
+            int w = Screen.currentResolution.width;
+            int h = Screen.currentResolution.height;
+            return new Rect(0, 0, Mathf.Max(800, w), Mathf.Max(600, h));
         }
 
         private void OnEnable()
@@ -57,26 +99,38 @@ namespace NovellaEngine.Editor
             _tutorialProgress = EditorPrefs.GetInt("Novella_TutorialProgress", 1);
             _lastSeenProgress = _tutorialProgress;
             _selectedTutorialIndex = Mathf.Clamp(_tutorialProgress, 1, 6);
-            EditorApplication.update += EnsureFullscreen;
+
+            // Включаем приём mouseMove-событий: без этого hover-анимация плиток
+            // срабатывает только при кликах/нажатиях клавиш, а не при простом наведении.
+            // Также подписываемся на update — для непрерывной плавной анимации (shake/glow).
+            wantsMouseMove = true;
+            EditorApplication.update += OnEditorUpdate;
         }
 
         private void OnDisable()
         {
-            EditorApplication.update -= EnsureFullscreen;
+            EditorApplication.update -= OnEditorUpdate;
         }
 
-        private void EnsureFullscreen()
+        private double _lastRepaintTime;
+        private void OnEditorUpdate()
         {
-            Rect mainPos = EditorGUIUtility.GetMainWindowPosition();
-            if (position.x != mainPos.x || position.y != mainPos.y || position.width != mainPos.width || position.height != mainPos.height)
-            {
-                position = mainPos;
-            }
-            Repaint();
+            // Перерисовываем окно при наведении мыши на плитки — даёт плавную анимацию shake.
+            // Throttle ~60 fps, чтобы не нагружать CPU когда окна нет в фокусе.
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _lastRepaintTime < 0.016) return;
+            _lastRepaintTime = now;
+            if (_isMouseOverAnyTile) Repaint();
         }
+
+        private bool _isMouseOverAnyTile;
 
         private void OnDestroy()
         {
+            NovellaTutorialManager.ForceStopTutorial();
+
+            if (_isLaunchingTutorial) return;
+
             if (!_canClose)
             {
                 EditorApplication.delayCall += ShowWindow;
@@ -89,6 +143,10 @@ namespace NovellaEngine.Editor
 
         private void OnGUI()
         {
+            // На каждый Layout-кадр сбрасываем флаг "над плиткой" — DrawTileInteractive установит его,
+            // если курсор реально над одной из плиток.
+            if (Event.current.type == EventType.Layout) _isMouseOverAnyTile = false;
+
             if (Event.current.type == EventType.Layout && EditorWindow.focusedWindow == this)
             {
                 if (NovellaTutorialManager.IsTutorialActive) NovellaTutorialManager.ForceStopTutorial();
@@ -192,51 +250,58 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
-            if (_tutorialProgress < 6)
+            // ФИКС: Проверяем, прошел ли игрок ВСЕ уроки хотя бы раз (открыт ли 6-й урок)
+            bool hasCompletedAll = EditorPrefs.GetBool("Novella_Tut_InteractiveLesson", false);
+
+            if (hasCompletedAll)
             {
-                GUI.backgroundColor = new Color(0.7f, 0.7f, 0.7f);
-                if (GUILayout.Button("⏭ " + ToolLang.Get("SKIP TUTORIAL", "ПРОПУСТИТЬ ОБУЧЕНИЕ"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold }, GUILayout.Height(40)))
+                if (_tutorialProgress < 6)
                 {
-                    _tutorialProgress = 6;
-                    EditorPrefs.SetInt("Novella_TutorialProgress", 6);
-                    _selectedTutorialIndex = 6;
+                    GUI.backgroundColor = new Color(0.7f, 0.7f, 0.7f);
+                    if (GUILayout.Button("⏭ " + ToolLang.Get("SKIP TUTORIAL", "ПРОПУСТИТЬ ОБУЧЕНИЕ"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold }, GUILayout.Height(40)))
+                    {
+                        _tutorialProgress = 6;
+                        EditorPrefs.SetInt("Novella_TutorialProgress", 6);
+                        _selectedTutorialIndex = 6;
+                    }
+                    GUI.backgroundColor = Color.white;
+                    GUILayout.Space(10);
                 }
-                GUI.backgroundColor = Color.white;
-                GUILayout.Space(10);
-            }
 
-            GUI.backgroundColor = new Color(0.2f, 0.7f, 1f);
-            if (GUILayout.Button("🚀 " + ToolLang.Get("OPEN NOVELLA HUB", "ОТКРЫТЬ NOVELLA HUB"), new GUIStyle(GUI.skin.button) { fontSize = 16, fontStyle = FontStyle.Bold }, GUILayout.Height(50)))
-            {
-                _canClose = true;
-                EditorApplication.delayCall += () => {
-                    NovellaHubWindow.ShowWindow();
-                    Close();
-                };
-                GUIUtility.ExitGUI(); // ФИКС ОШИБКИ GUILAYOUT
-            }
-            GUI.backgroundColor = Color.white;
-
-            GUILayout.Space(15);
-            EditorGUI.BeginChangeCheck();
-            bool dontShowAgain = EditorPrefs.GetBool("Novella_HasShownWelcome", false);
-            dontShowAgain = GUILayout.Toggle(dontShowAgain, ToolLang.Get(" Do not show this window on startup", " Больше не показывать это окно при запуске Unity"), new GUIStyle(EditorStyles.toggle) { fontSize = 13 });
-            if (EditorGUI.EndChangeCheck()) EditorPrefs.SetBool("Novella_HasShownWelcome", dontShowAgain);
-
-            if (dontShowAgain)
-            {
-                GUILayout.Space(10);
-                GUI.backgroundColor = new Color(0.8f, 0.3f, 0.3f);
-                if (GUILayout.Button(ToolLang.Get("✖ CLOSE WINDOW", "✖ ЗАКРЫТЬ ОКНО"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold }, GUILayout.Height(40)))
+                GUI.backgroundColor = new Color(0.2f, 0.7f, 1f);
+                if (GUILayout.Button("🚀 " + ToolLang.Get("OPEN NOVELLA HUB", "ОТКРЫТЬ NOVELLA HUB"), new GUIStyle(GUI.skin.button) { fontSize = 16, fontStyle = FontStyle.Bold }, GUILayout.Height(50)))
                 {
                     _canClose = true;
-                    EditorApplication.delayCall += () => {
-                        NovellaHubWindow.ShowWindow();
-                        Close();
-                    };
-                    GUIUtility.ExitGUI(); // ФИКС ОШИБКИ GUILAYOUT
+                    Close();
+                    NovellaHubWindow.ShowWindow();
+                    GUIUtility.ExitGUI();
                 }
                 GUI.backgroundColor = Color.white;
+
+                GUILayout.Space(15);
+                EditorGUI.BeginChangeCheck();
+                bool dontShowAgain = EditorPrefs.GetBool("Novella_HasShownWelcome", false);
+                dontShowAgain = GUILayout.Toggle(dontShowAgain, ToolLang.Get(" Do not show this window on startup", " Больше не показывать это окно при запуске Unity"), new GUIStyle(EditorStyles.toggle) { fontSize = 13 });
+                if (EditorGUI.EndChangeCheck()) EditorPrefs.SetBool("Novella_HasShownWelcome", dontShowAgain);
+
+                if (dontShowAgain)
+                {
+                    GUILayout.Space(10);
+                    GUI.backgroundColor = new Color(0.8f, 0.3f, 0.3f);
+                    if (GUILayout.Button(ToolLang.Get("✖ CLOSE WINDOW", "✖ ЗАКРЫТЬ ОКНО"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold }, GUILayout.Height(40)))
+                    {
+                        _canClose = true;
+                        Close();
+                        NovellaHubWindow.ShowWindow();
+                        GUIUtility.ExitGUI();
+                    }
+                    GUI.backgroundColor = Color.white;
+                }
+            }
+            else
+            {
+                // Запрет пропуска
+                GUILayout.Label(ToolLang.Get("Finish all lessons to unlock Novella Studio!", "Пройдите все уроки, чтобы открыть Novella Studio!"), new GUIStyle(EditorStyles.centeredGreyMiniLabel) { fontSize = 13, normal = { textColor = new Color(1f, 0.7f, 0.2f) } });
             }
 
             GUILayout.Space(20);
@@ -249,7 +314,7 @@ namespace NovellaEngine.Editor
             if (index == 3) return ToolLang.Get("3. Graph Editor", "3. Редактор Графа");
             if (index == 4) return ToolLang.Get("4. DLC Modules", "4. Модули DLC");
             if (index == 5) return ToolLang.Get("5. UI Forge", "5. UI Кузница");
-            if (index == 6) return ToolLang.Get("6. Interactive Tutorial", "6. Интерактивный Урок");
+            if (index == 6) return ToolLang.Get("6. Interactive Lesson", "6. Интерактивный Урок");
             return "";
         }
 
@@ -267,7 +332,7 @@ namespace NovellaEngine.Editor
         private string GetTutExtraInfo(int index)
         {
             if (index == 1) return ToolLang.Get("💡 In this lesson, we will create the Game Canvas and prepare the Main Menu structure.", "💡 В этом уроке мы создадим игровой Canvas и подготовим структуру Главного Меню.");
-            if (index == 2) return ToolLang.Get("💡 We will create our first character, set up their emotions, and add a global variable.", "💡 Мы создадим первого персонажа, настроим его эмоции и добавим глобальную переменную.");
+            if (index == 2) return ToolLang.Get("💡 We will create our first character, set up their emotions, and add a global variable.", "💡 Мы создадим первого персонажа, настроим его эмоции и добавим global переменную.");
             if (index == 3) return ToolLang.Get("💡 You will learn how to connect nodes, use auto-layout, and create story branches.", "💡 Вы узнаете, как связывать ноды, использовать авто-выравнивание и делать сюжетные ветвления.");
             if (index == 4) return ToolLang.Get("💡 We will explore the DLC Manager, enable a module, and see how to safely delete it.", "💡 Мы изучим Менеджер DLC, включим модуль и узнаем, как безопасно его удалить.");
             if (index == 5) return ToolLang.Get("💡 Time to make things pretty! We'll tweak colors, fonts, and dialogue box styles.", "💡 Время навести красоту! Мы изменим цвета, шрифты и стиль окна диалогов.");
@@ -277,8 +342,12 @@ namespace NovellaEngine.Editor
 
         private void PlayTutorial(int index)
         {
-            if (index == 1) { NovellaSceneManagerWindow.ShowWindow(); NovellaTutorialManager.StartTutorial("SceneManager"); }
-            else if (index == 2) { NovellaCharacterEditor.OpenWindow(); NovellaTutorialManager.StartTutorial("CharacterEditor"); }
+            _isLaunchingTutorial = true;
+            _canClose = true;
+            Close();
+
+            if (index == 1) { NovellaSceneManagerModule.ShowWindow(); NovellaTutorialManager.StartTutorial("SceneManager"); }
+            else if (index == 2) { NovellaCharacterEditorModule.OpenWindow(); NovellaTutorialManager.StartTutorial("CharacterEditor"); }
             else if (index == 3)
             {
                 var graphAsset = AssetDatabase.LoadAssetAtPath<NovellaTree>("Assets/NovellaEngine/Tutorials/01_TutorialGraph.asset");
@@ -313,7 +382,7 @@ namespace NovellaEngine.Editor
                 }
                 else EditorUtility.DisplayDialog("Error", "Tutorial Graph Asset not found!", "OK");
             }
-            else if (index == 5) { NovellaUIEditorWindow.ShowWindow(); NovellaTutorialManager.StartTutorial("UIEditor"); }
+            else if (index == 5) { NovellaUIEditorModule.ShowWindow(); NovellaTutorialManager.StartTutorial("UIEditor"); }
             else if (index == 6)
             {
                 var lessonAsset = AssetDatabase.LoadAssetAtPath<NovellaTree>("Assets/NovellaEngine/Tutorials/02_InteractiveLesson.asset");
@@ -342,10 +411,7 @@ namespace NovellaEngine.Editor
             float titleWidth = width - 80f;
             float descWidth = width - 30f;
 
-            float titleH = _tileTitleStyle.CalcHeight(new GUIContent(title), titleWidth);
-            float descH = _tileDescStyle.CalcHeight(new GUIContent(desc), descWidth);
-
-            return Mathf.Max(150f, 20f + titleH + 15f + descH + 35f);
+            return Mathf.Max(150f, 20f + _tileTitleStyle.CalcHeight(new GUIContent(title), titleWidth) + 15f + _tileDescStyle.CalcHeight(new GUIContent(desc), descWidth) + 35f);
         }
 
         private void DrawVisualWorkflow(float animT)
@@ -411,6 +477,7 @@ namespace NovellaEngine.Editor
 
             Event e = Event.current;
             bool isHovered = rect.Contains(e.mousePosition);
+            if (isHovered) _isMouseOverAnyTile = true; // триггер для постоянной перерисовки в OnEditorUpdate
             bool isSelected = _selectedTutorialIndex == stepIndex;
 
             Rect drawRect = new Rect(rect);

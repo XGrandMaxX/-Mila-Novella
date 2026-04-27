@@ -170,11 +170,11 @@ namespace NovellaEngine.Editor
 
                 AddSidebarButton("🎨", ToolLang.Get("Node Colors", "Цвета Нод"), ToolLang.Get("Change reserved node colors.", "Настроить системные цвета нод."), () => NovellaColorSettingsWindow.ShowWindow(), scrollContainer);
 
-                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorWindow.ShowWindow(), scrollContainer);
+                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorModule.ShowWindow(), scrollContainer);
 
                 AddSidebarButton("👨‍💻", ToolLang.Get("C# API (Coders)", "C# API (Кодерам)"), ToolLang.Get("Open C# API cheat sheet with examples.", "Открыть шпаргалку с примерами C# кода."), () => NovellaAPIWindow.ShowWindow(), scrollContainer);
 
-                AddSidebarButton("🧩", ToolLang.Get("DLC Modules", "Модули DLC"), ToolLang.Get("Manage installed DLCs.", "Управление установленными модулями DLC."), () => NovellaDLCManagerWindow.ShowWindow(), scrollContainer);
+                AddSidebarButton("🧩", ToolLang.Get("DLC Modules", "Модули DLC"), ToolLang.Get("Manage installed DLCs.", "Управление установленными модулями DLC."), () => NovellaDLCManagerModule.ShowWindow(), scrollContainer);
 
                 var ioLabel = new Label(ToolLang.Get("CSV Localization (Text Data):", "CSV Локализация (Весь текст):"))
                 {

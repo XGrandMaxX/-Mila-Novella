@@ -23,6 +23,12 @@ namespace NovellaEngine.Runtime.UI
 
         void Start()
         {
+            // Прячем стрелки переключения, если переключать нечего:
+            //  - 0 персонажей → дефолтных нет вообще
+            //  - 1 персонаж   → переключать не на кого
+            // На любое количество ≥ 2 — стрелки видны и работают по кругу.
+            UpdateArrowsVisibility();
+
             if (AvailableCharacters == null || AvailableCharacters.Count == 0) return;
 
             if (PrevCharBtn != null) PrevCharBtn.onClick.AddListener(() => ChangeCharacter(-1));
@@ -30,6 +36,26 @@ namespace NovellaEngine.Runtime.UI
 
             BuildCurrentCharacter();
         }
+
+        /// <summary>
+        /// Обновляет видимость стрелок ◀ ▶ в зависимости от количества доступных персонажей.
+        /// Можно дёргать вручную, если AvailableCharacters меняется в рантайме.
+        /// </summary>
+        public void UpdateArrowsVisibility()
+        {
+            bool canSwitch = AvailableCharacters != null && AvailableCharacters.Count >= 2;
+            if (PrevCharBtn != null) PrevCharBtn.gameObject.SetActive(canSwitch);
+            if (NextCharBtn != null) NextCharBtn.gameObject.SetActive(canSwitch);
+        }
+
+#if UNITY_EDITOR
+        // Срабатывает в Editor когда меняется поле AvailableCharacters в инспекторе.
+        // Без этого стрелки были бы видны в превью Кузницы UI до запуска игры.
+        private void OnValidate()
+        {
+            UpdateArrowsVisibility();
+        }
+#endif
 
         private void ChangeCharacter(int dir)
         {

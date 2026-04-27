@@ -1,0 +1,562 @@
+/* ============================================================================
+ * NOVELLA STUDIO — Hub theme (Fixed for Unity compatibility)
+ * ============================================================================
+ * Цветовая палитра:
+ * --bg-primary   #13141B  основной фон main-зоны
+ * --bg-side      #1A1B26  фон сайдбара / карточек
+ * --bg-raised    #21222E  фон активных элементов / hover-стейтов
+ * --border       #2A2D3E  тонкие границы
+ * --accent       #5BC0EB  фирменный cyan
+ * --text-1       #ECECF4  основной текст
+ * --text-2       #B5B7C8  вторичный
+ * --text-3       #9D9FB0  подписи / категории
+ * --text-4       #6D6F80  hint
+ * ========================================================================= */
+
+
+/* ─────────────────────── Корневой контейнер ─────────────────────── */
+
+.ns-root {
+    flex-direction: row;
+    flex-grow: 1;
+    background-color: #13141B;
+}
+
+/* ─────────────────────── SIDEBAR ─────────────────────── */
+
+.ns-side {
+    width: 240px;
+    background-color: #1A1B26;
+    border-right-width: 1px;
+    border-right-color: #2A2D3E;
+    flex-direction: column;
+}
+
+.ns-side--collapsed {
+    width: 56px;
+}
+
+.ns-side--collapsed .ns-side__brand-text,
+.ns-side--collapsed .ns-search__text,
+.ns-side--collapsed .ns-search__kbd,
+.ns-side--collapsed .ns-cat,
+.ns-side--collapsed .ns-mod__label,
+.ns-side--collapsed .ns-mod__badge,
+.ns-side--collapsed .ns-help,
+.ns-side--collapsed .ns-story-pick__info,
+.ns-side--collapsed .ns-story-pick__arr {
+    display: none;
+}
+
+.ns-side--collapsed .ns-side__brand,
+.ns-side--collapsed .ns-mod,
+.ns-side--collapsed .ns-search,
+.ns-side--collapsed .ns-story-pick {
+    align-items: center;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Бренд / шапка сайдбара */
+.ns-side__brand {
+    flex-direction: row;
+    align-items: center;
+    padding: 14px 14px 12px 14px;
+    border-bottom-width: 1px;
+    border-bottom-color: #2A2D3E;
+}
+
+.ns-side__brand-logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: #5BC0EB;
+    background-color: rgba(91, 192, 235, 0.09);
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.ns-side__brand-logo-text {
+    font-size: 13px;
+    color: #5BC0EB;
+    -unity-font-style: bold;
+}
+
+.ns-side__brand-text {
+    flex-direction: column;
+}
+
+.ns-side__brand-name {
+    font-size: 14px;
+    color: #ECECF4;
+    -unity-font-style: bold;
+}
+
+.ns-side__brand-sub {
+    font-size: 9px;
+    color: #9D9FB0;
+    margin-top: 2px;
+    -unity-text-align: upper-left;
+}
+
+/* Active story picker */
+.ns-story-pick {
+    flex-direction: row;
+    align-items: center;
+    margin: 10px 12px 4px 12px;
+    padding: 9px 11px;
+    background-color: #13141B;
+    border-width: 1px;
+    border-color: #2A2D3E;
+    border-radius: 6px;
+    transition: border-color 0.15s ease-out-cubic;
+}
+
+.ns-story-pick:hover {
+    border-color: rgba(91, 192, 235, 0.33);
+}
+
+.ns-story-pick__icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    -unity-background-image-tint-color: #5BC0EB;
+    flex-shrink: 0;
+}
+
+.ns-story-pick__info {
+    flex-direction: column;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.ns-story-pick__lbl {
+    font-size: 9px;
+    color: #9D9FB0;
+    -unity-font-style: bold;
+}
+
+.ns-story-pick__name {
+    font-size: 12px;
+    color: #ECECF4;
+    -unity-font-style: bold;
+    margin-top: 3px;
+    overflow: hidden;
+}
+
+.ns-story-pick__arr {
+    color: #9D9FB0;
+    font-size: 10px;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+/* Quick find (Cmd+K trigger) */
+.ns-search {
+    flex-direction: row;
+    align-items: center;
+    margin: 6px 12px 0 12px;
+    padding: 7px 10px;
+    background-color: #13141B;
+    border-width: 1px;
+    border-color: #2A2D3E;
+    border-radius: 6px;
+    transition: border-color 0.15s ease-out-cubic;
+}
+
+.ns-search:hover {
+    border-color: rgba(91, 192, 235, 0.33);
+}
+
+.ns-search__icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    -unity-background-image-tint-color: #9D9FB0;
+}
+
+.ns-search__text {
+    font-size: 12px;
+    color: #9D9FB0;
+    flex-grow: 1;
+}
+
+.ns-search__kbd {
+    font-size: 9px;
+    color: #6D6F80;
+    border-width: 1px;
+    border-color: #2A2D3E;
+    border-radius: 3px;
+    padding: 1px 5px;
+    -unity-font-style: bold;
+}
+
+/* Категории */
+.ns-cat {
+    font-size: 9px;
+    color: #6D6F80;
+    -unity-font-style: bold;
+    padding: 14px 14px 6px 14px;
+}
+
+/* Модули */
+.ns-mod {
+    flex-direction: row;
+    align-items: center;
+    margin: 1px 8px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    transition: background-color 0.12s ease-out-cubic;
+}
+
+.ns-mod:hover {
+    background-color: #21222E;
+}
+
+.ns-mod--active {
+    background-color: #21222E;
+    border-left-width: 2px;
+    border-left-color: #5BC0EB;
+    padding-left: 10px;
+}
+
+.ns-mod__icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 10px;
+    -unity-background-image-tint-color: #9D9FB0;
+}
+
+.ns-mod--active .ns-mod__icon,
+.ns-mod:hover .ns-mod__icon {
+    -unity-background-image-tint-color: #5BC0EB;
+}
+
+.ns-mod__label {
+    font-size: 12px;
+    color: #B5B7C8;
+    flex-grow: 1;
+}
+
+.ns-mod--active .ns-mod__label,
+.ns-mod:hover .ns-mod__label {
+    color: #ECECF4;
+}
+
+.ns-mod__badge {
+    font-size: 9px;
+    color: #9D9FB0;
+    -unity-font-style: bold;
+    background-color: #2A2D3E;
+    border-radius: 8px;
+    padding: 1px 6px;
+}
+
+/* Скролл-зона со списком модулей */
+.ns-side__scroll {
+    flex-grow: 1;
+}
+
+/* Help-блок снизу */
+.ns-help {
+    margin: 8px 12px 12px 12px;
+    padding: 10px;
+    background-color: #21222E;
+    border-width: 1px;
+    border-color: #2A2D3E;
+    border-radius: 7px;
+    flex-shrink: 0;
+}
+
+.ns-help__title {
+    font-size: 9px;
+    color: #9D9FB0;
+    -unity-font-style: bold;
+    margin-bottom: 6px;
+}
+
+.ns-help__row {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.ns-help__row-label {
+    font-size: 11px;
+    color: #B5B7C8;
+}
+
+.ns-help__kbd {
+    font-size: 9px;
+    color: #6D6F80;
+    border-width: 1px;
+    border-color: #2A2D3E;
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+/* ─────────────────────── MAIN AREA ─────────────────────── */
+
+.ns-main {
+    flex-grow: 1;
+    flex-direction: column;
+    background-color: #13141B;
+    overflow: hidden;
+}
+
+/* Топбар */
+.ns-top {
+    height: 48px;
+    flex-direction: row;
+    align-items: center;
+    border-bottom-width: 1px;
+    border-bottom-color: #2A2D3E;
+    background-color: #13141B;
+    flex-shrink: 0;
+}
+
+.ns-top__collapse {
+    width: 48px;
+    height: 48px;
+    align-items: center;
+    justify-content: center;
+    border-right-width: 1px;
+    border-right-color: #2A2D3E;
+    flex-shrink: 0;
+}
+
+.ns-top__collapse:hover {
+    background-color: #1A1B26;
+}
+
+.ns-top__collapse-icon {
+    width: 16px;
+    height: 16px;
+    -unity-background-image-tint-color: #9D9FB0;
+}
+
+.ns-top__collapse:hover .ns-top__collapse-icon {
+    -unity-background-image-tint-color: #ECECF4;
+}
+
+.ns-crumb {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    padding: 0 18px;
+    overflow: hidden;
+}
+
+.ns-crumb__icon {
+    width: 14px;
+    height: 14px;
+    margin-right: 10px;
+    -unity-background-image-tint-color: #5BC0EB;
+}
+
+.ns-crumb__root {
+    font-size: 12px;
+    color: #9D9FB0;
+    margin-right: 10px;
+}
+
+.ns-crumb__sep {
+    font-size: 12px;
+    color: #3F4257;
+    margin-right: 10px;
+}
+
+.ns-crumb__cur {
+    font-size: 12px;
+    color: #ECECF4;
+    -unity-font-style: bold;
+}
+
+/* Кнопки в топбаре */
+.ns-actions {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 14px;
+    flex-shrink: 0;
+}
+
+.ns-btn {
+    padding: 6px 13px;
+    border-radius: 5px;
+    font-size: 11px;
+    -unity-font-style: bold;
+    margin-right: 8px;
+    transition: background-color 0.15s ease-out-cubic;
+}
+
+.ns-btn--out {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 1px;
+    border-color: #ECECF4;
+    color: #ECECF4;
+}
+
+.ns-btn--out:hover {
+    background-color: rgba(236, 236, 244, 0.1);
+}
+
+.ns-btn--fill {
+    background-color: #ECECF4;
+    border-width: 1px;
+    border-color: #ECECF4;
+    color: #13141B;
+}
+
+.ns-btn--fill:hover {
+    background-color: #ffffff;
+    border-color: #ffffff;
+}
+
+.ns-btn--last {
+    margin-right: 0;
+}
+
+/* Контент */
+.ns-content {
+    flex-grow: 1;
+    background-color: #13141B;
+}
+
+/* IMGUIContainer внутри которого рисуются модули */
+.ns-content__imgui {
+    flex-grow: 1;
+    transition: opacity 0.22s ease-out-cubic;
+}
+
+/* Оверлей туториала поверх content (IMGUIContainer-абсолют) */
+.ns-tutorial-overlay {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+}
+
+/* ─────────────────────── COMMAND PALETTE OVERLAY ─────────────────────── */
+
+.ns-cmd-overlay {
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background-color: rgba(10, 11, 15, 0.65);
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 90px;
+    transition: opacity 0.15s ease-out-cubic;
+}
+
+.ns-cmd-overlay--hidden {
+    opacity: 0;
+    display: none;
+}
+
+.ns-cmd-box {
+    width: 480px;
+    background-color: #1A1B26;
+    border-width: 1px;
+    border-color: #353851;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.ns-cmd-input {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    color: #ECECF4;
+    padding: 14px 16px;
+    font-size: 13px;
+    border-bottom-width: 1px;
+    border-bottom-color: #2A2D3E;
+}
+
+.ns-cmd-input:focus {
+    border-color: #2A2D3E;
+}
+
+.ns-cmd-list {
+    max-height: 300px;
+}
+
+.ns-cmd-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 8px 10px;
+    margin: 1px 6px;
+    border-radius: 5px;
+}
+
+.ns-cmd-row:hover,
+.ns-cmd-row--selected {
+    background-color: #5BC0EB;
+}
+
+.ns-cmd-row__icon {
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    color: #B5B7C8;
+    font-size: 14px;
+    -unity-font-style: bold;
+}
+
+.ns-cmd-row:hover .ns-cmd-row__icon,
+.ns-cmd-row--selected .ns-cmd-row__icon {
+    color: #0F1117;
+}
+
+.ns-cmd-row__label {
+    flex-grow: 1;
+    font-size: 12px;
+    color: #B5B7C8;
+}
+
+.ns-cmd-row:hover .ns-cmd-row__label,
+.ns-cmd-row--selected .ns-cmd-row__label {
+    color: #0F1117;
+}
+
+.ns-cmd-row__hint {
+    font-size: 9px;
+    color: #6D6F80;
+    -unity-font-style: bold;
+}
+
+.ns-cmd-row:hover .ns-cmd-row__hint,
+.ns-cmd-row--selected .ns-cmd-row__hint {
+    color: rgba(15, 17, 23, 0.7);
+}
+
+/* ─────────────────────── ScrollView стилизация ─────────────────────── */
+
+ScrollView {
+    flex-grow: 1;
+}
+
+ScrollView .unity-scroller--vertical {
+    width: 8px;
+}
+
+ScrollView .unity-scroller--vertical .unity-base-slider__tracker {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+ScrollView .unity-scroller--vertical .unity-base-slider__dragger {
+    background-color: #2A2D3E;
+    border-radius: 4px;
+    border-width: 0;
+}
+
+ScrollView .unity-scroller--vertical .unity-base-slider__dragger:hover {
+    background-color: #3F4257;
+}
+
+ScrollView .unity-scroller--vertical .unity-repeat-button {
+    display: none;
+}

@@ -46,7 +46,7 @@ namespace NovellaEngine.Editor
                 GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
                 if (GUILayout.Button(ToolLang.Get("Create Var!", "Создать!"), EditorStyles.popup, options))
                 {
-                    NovellaVariableEditorWindow.ShowWindow();
+                    NovellaVariableEditorModule.ShowWindow();
                 }
                 GUI.backgroundColor = Color.white;
                 GUILayout.EndHorizontal();
@@ -63,7 +63,7 @@ namespace NovellaEngine.Editor
 
             if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
             {
-                NovellaVariableEditorWindow.ShowWindow(realNames[newIdx]);
+                NovellaVariableEditorModule.ShowWindow(realNames[newIdx]);
             }
 
             GUILayout.EndHorizontal();
@@ -1667,7 +1667,7 @@ namespace NovellaEngine.Editor
                     "Инфо: Добавленные сюда персонажи появятся на сцене. Спикеров для реплик можно выбирать ТОЛЬКО из добавленной массовки."
                 ), MessageType.Info);
 
-                if (GUILayout.Button($"🛠 {ToolLang.Get("Character Editor", "Редактор Персонажей")}", EditorStyles.miniButton, GUILayout.Height(25))) NovellaCharacterEditor.OpenWindow();
+                if (GUILayout.Button($"🛠 {ToolLang.Get("Character Editor", "Редактор Персонажей")}", EditorStyles.miniButton, GUILayout.Height(25))) NovellaCharacterEditorModule.OpenWindow();
                 GUILayout.Space(15);
 
                 for (int i = 0; i < dialData.ActiveCharacters.Count; i++)
@@ -1817,7 +1817,7 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("🎨 " + ToolLang.Get("Open UI Editor (Base Frame)", "Открыть редактор UI (Базовая рамка)"), EditorStyles.miniButton, GUILayout.Height(25), GUILayout.Width(250)))
-                    NovellaUIEditorWindow.ShowWindow();
+                    NovellaUIEditorModule.ShowWindow();
 
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -2016,7 +2016,7 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(15);
                 GUI.backgroundColor = new Color(0.8f, 0.4f, 0.8f);
                 if (GUILayout.Button("🎨 " + ToolLang.Get("UI Editor", "Редактор UI"), new GUIStyle(GUI.skin.button) { fontSize = 13, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(35)))
-                    NovellaUIEditorWindow.ShowWindow();
+                    NovellaUIEditorModule.ShowWindow();
                 GUI.backgroundColor = Color.white;
             }
             else
@@ -2035,7 +2035,7 @@ namespace NovellaEngine.Editor
                 GUI.backgroundColor = new Color(1f, 0.7f, 0.2f);
                 if (GUILayout.Button("🛠 " + ToolLang.Get("Open Scene Manager", "Открыть Менеджер Сцен"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(40)))
                 {
-                    NovellaSceneManagerWindow.ShowWindow();
+                    NovellaSceneManagerModule.ShowWindow();
                 }
                 GUI.backgroundColor = Color.white;
             }

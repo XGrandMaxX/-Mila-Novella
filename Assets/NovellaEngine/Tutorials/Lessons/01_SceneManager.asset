@@ -1,0 +1,141 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ecfc4cf346c53c810b20578d07c03000, type: 3}
+  m_Name: 01_SceneManager
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::NovellaEngine.Editor.Tutorials.NovellaTutorialAsset
+  TutorialKey: SceneManager
+  TitleEN: Scenes & Menu
+  TitleRU: "\u0421\u0446\u0435\u043D\u044B \u0438 \u041C\u0435\u043D\u044E"
+  DescriptionEN: Set up Unity scenes for your gameplay and main menu.
+  DescriptionRU: "\u041D\u0430\u0441\u0442\u0440\u043E\u0438\u043C Unity-\u0441\u0446\u0435\u043D\u044B
+    \u0434\u043B\u044F \u0438\u0433\u0440\u044B \u0438 \u0433\u043B\u0430\u0432\u043D\u043E\u0433\u043E
+    \u043C\u0435\u043D\u044E."
+  Icon: "\U0001F6E0"
+  OrderIndex: 1
+  HostWindow: 2
+  Steps:
+  - TitleEN: Welcome to Scene Manager
+    TitleRU: "\u0414\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C
+      \u0432 \u041C\u0435\u043D\u0435\u0434\u0436\u0435\u0440 \u0421\u0446\u0435\u043D"
+    BodyEN: "A <b>Scene</b> in Unity is like a separate level or screen. Novella
+      Engine uses different scenes to keep your <b>Main Menu</b> and <b>Game</b>
+      apart \u2014 this prevents UI overlap and keeps the project clean."
+    BodyRU: "<b>\u0421\u0446\u0435\u043D\u0430</b> \u0432 Unity \u2014 \u044D\u0442\u043E
+      \u043A\u0430\u043A \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u044B\u0439 \u0443\u0440\u043E\u0432\u0435\u043D\u044C
+      \u0438\u043B\u0438 \u044D\u043A\u0440\u0430\u043D. Novella Engine \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442
+      \u0440\u0430\u0437\u043D\u044B\u0435 \u0441\u0446\u0435\u043D\u044B, \u0447\u0442\u043E\u0431\u044B
+      \u0440\u0430\u0437\u0434\u0435\u043B\u0438\u0442\u044C <b>\u0413\u043B\u0430\u0432\u043D\u043E\u0435
+      \u041C\u0435\u043D\u044E</b> \u0438 <b>\u0418\u0433\u0440\u0443</b> \u2014
+      \u0442\u0430\u043A \u0438\u043D\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u044B
+      \u043D\u0435 \u043D\u0430\u043A\u043B\u0430\u0434\u044B\u0432\u0430\u044E\u0442\u0441\u044F
+      \u0438 \u043F\u0440\u043E\u0435\u043A\u0442 \u043E\u0441\u0442\u0430\u0451\u0442\u0441\u044F
+      \u0447\u0438\u0441\u0442\u044B\u043C."
+    TargetMode: 5
+    TargetName: 
+    ReflectionFieldName: 
+    ManualRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 1
+      height: 0.12
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 4
+    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    PanelAnchor: 0
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex: 
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 1.5
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: Project Scenes List
+    TitleRU: "\u0421\u043F\u0438\u0441\u043E\u043A \u0441\u0446\u0435\u043D \u043F\u0440\u043E\u0435\u043A\u0442\u0430"
+    BodyEN: "Here are <b>all scenes</b> from your Build Settings. Use the <b>+ Create
+      New Scene</b> button below to add new ones \u2014 the engine will register
+      them automatically."
+    BodyRU: "\u0417\u0434\u0435\u0441\u044C \u0432\u0441\u0435 <b>\u0441\u0446\u0435\u043D\u044B
+      \u043F\u0440\u043E\u0435\u043A\u0442\u0430</b> \u0438\u0437 Build Settings.
+      \u041A\u043D\u043E\u043F\u043A\u0430 <b>+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C
+      \u043D\u043E\u0432\u0443\u044E \u0441\u0446\u0435\u043D\u0443</b> \u0432\u043D\u0438\u0437\u0443
+      \u0434\u043E\u0431\u0430\u0432\u0438\u0442 \u043D\u043E\u0432\u0443\u044E \u2014
+      \u0434\u0432\u0438\u0436\u043E\u043A \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u0443\u0435\u0442
+      \u0435\u0451 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438."
+    TargetMode: 5
+    TargetName: 
+    ReflectionFieldName: 
+    ManualRect:
+      serializedVersion: 2
+      x: 0.2
+      y: 0.1
+      width: 0.78
+      height: 0.78
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 0
+    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    PanelAnchor: 0
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex: 
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 1.5
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: One-Click UI Generation
+    TitleRU: "UI \u0432 \u043E\u0434\u0438\u043D \u043A\u043B\u0438\u043A"
+    BodyEN: Pick an <b>empty scene</b> and you'll see <b>Quick Setup</b> buttons
+      to instantly generate the Game Canvas or Main Menu structure. Try this after
+      the tour!
+    BodyRU: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 <b>\u043F\u0443\u0441\u0442\u0443\u044E
+      \u0441\u0446\u0435\u043D\u0443</b> \u0438 \u043F\u043E\u044F\u0432\u044F\u0442\u0441\u044F
+      \u043A\u043D\u043E\u043F\u043A\u0438 <b>\u0411\u044B\u0441\u0442\u0440\u043E\u0439
+      \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438</b> \u2014 \u043E\u043D\u0438
+      \u043C\u043E\u043C\u0435\u043D\u0442\u0430\u043B\u044C\u043D\u043E \u0441\u043E\u0437\u0434\u0430\u0434\u0443\u0442
+      Canvas \u0438\u0433\u0440\u044B \u0438\u043B\u0438 \u0413\u043B\u0430\u0432\u043D\u043E\u0433\u043E
+      \u041C\u0435\u043D\u044E. \u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435
+      \u043F\u043E\u0441\u043B\u0435 \u0442\u0443\u0440\u0430!"
+    TargetMode: 5
+    TargetName: 
+    ReflectionFieldName: 
+    ManualRect:
+      serializedVersion: 2
+      x: 0.2
+      y: 0.65
+      width: 0.78
+      height: 0.3
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    PanelAnchor: 0
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex: 
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 1.5
+    AllowSkip: 1
+    HideNextButton: 0
