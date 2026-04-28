@@ -10,10 +10,10 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6fd508238fb2adb419a26f6ac72c0cc0, type: 3}
-  m_Name: Story_93bcd
+  m_Name: Story_e520b
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaStory
   Title: New Story
   Description: A story about choices, consequences, and debugging C# code.
   CoverImage: {fileID: 0}
   CustomStoryCardPrefab: {fileID: 0}
-  StartingChapter: {fileID: 11400000, guid: 064a3c3dc785be24387f933d89ecf429, type: 2}
+  StartingChapter: {fileID: 11400000, guid: 2bc9d430de3b8a74b8b5dc0adc4d57e2, type: 2}

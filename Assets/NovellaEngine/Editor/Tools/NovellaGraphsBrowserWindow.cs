@@ -1,4 +1,4 @@
-﻿using NovellaEngine.Data;
+using NovellaEngine.Data;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,6 +11,10 @@ namespace NovellaEngine.Editor
     /// Менеджер графов: просмотр всех NovellaTree (глав) в проекте, открытие в Graph Window,
     /// удаление неиспользуемых, batch-удаление всех. Открывается из Home → Library tools.
     /// Не модуль Hub'а — отдельное окно, чтобы не загромождать Home постоянно видимым списком.
+    ///
+    /// Туториал-графы (лежат в /Tutorials/) показываются в самом низу списка как read-only:
+    /// другая иконка (🎓), приглушённый цвет, бейдж TUTORIAL, кнопка удаления заблокирована.
+    /// Они не учитываются в счётчике "unused" и не попадают в batch-удаление.
     /// </summary>
     public class NovellaGraphsBrowserWindow : EditorWindow
     {
@@ -26,6 +30,7 @@ namespace NovellaEngine.Editor
         private static readonly Color C_TEXT_4     = new Color(0.427f, 0.435f, 0.502f);
         private static readonly Color C_DANGER     = new Color(0.85f, 0.32f, 0.32f);
         private static readonly Color C_OK         = new Color(0.48f, 0.81f, 0.62f);
+        private static readonly Color C_WARN       = new Color(0.96f, 0.76f, 0.43f);
 
         private struct GraphInfo
         {
@@ -34,6 +39,7 @@ namespace NovellaEngine.Editor
             public int NodeCount;
             public bool IsUsedAsStarting;     // используется как Starting Chapter в какой-то истории
             public string UsedByStory;         // имя истории, если есть
+            public bool IsTutorial;            // лежит в /Tutorials/ — read-only для пользователя
         }
 
         private List<GraphInfo> _graphs = new List<GraphInfo>();
@@ -72,12 +78,14 @@ namespace NovellaEngine.Editor
             foreach (var g in guids)
             {
                 var path = AssetDatabase.GUIDToAssetPath(g);
-
-                // Скрываем туториал-главы — они системные, не для удаления юзером
-                if (path != null && path.Contains("/Tutorials/")) continue;
+                if (string.IsNullOrEmpty(path)) continue;
 
                 var tree = AssetDatabase.LoadAssetAtPath<NovellaTree>(path);
                 if (tree == null) continue;
+
+                // Туториал-графы НЕ скрываем — показываем как read-only с бейджем,
+                // чтобы пользователь видел что это за ассеты и не удивлялся им в Project View
+                bool isTutorial = path.Contains("/Tutorials/");
 
                 var info = new GraphInfo
                 {
@@ -86,13 +94,16 @@ namespace NovellaEngine.Editor
                     NodeCount = tree.Nodes != null ? tree.Nodes.Count : 0,
                     IsUsedAsStarting = startingMap.ContainsKey(tree),
                     UsedByStory = startingMap.TryGetValue(tree, out var s) ? s : null,
+                    IsTutorial = isTutorial,
                 };
                 _graphs.Add(info);
             }
 
-            // Сортировка: используемые графы — сверху, потом по имени
+            // Сортировка: пользовательские графы сначала (используемые → неиспользуемые),
+            // туториал-графы в самый низ — они read-only и не должны мозолить глаза.
             _graphs = _graphs
-                .OrderByDescending(g => g.IsUsedAsStarting)
+                .OrderBy(g => g.IsTutorial)             // false (0) идёт раньше true (1)
+                .ThenByDescending(g => g.IsUsedAsStarting)
                 .ThenBy(g => g.Tree.name)
                 .ToList();
         }
@@ -119,11 +130,25 @@ namespace NovellaEngine.Editor
 
             var s = new GUIStyle(EditorStyles.miniLabel) { fontSize = 11 };
             s.normal.textColor = C_TEXT_3;
-            int unused = _graphs.Count(g => !g.IsUsedAsStarting);
+
+            // Считаем только пользовательские графы — туториалы это системный контент.
+            // Их вынесли в отдельный отрезок счётчика, чтобы не путать "unused" статистику.
+            var userGraphs = _graphs.Where(g => !g.IsTutorial).ToList();
+            int unused = userGraphs.Count(g => !g.IsUsedAsStarting);
+            int tutorialCount = _graphs.Count - userGraphs.Count;
+
             string subtext = string.Format(
                 ToolLang.Get("{0} total · {1} used as starting chapter · {2} unused",
                               "{0} всего · {1} используется как стартовая глава · {2} неиспользуемых"),
-                _graphs.Count, _graphs.Count - unused, unused);
+                userGraphs.Count, userGraphs.Count - unused, unused);
+
+            if (tutorialCount > 0)
+            {
+                subtext += string.Format(
+                    ToolLang.Get("  ·  +{0} tutorial", "  ·  +{0} туториал"),
+                    tutorialCount);
+            }
+
             GUI.Label(new Rect(20, 36, position.width - 40, 16), subtext, s);
         }
 
@@ -152,8 +177,9 @@ namespace NovellaEngine.Editor
                     "🔍  " + ToolLang.Get("Search graphs by name…", "Поиск графов по имени…"), ph);
             }
 
-            // Кнопка "Удалить все неиспользуемые"
-            int unusedCount = _graphs.Count(g => !g.IsUsedAsStarting);
+            // Кнопка "Удалить все неиспользуемые" — туториал-графы исключены из выборки,
+            // они не "unused", они системные и read-only.
+            int unusedCount = _graphs.Count(g => !g.IsUsedAsStarting && !g.IsTutorial);
             bool canCleanup = unusedCount > 0;
 
             Rect cleanupBtn = new Rect(position.width - 190, 72, 170, 30);
@@ -203,36 +229,66 @@ namespace NovellaEngine.Editor
             Rect r = GUILayoutUtility.GetRect(0, 64, GUILayout.ExpandWidth(true), GUILayout.Height(64));
             r.x += 16; r.width -= 32;
 
-            bool hover = r.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(r, hover ? C_BG_RAISED : C_BG_SIDE);
-            DrawRectBorder(r, hover ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.4f) : C_BORDER);
+            bool isTutorial = info.IsTutorial;
+            bool hover = !isTutorial && r.Contains(Event.current.mousePosition);
+
+            Color rowBg = isTutorial
+                ? new Color(C_BG_PRIMARY.r, C_BG_PRIMARY.g, C_BG_PRIMARY.b, 0.6f)
+                : (hover ? C_BG_RAISED : C_BG_SIDE);
+            Color rowBorder = isTutorial
+                ? new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.6f)
+                : (hover ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.4f) : C_BORDER);
+
+            EditorGUI.DrawRect(r, rowBg);
+            DrawRectBorder(r, rowBorder);
             if (Event.current.type == EventType.MouseMove && hover) Repaint();
 
-            // Иконка
             Rect iconRect = new Rect(r.x + 12, r.y + 14, 36, 36);
-            EditorGUI.DrawRect(iconRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.13f));
-            DrawRectBorder(iconRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.4f));
+            Color iconAccent = isTutorial ? C_WARN : C_ACCENT;
+            EditorGUI.DrawRect(iconRect, new Color(iconAccent.r, iconAccent.g, iconAccent.b, isTutorial ? 0.08f : 0.13f));
+            DrawRectBorder(iconRect, new Color(iconAccent.r, iconAccent.g, iconAccent.b, isTutorial ? 0.3f : 0.4f));
             var iconStyle = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 16 };
-            iconStyle.normal.textColor = C_ACCENT;
-            GUI.Label(iconRect, "🗺", iconStyle);
+            iconStyle.normal.textColor = isTutorial
+                ? new Color(iconAccent.r, iconAccent.g, iconAccent.b, 0.7f)
+                : iconAccent;
+            GUI.Label(iconRect, isTutorial ? "🎓" : "🗺", iconStyle);
 
-            // Имя
             var nameStyle = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            nameStyle.normal.textColor = C_TEXT_1;
+            nameStyle.normal.textColor = isTutorial ? C_TEXT_3 : C_TEXT_1;
             GUI.Label(new Rect(r.x + 60, r.y + 8, r.width - 280, 18), info.Tree.name, nameStyle);
 
-            // Меta — путь, кол-во нод, использование
+            if (isTutorial)
+            {
+                var tutBadgeStyle = new GUIStyle(EditorStyles.miniLabel)
+                { fontSize = 8, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+                tutBadgeStyle.normal.textColor = C_WARN;
+                string badgeText = "🔒 " + ToolLang.Get("TUTORIAL", "ТУТОРИАЛ");
+                float badgeW = tutBadgeStyle.CalcSize(new GUIContent(badgeText)).x + 12;
+                float nameW = nameStyle.CalcSize(new GUIContent(info.Tree.name)).x;
+                Rect tutBadge = new Rect(r.x + 60 + nameW + 8, r.y + 10, badgeW, 14);
+                EditorGUI.DrawRect(tutBadge, new Color(C_WARN.r, C_WARN.g, C_WARN.b, 0.15f));
+                DrawRectBorder(tutBadge, new Color(C_WARN.r, C_WARN.g, C_WARN.b, 0.5f));
+                GUI.Label(tutBadge, badgeText, tutBadgeStyle);
+            }
+
             var metaStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            metaStyle.normal.textColor = C_TEXT_3;
+            metaStyle.normal.textColor = isTutorial ? C_TEXT_4 : C_TEXT_3;
             string shortPath = info.Path.Replace("Assets/", "").Replace("NovellaEngine/", "…/");
             string nodesText = string.Format(ToolLang.Get("{0} nodes", "{0} нод"), info.NodeCount);
             GUI.Label(new Rect(r.x + 60, r.y + 26, r.width - 280, 14),
                 $"{shortPath}  ·  {nodesText}", metaStyle);
 
-            // Бейдж использования
-            if (info.IsUsedAsStarting)
+            if (isTutorial)
             {
-                Rect badge = new Rect(r.x + 60, r.y + 42, 320, 14);
+                var bs = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
+                bs.normal.textColor = new Color(C_WARN.r, C_WARN.g, C_WARN.b, 0.85f);
+                GUI.Label(new Rect(r.x + 60, r.y + 42, r.width - 280, 14),
+                    "ⓘ " + ToolLang.Get("Read-only — used by the in-app tutorial",
+                                        "Только для чтения — используется встроенным обучением"), bs);
+            }
+            else if (info.IsUsedAsStarting)
+            {
+                Rect badge = new Rect(r.x + 60, r.y + 42, r.width - 280, 14);
                 var bs = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
                 bs.normal.textColor = C_OK;
                 GUI.Label(badge, "✓ " + string.Format(ToolLang.Get("Used as starting chapter in '{0}'",
@@ -241,13 +297,12 @@ namespace NovellaEngine.Editor
             }
             else
             {
-                Rect badge = new Rect(r.x + 60, r.y + 42, 200, 14);
+                Rect badge = new Rect(r.x + 60, r.y + 42, r.width - 280, 14);
                 var bs = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
-                bs.normal.textColor = new Color(0.96f, 0.76f, 0.43f);
+                bs.normal.textColor = C_WARN;
                 GUI.Label(badge, "○ " + ToolLang.Get("Unused — safe to delete", "Не используется — можно удалить"), bs);
             }
 
-            // Кнопки справа
             float btnSize = 28;
             float btnY = r.y + (r.height - btnSize) / 2;
 
@@ -258,27 +313,70 @@ namespace NovellaEngine.Editor
             }
 
             Rect pingBtn = new Rect(r.xMax - 102, btnY, 36, btnSize);
-            if (DrawSquareIconBtn(pingBtn, "📍", C_TEXT_2))
+            if (DrawSquareIconBtn(pingBtn, "📍", C_TEXT_2, ToolLang.Get("Show in Project view", "Показать файл в окне Project")))
             {
                 EditorGUIUtility.PingObject(info.Tree);
             }
 
             Rect deleteBtn = new Rect(r.xMax - 60, btnY, 36, btnSize);
-            if (DrawSquareIconBtn(deleteBtn, "🗑", C_DANGER))
+            if (isTutorial)
             {
-                var capturedInfo = info;
-                EditorApplication.delayCall += () => DeleteOneWithConfirm(capturedInfo);
+                EditorGUI.DrawRect(deleteBtn, new Color(C_BG_PRIMARY.r, C_BG_PRIMARY.g, C_BG_PRIMARY.b, 0.6f));
+                DrawRectBorder(deleteBtn, new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.5f));
+                var ds = new GUIStyle(EditorStyles.label)
+                { alignment = TextAnchor.MiddleCenter, fontSize = 11 };
+                ds.normal.textColor = new Color(C_TEXT_4.r, C_TEXT_4.g, C_TEXT_4.b, 0.6f);
+                GUI.Label(deleteBtn, new GUIContent("🔒", ToolLang.Get("Tutorial graphs are protected from deletion", "Туториал-графы защищены от удаления")), ds);
+            }
+            else
+            {
+                if (DrawSquareIconBtn(deleteBtn, "🗑", C_DANGER, ToolLang.Get("Delete graph", "Удалить граф")))
+                {
+                    var capturedInfo = info;
+                    EditorApplication.delayCall += () => DeleteOneWithConfirm(capturedInfo);
+                }
             }
 
             GUILayout.Space(6);
         }
+        private bool DrawSquareIconBtn(Rect r, string icon, Color color, string tooltip = "")
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(r, hover ? C_BG_RAISED : C_BG_PRIMARY);
+            DrawRectBorder(r, C_BORDER);
 
+            var st = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 11, fontStyle = FontStyle.Bold };
+            st.normal.textColor = hover ? color : new Color(color.r, color.g, color.b, 0.7f);
+
+            GUI.Label(r, new GUIContent(icon, tooltip), st);
+
+            if (hover && Event.current.type == EventType.MouseMove) Repaint();
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                Event.current.Use();
+                return true;
+            }
+            return false;
+        }
         // ─────────────────────────────────────────────
         // Удаление с подтверждениями
         // ─────────────────────────────────────────────
 
         private void DeleteOneWithConfirm(GraphInfo info)
         {
+            // Defense-in-depth: даже если каким-то образом сюда дошёл туториал-граф
+            // (например через будущую горячую клавишу или внешний вызов) — отказываемся явно.
+            if (info.IsTutorial)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Cannot delete tutorial graph", "Нельзя удалить туториал-граф"),
+                    ToolLang.Get(
+                        "This graph is part of the built-in tutorial and is protected from deletion.",
+                        "Этот граф относится к встроенному обучению и защищён от удаления."),
+                    "OK");
+                return;
+            }
+
             string warningExtra = info.IsUsedAsStarting
                 ? "\n\n" + string.Format(ToolLang.Get(
                     "⚠ This graph is used as starting chapter in '{0}'. Deleting it will leave the story without a starting chapter.",
@@ -302,7 +400,9 @@ namespace NovellaEngine.Editor
 
         private void DeleteAllUnusedWithDoubleConfirm()
         {
-            var unused = _graphs.Where(g => !g.IsUsedAsStarting).ToList();
+            // Туториал-графы read-only и не должны попадать в batch-удаление,
+            // даже если они формально не используются как Starting Chapter.
+            var unused = _graphs.Where(g => !g.IsUsedAsStarting && !g.IsTutorial).ToList();
             if (unused.Count == 0) return;
 
             // Шаг 1: общее предупреждение

@@ -1,4 +1,4 @@
-﻿using UnityEditor;
+using UnityEditor;
 using UnityEditor.Callbacks;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -19,6 +19,8 @@ namespace NovellaEngine.Editor
         private VisualElement _rightPanel;
         private IMGUIContainer _inspectorContainer;
         private IMGUIContainer _tutorialContainer;
+        private bool _tutorialContainerInTree; // флаг: overlay сейчас в дереве?
+        private double _lastTutorialCheck;     // время последней проверки (для throttle)
 
         private VisualElement _leftPanel;
         private bool _isLeftPanelOpen = true;
@@ -91,6 +93,12 @@ namespace NovellaEngine.Editor
             if (_currentTree != null) ConstructGraph();
         }
 
+        // Update вызывается ~100 раз/сек. Раньше каждый вызов сетил pickingMode на overlay
+        // (даже если он не менялся), что триггерило relayout. Теперь:
+        //   1) Сам tutorial overlay live в дереве только когда туториал активен (lazy attach).
+        //   2) Проверку статуса делаем не чаще 5 Hz — пользователь не заметит задержки в 200мс
+        //      когда туториал стартует/заканчивается, зато при перетаскивании ноды у нас не
+        //      капает CPU на overlay-операции каждый Editor-тик.
         private void Update()
         {
             if (!_isTutorialMode && _autoSave && _hasUnsavedChanges)
@@ -116,9 +124,30 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            if (_tutorialContainer != null)
+            // Throttle: проверяем статус туториала максимум 5 раз/сек.
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _lastTutorialCheck >= 0.2)
             {
-                _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
+                _lastTutorialCheck = now;
+                SyncTutorialOverlay();
+            }
+        }
+
+        private void SyncTutorialOverlay()
+        {
+            if (_tutorialContainer == null || rootVisualElement == null) return;
+            bool needed = NovellaTutorialManager.IsTutorialActive;
+            if (needed == _tutorialContainerInTree) return;
+
+            if (needed)
+            {
+                if (_tutorialContainer.parent == null) rootVisualElement.Add(_tutorialContainer);
+                _tutorialContainerInTree = true;
+            }
+            else
+            {
+                if (_tutorialContainer.parent != null) _tutorialContainer.RemoveFromHierarchy();
+                _tutorialContainerInTree = false;
             }
         }
 
@@ -126,6 +155,7 @@ namespace NovellaEngine.Editor
         {
             if (_currentTree == null) return;
             rootVisualElement.Clear();
+            _tutorialContainerInTree = false; // дерево полностью пересобирается → overlay тоже
 
             _graphView = new NovellaGraphView(this, _currentTree);
             _graphView.StretchToParentSize();
@@ -290,8 +320,14 @@ namespace NovellaEngine.Editor
             _needsFocusFrame = true;
             _focusFramesDelay = 3;
 
+            // Tutorial overlay создаём, но НЕ добавляем в дерево.
+            // Добавлять/удалять будет SyncTutorialOverlay() в Update() — только когда
+            // реально стартует/заканчивается туториал. Это убирает CPU-нагрузку на пустой
+            // IMGUIContainer когда юзер просто двигает ноды (Graph Repaint'ит сам себя
+            // при каждом mouse-move во время drag — раньше overlay тоже перерисовывался).
             _tutorialContainer = new IMGUIContainer(() =>
             {
+                if (!NovellaTutorialManager.IsTutorialActive) return;
                 NovellaTutorialManager.BlockBackgroundEvents(this);
                 NovellaTutorialManager.DrawOverlay(this);
             });
@@ -301,10 +337,10 @@ namespace NovellaEngine.Editor
             _tutorialContainer.style.right = 0;
             _tutorialContainer.style.top = 0;
             _tutorialContainer.style.bottom = 0;
-
-            _tutorialContainer.pickingMode = NovellaTutorialManager.IsTutorialActive ? PickingMode.Position : PickingMode.Ignore;
-
-            rootVisualElement.Add(_tutorialContainer);
+            _tutorialContainer.pickingMode = PickingMode.Position;
+            // НЕ Add в rootVisualElement — это сделает SyncTutorialOverlay() при необходимости.
+            // Но если туториал УЖЕ активен в момент пересборки графа — синканём сразу.
+            SyncTutorialOverlay();
         }
 
         private void ExportGraphToJSON()
@@ -412,7 +448,6 @@ namespace NovellaEngine.Editor
                 }
             });
             toolbarContainer.Add(miniMapToggle);
-            // --------------------------------------
 
             var langButton = new Button(() => { ToolLang.Toggle(); ConstructGraph(); }) { text = ToolLang.IsRU ? "UI: RU" : "UI: EN" };
             langButton.style.marginLeft = 15;
@@ -454,7 +489,6 @@ namespace NovellaEngine.Editor
                     bool isDisabledDLC = false;
                     if (_selectedNodeView != null && _selectedNodeView.Data != null && _selectedNodeView.Data.NodeType == ENodeType.CustomDLC)
                     {
-                        // ФИКС ЛАГОВ: Используем кэш Instance вместо тяжелого поиска по AssetDatabase каждый кадр!
                         var settings = NovellaDLCSettings.Instance;
                         if (settings != null) isDisabledDLC = !settings.IsDLCEnabled(_selectedNodeView.Data.GetType().FullName);
                     }

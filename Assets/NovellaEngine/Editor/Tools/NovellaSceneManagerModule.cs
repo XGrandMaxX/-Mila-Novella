@@ -162,6 +162,12 @@ namespace NovellaEngine.Editor
         private double _highlightTime = 0;
         private const double SCENE_HIGHLIGHT_DURATION = 0.8;
 
+
+        private bool _isEditingName = false;
+        private string _editingNamePath = null;
+        private string _stagedName = "";
+        private bool _focusInlineEdit = false;
+
         // Кэш скриншотов сцен
         private Dictionary<string, Texture2D> _thumbnails = new Dictionary<string, Texture2D>();
 
@@ -622,28 +628,110 @@ namespace NovellaEngine.Editor
 
         private void DrawBody(Rect rect, SceneRow sc)
         {
-            // Область для всей правой панели
             GUILayout.BeginArea(rect);
-
-            // Скролл должен охватывать всё пространство панели
-            _detailsScroll = GUILayout.BeginScrollView(_detailsScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar);
-
-            GUILayout.Space(18); // Отступ сверху
+            GUILayout.Space(18);
             GUILayout.BeginHorizontal();
-            GUILayout.Space(24); // Отступ слева внутри скролла
+            GUILayout.Space(24);
 
-            // Ширина контента = общая ширина панели - левый отступ (24) - правый отступ (24) - ширина ползунка (16)
             float contentWidth = rect.width - 48f - 16f;
             GUILayout.BeginVertical(GUILayout.Width(contentWidth));
+
+            _detailsScroll = GUILayout.BeginScrollView(_detailsScroll, false, false, GUIStyle.none, GUI.skin.verticalScrollbar);
 
             DrawHint(ToolLang.Get(
                 "<b>What is a Scene?</b>\nThink of a scene as a specific level, a menu, or a room in your game. For example, 1 story you create = 1 scene. It contains all the characters, UI, cameras, and settings for that exact part of the story. The player moves between scenes as they progress.",
                 "<b>Что такое Сцена?</b>\nСцена — это уровень, меню или отдельная локация в игре. Например, 1 история, которую вы создаете = 1 сцена. Она хранит в себе всех персонажей, интерфейс, камеры и настройки для конкретной части истории. Игрок перемещается между сценами по мере прохождения."
             ), contentWidth);
 
-            var h1 = new GUIStyle(EditorStyles.label) { fontSize = 20, fontStyle = FontStyle.Bold };
-            h1.normal.textColor = C_TEXT_1;
-            GUILayout.Label(sc.Name, h1);
+            GUILayout.BeginHorizontal();
+            if (_isEditingName && _editingNamePath == sc.Path)
+            {
+                var tfStyle = new GUIStyle(EditorStyles.textField) { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
+                tfStyle.normal.textColor = C_TEXT_1; tfStyle.focused.textColor = C_TEXT_1;
+
+                GUI.SetNextControlName("SceneNameInlineEdit");
+                _stagedName = EditorGUILayout.TextField(_stagedName, tfStyle, GUILayout.Width(250), GUILayout.Height(28));
+
+                if (_focusInlineEdit && Event.current.type == EventType.Repaint)
+                {
+                    GUI.FocusControl("SceneNameInlineEdit");
+                    _focusInlineEdit = false;
+                }
+
+                bool isChanged = _stagedName != sc.Name;
+                bool isValid = !string.IsNullOrWhiteSpace(_stagedName) && !_allScenes.Any(s => s.Name == _stagedName && s.Path != sc.Path);
+
+                if (Event.current.isKey && Event.current.type == EventType.KeyDown)
+                {
+                    if ((Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter) && isChanged && isValid)
+                    {
+                        RenameSceneInline(sc, _stagedName);
+                        Event.current.Use();
+                    }
+                    else if (Event.current.keyCode == KeyCode.Escape)
+                    {
+                        _isEditingName = false;
+                        GUI.FocusControl(null);
+                        Event.current.Use();
+                    }
+                }
+
+                if (isChanged && isValid)
+                {
+                    var okStyle = new GUIStyle(EditorStyles.miniButton) { fontSize = 12 };
+                    var oldBg = GUI.backgroundColor; GUI.backgroundColor = C_OK;
+                    if (GUILayout.Button("✓", okStyle, GUILayout.Width(30), GUILayout.Height(28)))
+                    {
+                        RenameSceneInline(sc, _stagedName);
+                    }
+                    GUI.backgroundColor = oldBg;
+                }
+                else if (isChanged && !isValid)
+                {
+                    var errStyle = new GUIStyle(EditorStyles.label) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
+                    errStyle.normal.textColor = C_DANGER;
+                    GUILayout.Label(new GUIContent("⚠", ToolLang.Get("Invalid or duplicate name", "Некорректное имя или уже существует")), errStyle, GUILayout.Width(30), GUILayout.Height(28));
+                }
+
+                var cancelStyle = new GUIStyle(EditorStyles.miniButton) { fontSize = 12 };
+                if (GUILayout.Button("✖", cancelStyle, GUILayout.Width(30), GUILayout.Height(28)))
+                {
+                    _isEditingName = false;
+                    GUI.FocusControl(null);
+                }
+            }
+            else
+            {
+                var h1 = new GUIStyle(EditorStyles.label) { fontSize = 20, fontStyle = FontStyle.Bold };
+                h1.normal.textColor = C_TEXT_1;
+
+                float nameW = h1.CalcSize(new GUIContent(sc.Name)).x;
+                GUILayout.Label(sc.Name, h1, GUILayout.Width(nameW));
+
+                GUILayout.Space(12);
+
+                Rect editR = GUILayoutUtility.GetRect(28, 28, GUILayout.Width(28), GUILayout.Height(28));
+                if (DrawInlineHeaderBtn(editR, "✎", C_TEXT_1, ToolLang.Get("Rename scene", "Переименовать сцену")))
+                {
+                    _isEditingName = true;
+                    _editingNamePath = sc.Path;
+                    _stagedName = sc.Name;
+                    _focusInlineEdit = true;
+                }
+
+                if (sc.InBuild && sc.BuildIndex != 0)
+                {
+                    GUILayout.Space(6);
+                    Rect starR = GUILayoutUtility.GetRect(28, 28, GUILayout.Width(28), GUILayout.Height(28));
+
+                    if (DrawInlineHeaderBtn(starR, "★", new Color(0.96f, 0.86f, 0.53f), ToolLang.Get("Make this scene first (Index 0)", "Сделать эту сцену первой (Индекс 0)")))
+                    {
+                        EditorApplication.delayCall += () => MakeFirstInBuild(sc);
+                    }
+                }
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             var sub = new GUIStyle(EditorStyles.label) { fontSize = 12 };
             sub.normal.textColor = C_TEXT_3;
@@ -653,7 +741,6 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(16);
 
-            // ─── ПРЕВЬЮ СЦЕНЫ (Тумбнейл) ───
             Rect thumbHeader = GUILayoutUtility.GetRect(0, 24, GUILayout.Width(contentWidth));
             var thStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, fontStyle = FontStyle.Bold };
             thStyle.normal.textColor = C_TEXT_3;
@@ -728,16 +815,39 @@ namespace NovellaEngine.Editor
             DrawToolsBlock(sc, applied, contentWidth);
 
             GUILayout.EndVertical();
-            GUILayout.Space(24); // Отступ справа внутри скролла
+            GUILayout.Space(24);
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(20); // Отступ снизу внутри скролла
+            GUILayout.Space(20);
             GUILayout.EndScrollView();
 
             GUILayout.EndArea();
         }
         // ─── THUMBNAIL LOGIC ───
+        // Специальная кнопка для заголовка: всегда есть фон и обводка, при наведении подсвечивается
+        private bool DrawInlineHeaderBtn(Rect r, string icon, Color iconColor, string tooltip)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
 
+            // Легкий полупрозрачный фон
+            EditorGUI.DrawRect(r, hover ? C_BG_RAISED : new Color(0, 0, 0, 0.2f));
+
+            // Рамка загорается цветом иконки при наведении
+            DrawRectBorder(r, hover ? new Color(iconColor.r, iconColor.g, iconColor.b, 0.6f) : C_BORDER);
+
+            var st = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 14 };
+            st.normal.textColor = hover ? iconColor : new Color(iconColor.r, iconColor.g, iconColor.b, 0.7f);
+
+            GUI.Label(r, new GUIContent(icon, tooltip), st);
+
+            if (hover && Event.current.type == EventType.MouseMove) _window?.Repaint();
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                Event.current.Use();
+                return true;
+            }
+            return false;
+        }
         private Texture2D GetThumbnail(string scenePath)
         {
             string guid = AssetDatabase.AssetPathToGUID(scenePath);
@@ -1221,26 +1331,12 @@ namespace NovellaEngine.Editor
             float by = r.y + 12;
             float bh = 32;
 
-            // ФИКС 1: Переименовали кнопку открытия
             string openLabel = sc.IsOpen
                 ? "✓ " + ToolLang.Get("Already open", "Уже открыта")
                 : "▶ " + ToolLang.Get("Switch to scene", "Переключиться на сцену");
             float w1 = 180;
             if (DrawActionButton(new Rect(bx, by, w1, bh), openLabel, fill: false, danger: false, disabled: sc.IsOpen))
                 EditorApplication.delayCall += () => OpenScene(sc);
-            bx += w1 + 8;
-
-            if (sc.InBuild && sc.BuildIndex != 0)
-            {
-                float w2 = 130;
-                if (DrawActionButton(new Rect(bx, by, w2, bh), "★ " + ToolLang.Get("Make first", "Сделать первой"), fill: false, danger: false))
-                    EditorApplication.delayCall += () => MakeFirstInBuild(sc);
-                bx += w2 + 8;
-            }
-
-            float w3 = 110;
-            if (DrawActionButton(new Rect(bx, by, w3, bh), "✎ " + ToolLang.Get("Rename", "Переимен."), fill: false, danger: false))
-                EditorApplication.delayCall += () => RenameScene(sc);
 
             float rightX = r.xMax - 16;
             float wDel = 100;
@@ -1262,7 +1358,29 @@ namespace NovellaEngine.Editor
                     EditorApplication.delayCall += () => AddToBuild(sc);
             }
         }
+        private void RenameSceneInline(SceneRow sc, string newName)
+        {
+            string err = AssetDatabase.RenameAsset(sc.Path, newName);
+            if (!string.IsNullOrEmpty(err))
+            {
+                EditorUtility.DisplayDialog(ToolLang.Get("Error", "Ошибка"), err, "OK");
+                return;
+            }
+            AssetDatabase.SaveAssets();
+            string newPath = Path.Combine(Path.GetDirectoryName(sc.Path), newName + ".unity").Replace("\\", "/");
 
+            _selectedPaths.Clear();
+            _selectedPaths.Add(newPath);
+            _lastClickedPath = newPath;
+
+            _isEditingName = false;
+            _editingIndexScenePath = null;
+
+            _highlightScenePath = newPath;
+            _highlightTime = EditorApplication.timeSinceStartup;
+            RefreshScenes();
+            _window?.Repaint();
+        }
         // ═════════════════════════════════════════════════════════
         // ОПЕРАЦИИ
         // ═════════════════════════════════════════════════════════

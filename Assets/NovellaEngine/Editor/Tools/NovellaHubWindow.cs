@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -83,7 +83,10 @@ namespace NovellaEngine.Editor
         private Label _crumbCurrent;
         private IMGUIContainer _moduleContainer;
         private IMGUIContainer _tutorialOverlay;
+        private bool _tutorialOverlayInTree;          // флаг: overlay сейчас в дереве?
+        private IVisualElementScheduledItem _tutorialPoll; // 2 Hz-планировщик статуса туториала
         private NovellaCommandPalette _commandPalette;
+        private VisualElement _topActions; // Play / + New story — видимы только на Home
 
         // ─────────────── Menu / Show ───────────────
 
@@ -135,6 +138,8 @@ namespace NovellaEngine.Editor
         private void OnDisable()
         {
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
+            _tutorialPoll?.Pause();
+            _tutorialPoll = null;
             if (Instance == this) Instance = null;
         }
 
@@ -180,21 +185,18 @@ namespace NovellaEngine.Editor
             _root.tabIndex = 0;
 
             // ───── INLINE-FALLBACK для критического layout ─────
-            // Эти стили дублируют USS, чтобы окно было usable даже без темы.
-            // Декоративные стили (цвета карточек, hover, transitions) только в USS.
             _root.style.flexDirection = FlexDirection.Row;
             _root.style.flexGrow = 1;
-            _root.style.backgroundColor = new Color(0.075f, 0.078f, 0.106f); // #13141B
+            _root.style.backgroundColor = new Color(0.075f, 0.078f, 0.106f);
 
             // ═══════════════════ SIDEBAR ═══════════════════
             _sideEl = new VisualElement();
             _sideEl.AddToClassList("ns-side");
-            // INLINE FALLBACK
             _sideEl.style.width = 240;
             _sideEl.style.flexDirection = FlexDirection.Column;
-            _sideEl.style.backgroundColor = new Color(0.102f, 0.106f, 0.149f); // #1A1B26
+            _sideEl.style.backgroundColor = new Color(0.102f, 0.106f, 0.149f);
             _sideEl.style.borderRightWidth = 1;
-            _sideEl.style.borderRightColor = new Color(0.165f, 0.176f, 0.243f); // #2A2D3E
+            _sideEl.style.borderRightColor = new Color(0.165f, 0.176f, 0.243f);
             _root.Add(_sideEl);
 
             BuildSidebarBrand(_sideEl);
@@ -206,7 +208,6 @@ namespace NovellaEngine.Editor
             // ═══════════════════ MAIN AREA ═══════════════════
             var mainEl = new VisualElement();
             mainEl.AddToClassList("ns-main");
-            // INLINE FALLBACK
             mainEl.style.flexGrow = 1;
             mainEl.style.flexDirection = FlexDirection.Column;
             mainEl.style.backgroundColor = new Color(0.075f, 0.078f, 0.106f);
@@ -219,16 +220,35 @@ namespace NovellaEngine.Editor
             _commandPalette = new NovellaCommandPalette(this);
             _root.Add(_commandPalette.Root);
 
-            // ═══════════════════ TUTORIAL OVERLAY (поверх всего) ═══════════════════
+            // ═══════════════════ TUTORIAL OVERLAY (LAZY) ═══════════════════
+            // КРИТИЧНАЯ ОПТИМИЗАЦИЯ:
+            // Раньше IMGUIContainer всегда висел в дереве и его колбэк вызывался каждый
+            // кадр (особенно когда соседнее окно — Graph — делало Repaint при перемещении
+            // ноды; Unity при этом инвалидирует все открытые окна, и пустой overlay съедал
+            // заметный кусок CPU + сетил pickingMode что триггерило relayout).
+            //
+            // Теперь overlay создаётся, но НЕ добавляется в дерево. 2 Hz-scheduler
+            // проверяет статус туториала и добавляет/удаляет overlay по факту.
+            // Когда туториал не активен — IMGUIContainer не существует в дереве и не
+            // потребляет ресурсов вообще.
+            CreateTutorialOverlay();
+
+            _tutorialPoll = _root.schedule.Execute(SyncTutorialOverlay).Every(500);
+            _tutorialPoll.StartingIn(0);
+
+            // Перехватываем горячие клавиши на root С TrickleDown=true: событие приходит сюда
+            // ДО того как достигнет любого VisualElement-инпута (TextField, IntegerField и т.д.).
+            // Без этого Cmd+K и Cmd+L "проваливались" в TextField'ы (Unity открывал свой Quick Search).
+            _root.RegisterCallback<KeyDownEvent>(OnGlobalKeyDown, TrickleDown.TrickleDown);
+        }
+
+        private void CreateTutorialOverlay()
+        {
             _tutorialOverlay = new IMGUIContainer(() =>
             {
-                // Перекрашиваем pickingMode каждый кадр в зависимости от состояния туториала.
-                // Когда туториал не активен — overlay прозрачен для кликов и не перерисовывает себя
-                // (никаких лагов при перемещении окна и нормальная работа всех кнопок).
-                bool active = NovellaTutorialManager.IsTutorialActive;
-                _tutorialOverlay.pickingMode = active ? PickingMode.Position : PickingMode.Ignore;
-                if (!active) return; // НИЧЕГО не рисуем — экономия CPU и нет лагов на mouseMove
-
+                // Колбэк выполняется только пока overlay в дереве. А overlay в дереве
+                // только когда туториал активен — но guard оставим на случай рассинхрона.
+                if (!NovellaTutorialManager.IsTutorialActive) return;
                 NovellaTutorialManager.BlockBackgroundEvents(this, true);
                 NovellaTutorialManager.DrawOverlay(this, true);
             });
@@ -238,14 +258,25 @@ namespace NovellaEngine.Editor
             _tutorialOverlay.style.top = 0;
             _tutorialOverlay.style.right = 0;
             _tutorialOverlay.style.bottom = 0;
-            // Стартуем в "прозрачном" режиме — клики идут к sidebar/topbar/контенту
-            _tutorialOverlay.pickingMode = PickingMode.Ignore;
-            _root.Add(_tutorialOverlay);
+            _tutorialOverlay.pickingMode = PickingMode.Position;
+        }
 
-            // Перехватываем горячие клавиши на root С TrickleDown=true: событие приходит сюда
-            // ДО того как достигнет любого VisualElement-инпута (TextField, IntegerField и т.д.).
-            // Без этого Cmd+K и Cmd+L "проваливались" в TextField'ы (Unity открывал свой Quick Search).
-            _root.RegisterCallback<KeyDownEvent>(OnGlobalKeyDown, TrickleDown.TrickleDown);
+        private void SyncTutorialOverlay()
+        {
+            if (_tutorialOverlay == null || _root == null) return;
+            bool needed = NovellaTutorialManager.IsTutorialActive;
+            if (needed == _tutorialOverlayInTree) return;
+
+            if (needed)
+            {
+                if (_tutorialOverlay.parent == null) _root.Add(_tutorialOverlay);
+                _tutorialOverlayInTree = true;
+            }
+            else
+            {
+                if (_tutorialOverlay.parent != null) _tutorialOverlay.RemoveFromHierarchy();
+                _tutorialOverlayInTree = false;
+            }
         }
 
         private void OnGlobalKeyDown(KeyDownEvent evt)
@@ -272,7 +303,6 @@ namespace NovellaEngine.Editor
         {
             var brand = new VisualElement();
             brand.AddToClassList("ns-side__brand");
-            // INLINE FALLBACK
             brand.style.flexDirection = FlexDirection.Row;
             brand.style.alignItems = Align.Center;
             brand.style.paddingLeft = 14; brand.style.paddingRight = 14;
@@ -282,7 +312,6 @@ namespace NovellaEngine.Editor
 
             var logo = new VisualElement();
             logo.AddToClassList("ns-side__brand-logo");
-            // Inline размер как fallback если USS не загрузился
             logo.style.width = 30; logo.style.height = 30;
             logo.style.marginRight = 10;
             logo.style.alignItems = Align.Center;
@@ -374,7 +403,6 @@ namespace NovellaEngine.Editor
 
         private void OpenStorySwitcher()
         {
-            // Простой GenericMenu — не Discord, не сложный popup, чисто Unity-стиль.
             var menu = new GenericMenu();
             string[] guids = AssetDatabase.FindAssets("t:NovellaStory");
             string activeGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
@@ -398,7 +426,6 @@ namespace NovellaEngine.Editor
             menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("➕ Create new story", "➕ Создать историю")), false, () =>
             {
-                // Делегируем в Dashboard-модуль (там вся логика создания)
                 if (_modules.Count > 0 && _modules[0] is DashboardModule dash) dash.RequestCreateNewStory();
                 SwitchToModule(0);
             });
@@ -440,7 +467,6 @@ namespace NovellaEngine.Editor
 
             _modButtons = new List<VisualElement>();
 
-            // Группа Workshop (модули в самом Hub)
             scroll.Add(MakeCategoryLabel(ToolLang.Get("Workshop", "Мастерская")));
             for (int i = 0; i < _modules.Count; i++)
             {
@@ -460,7 +486,6 @@ namespace NovellaEngine.Editor
                 _modButtons.Add(btn);
             }
 
-            // Группа Story (внешние окна — открываются отдельно, не модулями Hub'а)
             scroll.Add(MakeCategoryLabel(ToolLang.Get("Story", "История")));
 
             scroll.Add(MakeModuleButton(
@@ -485,7 +510,6 @@ namespace NovellaEngine.Editor
         {
             var btn = new VisualElement();
             btn.AddToClassList("ns-mod");
-            // INLINE FALLBACK
             btn.style.flexDirection = FlexDirection.Row;
             btn.style.alignItems = Align.Center;
             btn.style.paddingLeft = 12; btn.style.paddingRight = 12;
@@ -511,7 +535,6 @@ namespace NovellaEngine.Editor
 
         private string GetModuleLabelLocalized(int idx)
         {
-            // Дружелюбные имена. Подсказка для новичков: вместо "Dashboard" — "Home".
             return idx switch
             {
                 0 => ToolLang.Get("Home", "Главная"),
@@ -534,7 +557,6 @@ namespace NovellaEngine.Editor
                 st = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
             }
 
-            // Fallback: если активной нет — берём первую попавшуюся историю
             if (st == null)
             {
                 var allGuids = AssetDatabase.FindAssets("t:NovellaStory");
@@ -579,7 +601,6 @@ namespace NovellaEngine.Editor
 
         private void BuildSidebarHelp(VisualElement parent)
         {
-            // Кнопка туториала — отдельно, надёжно, всегда видна и работает кликом.
             var tutBtn = new Button(() =>
             {
                 EditorApplication.delayCall += () =>
@@ -592,7 +613,6 @@ namespace NovellaEngine.Editor
                 text = "🎓 " + ToolLang.Get("Open tutorial", "Открыть обучение")
             };
             tutBtn.AddToClassList("ns-tutorial-btn");
-            // Inline fallback (USS может не описывать этот класс)
             tutBtn.style.marginLeft = 12; tutBtn.style.marginRight = 12;
             tutBtn.style.marginTop = 8; tutBtn.style.marginBottom = 8;
             tutBtn.style.height = 34;
@@ -606,7 +626,6 @@ namespace NovellaEngine.Editor
             tutBtn.style.fontSize = 12;
             parent.Add(tutBtn);
 
-            // Quick keys — без F1
             var help = new VisualElement();
             help.AddToClassList("ns-help");
 
@@ -641,7 +660,6 @@ namespace NovellaEngine.Editor
         {
             var top = new VisualElement();
             top.AddToClassList("ns-top");
-            // INLINE FALLBACK
             top.style.height = 48;
             top.style.flexDirection = FlexDirection.Row;
             top.style.alignItems = Align.Center;
@@ -653,11 +671,8 @@ namespace NovellaEngine.Editor
             BuildTopbarInto(top);
         }
 
-        // Заполняет переданный пустой VisualElement содержимым топбара. Используется
-        // и при первой сборке (BuildTopbar), и при смене языка (RefreshAllLabels) — без пересоздания самого `top`.
         private void BuildTopbarInto(VisualElement top)
         {
-            // Кнопка свернуть сайдбар
             var collapse = new VisualElement();
             collapse.AddToClassList("ns-top__collapse");
             collapse.style.width = 48; collapse.style.height = 48;
@@ -674,7 +689,7 @@ namespace NovellaEngine.Editor
             collapse.Add(collapseIcon);
             top.Add(collapse);
 
-            // Breadcrumb
+            // Breadcrumb: "Novella Studio / [Module]"
             var crumb = new VisualElement();
             crumb.AddToClassList("ns-crumb");
 
@@ -683,7 +698,7 @@ namespace NovellaEngine.Editor
             crumbIcon.style.backgroundImage = NovellaHubIcons.GetTexture(NovellaHubIcons.Story);
             crumb.Add(crumbIcon);
 
-            var root = new Label(GetActiveStoryName()) { name = "crumbRoot" };
+            var root = new Label("Novella Studio") { name = "crumbRoot" };
             root.AddToClassList("ns-crumb__root");
             crumb.Add(root);
 
@@ -697,7 +712,7 @@ namespace NovellaEngine.Editor
 
             top.Add(crumb);
 
-            // Действия справа
+            // Действия справа — Play / + New story (только на Home)
             var actions = new VisualElement();
             actions.AddToClassList("ns-actions");
 
@@ -716,6 +731,9 @@ namespace NovellaEngine.Editor
             actions.Add(newStory);
 
             top.Add(actions);
+
+            _topActions = actions;
+            _topActions.style.display = (_currentModuleIndex == 0) ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         // ─────────── Content area ───────────
@@ -746,9 +764,7 @@ namespace NovellaEngine.Editor
             if (_sidebarCollapsed)
             {
                 _sideEl.AddToClassList("ns-side--collapsed");
-                _sideEl.style.width = 64; // 64 = 16 (иконка) + 24*2 паддинг по краям
-
-                // Принудительно убираем margin/padding у всех мод-кнопок и центрируем иконки
+                _sideEl.style.width = 64;
                 ApplyCollapsedStyleToModButtons(true);
             }
             else
@@ -759,16 +775,11 @@ namespace NovellaEngine.Editor
             }
         }
 
-        /// <summary>
-        /// При сжатии сайдбара inline-стили мод-кнопок (margin 8, padding 12) перебивают USS,
-        /// поэтому центрировать через :collapsed-селектор не получится. Меняем сами.
-        /// </summary>
         private void ApplyCollapsedStyleToModButtons(bool collapsed)
         {
             if (_modButtons == null) return;
             foreach (var btn in _modButtons) ApplyCollapsedStyleToOne(btn, collapsed);
 
-            // То же самое для кнопок Story-секции (graph, gallery) — найдём их по классу
             var allMods = _sideEl.Query<VisualElement>(className: "ns-mod").ToList();
             foreach (var btn in allMods) ApplyCollapsedStyleToOne(btn, collapsed);
         }
@@ -781,7 +792,6 @@ namespace NovellaEngine.Editor
                 btn.style.marginLeft = 4; btn.style.marginRight = 4;
                 btn.style.paddingLeft = 0; btn.style.paddingRight = 0;
                 btn.style.justifyContent = Justify.Center;
-                // Прячем лейбл и бейдж
                 var lbl = btn.Q<Label>(className: "ns-mod__label");
                 if (lbl != null) lbl.style.display = DisplayStyle.None;
                 var icon = btn.Q<VisualElement>(className: "ns-mod__icon");
@@ -811,8 +821,9 @@ namespace NovellaEngine.Editor
             }
             if (_crumbCurrent != null) _crumbCurrent.text = GetModuleLabelLocalized(_currentModuleIndex);
 
-            // Лёгкая fade-in анимация content area через USS transition
-            // (см. .ns-content__imgui — там transition прописан декларативно)
+            if (_topActions != null)
+                _topActions.style.display = (_currentModuleIndex == 0) ? DisplayStyle.Flex : DisplayStyle.None;
+
             if (_moduleContainer != null)
             {
                 _moduleContainer.style.opacity = 0;
@@ -827,25 +838,10 @@ namespace NovellaEngine.Editor
             Repaint();
         }
 
-        // OnGUI больше не используется для хоткеев — они переехали на root.RegisterCallback<KeyDownEvent>
-        // с TrickleDown.TrickleDown. Это обходит проблему когда фокус на TextField/IntegerField внутри
-        // UI Toolkit и обычный OnGUI не получал KeyDown-событие или его проглатывал инпут.
-
         private void RefreshAllLabels()
         {
-            // ВАЖНО: НЕ зовём BuildUI() — он делает _root.Clear() и пересоздаёт ВСЁ:
-            //   - command palette (Ctrl+K) теряет привязку к новому root
-            //   - tutorial overlay пересоздаётся
-            //   - root теряет фокус и следующий KeyDown летит "в никуда"
-            //   - пользователю приходится кликнуть мышью чтобы вернуть фокус
-            //
-            // Вместо этого пересобираем ТОЛЬКО элементы с локализованными текстами:
-            // sidebar (бренд, story-pick, поиск, модули, help) и topbar (breadcrumb, кнопки).
-            // Command palette и tutorial overlay остаются те же — фокус не теряется.
-
             if (_root == null || _sideEl == null) return;
 
-            // Сохраняем ссылку на main-area (вторая колонка). Sidebar — первая.
             VisualElement mainEl = null;
             for (int i = 0; i < _root.childCount; i++)
             {
@@ -854,7 +850,6 @@ namespace NovellaEngine.Editor
                 if (ch != _sideEl && ch != _commandPalette?.Root && ch != _tutorialOverlay) mainEl = ch;
             }
 
-            // Пересобираем sidebar в-place
             _sideEl.Clear();
             BuildSidebarBrand(_sideEl);
             BuildSidebarStoryPick(_sideEl);
@@ -862,7 +857,6 @@ namespace NovellaEngine.Editor
             BuildSidebarModules(_sideEl);
             BuildSidebarHelp(_sideEl);
 
-            // Если sidebar был свёрнут — применяем стили снова
             if (_sidebarCollapsed)
             {
                 _sideEl.AddToClassList("ns-side--collapsed");
@@ -870,30 +864,23 @@ namespace NovellaEngine.Editor
                 ApplyCollapsedStyleToModButtons(true);
             }
 
-            // Пересобираем topbar (breadcrumb + кнопки Play / New story) в-place
             if (mainEl != null)
             {
-                // Топбар — первый ребёнок mainEl (по нашей структуре в BuildUI)
                 if (mainEl.childCount > 0 && mainEl[0].ClassListContains("ns-top"))
                 {
                     var top = mainEl[0];
                     top.Clear();
-                    // Заполняем заново — используем тот же метод что и в BuildUI
                     BuildTopbarInto(top);
                 }
             }
 
-            // Активный модуль (visual marker + breadcrumb текст)
             SyncModuleStates();
-
-            // ВАЖНО: фокус на root остаётся валидным, т.к. сам root и его пользовательские KeyDown-обработчики не пересоздавались
             Repaint();
         }
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // DASHBOARD MODULE — оставлен на IMGUI как раньше, чтобы не переписывать
-    // создание историй и управление ими.
+    // DASHBOARD MODULE — IMGUI как раньше
     // ════════════════════════════════════════════════════════════════════
 
     public class DashboardModule : INovellaStudioModule
@@ -905,6 +892,12 @@ namespace NovellaEngine.Editor
         private Vector2 _scrollPos;
         private List<NovellaStory> _stories = new List<NovellaStory>();
         private Dictionary<NovellaStory, DateTime> _modifiedTimes = new Dictionary<NovellaStory, DateTime>();
+
+        // Hover-tracking для library tile'ов: вместо Repaint на каждый MouseMove
+        // храним последний hovered tile и Repaint только при смене состояния.
+        private int _hoveredTileIdx = -1;
+        private int _statCharacters = 0;
+        private int _statTrees = 0;
 
         public void OnEnable(EditorWindow hostWindow)
         {
@@ -918,9 +911,6 @@ namespace NovellaEngine.Editor
 
         public void RequestCreateNewStory()
         {
-            // Откладываем создание ВНЕ текущего IMGUI-кадра. Это убирает ArgumentException
-            // "control 2's position in a group with only 2 controls" — он возникал когда
-            // CreateNewStory изменял _stories посреди отрисовки сетки.
             EditorApplication.delayCall += CreateNewStory;
         }
 
@@ -939,7 +929,6 @@ namespace NovellaEngine.Editor
 
                 DateTime latest = DateTime.MinValue;
 
-                // 1) Время файла самой истории
                 try
                 {
                     var fullPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), path);
@@ -948,7 +937,6 @@ namespace NovellaEngine.Editor
                 }
                 catch { }
 
-                // 2) Время файла стартовой главы (граф редактируется чаще чем сама история)
                 if (story.StartingChapter != null)
                 {
                     try
@@ -967,7 +955,6 @@ namespace NovellaEngine.Editor
                     catch { }
                 }
 
-                // 3) Время последнего открытия из EditorPrefs (записывается в OpenStoryFromCard)
                 long openTicks = long.Parse(EditorPrefs.GetString("Novella_LastOpened_" + guid, "0"));
                 if (openTicks > 0)
                 {
@@ -978,13 +965,15 @@ namespace NovellaEngine.Editor
                 if (latest > DateTime.MinValue) _modifiedTimes[story] = latest;
             }
             _stories = _stories.OrderByDescending(s => _modifiedTimes.TryGetValue(s, out var t) ? t : DateTime.MinValue).ToList();
+
+            _statCharacters = AssetDatabase.FindAssets("t:NovellaCharacter").Length;
+            _statTrees = AssetDatabase.FindAssets("t:NovellaTree")
+                .Select(g => AssetDatabase.GUIDToAssetPath(g))
+                .Count(p => !string.IsNullOrEmpty(p) && !p.Contains("/Tutorials/"));
         }
 
         public void DrawGUI(Rect position)
         {
-            // ВАЖНО: никаких мутаций _stories внутри Draw — все действия откладываются delayCall.
-            // Это убирает GUI Layout mismatch в IMGUI при создании/удалении историй.
-
             GUILayout.Space(24);
             GUILayout.BeginHorizontal();
             GUILayout.Space(28);
@@ -1014,8 +1003,7 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = Color.white;
             GUILayout.Space(12);
 
-            // Доступная ширина для сетки. Подсчитываем количество колонок динамически.
-            float availW = position.width - 28 - 28; // отступы слева+справа
+            float availW = position.width - 28 - 28;
             int columns = Mathf.Clamp(Mathf.FloorToInt(availW / 240f), 1, 4);
             DrawStoriesGrid(columns);
 
@@ -1035,15 +1023,16 @@ namespace NovellaEngine.Editor
 
         private void DrawStatRow()
         {
-            int chars = AssetDatabase.FindAssets("t:NovellaCharacter").Length;
-            int trees = AssetDatabase.FindAssets("t:NovellaTree").Length;
-
             GUILayout.BeginHorizontal();
+
             DrawStat(ToolLang.Get("Stories", "Истории"), _stories.Count.ToString());
             GUILayout.Space(10);
-            DrawStat(ToolLang.Get("Characters", "Персонажи"), chars.ToString());
+
+            DrawStat(ToolLang.Get("Characters", "Персонажи"), _statCharacters.ToString());
             GUILayout.Space(10);
-            DrawStat(ToolLang.Get("Story graphs", "Графы"), trees.ToString());
+
+            DrawStat(ToolLang.Get("Story graphs", "Графы"), _statTrees.ToString());
+
             GUILayout.EndHorizontal();
         }
 
@@ -1078,7 +1067,6 @@ namespace NovellaEngine.Editor
 
         private void DrawStoriesGrid(int columns)
         {
-            // ВАЖНО: snapshot списка, чтобы во время отрисовки мутации не повлияли на индексацию.
             var snapshot = _stories.ToArray();
 
             int total = snapshot.Length;
@@ -1091,7 +1079,6 @@ namespace NovellaEngine.Editor
                     int idx = i + c;
                     if (idx >= total)
                     {
-                        // Пустой слот в последней строке — резервируем место чтобы сетка не схлопывалась
                         GUILayout.Box(GUIContent.none, GUIStyle.none, GUILayout.ExpandWidth(true), GUILayout.Height(1));
                     }
                     else
@@ -1117,7 +1104,6 @@ namespace NovellaEngine.Editor
             t.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
             GUILayout.Label(string.IsNullOrEmpty(st.Title) ? "(untitled)" : st.Title, t);
 
-            // Дата редактирования
             var meta = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
             meta.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
             string metaText = _modifiedTimes.TryGetValue(st, out var dt)
@@ -1171,15 +1157,12 @@ namespace NovellaEngine.Editor
         private void OpenStoryFromCard(NovellaStory st)
         {
             if (st == null) return;
-            // Запоминаем как активную, чтобы кнопка Play и breadcrumb это видели
             string assetPath = AssetDatabase.GetAssetPath(st);
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             EditorPrefs.SetString("Novella_ActiveStoryGuid", guid);
 
-            // Записываем время последнего открытия — это и есть "когда последний раз заходили"
             EditorPrefs.SetString("Novella_LastOpened_" + guid, DateTime.Now.Ticks.ToString());
 
-            // И обновляем локальный кэш чтобы карточка сразу показала "только что"
             if (_modifiedTimes.ContainsKey(st)) _modifiedTimes[st] = DateTime.Now;
             else _modifiedTimes.Add(st, DateTime.Now);
 
@@ -1215,8 +1198,8 @@ namespace NovellaEngine.Editor
         {
             GUILayout.BeginHorizontal();
 
-            // Карточка: Browse all graphs
             DrawLibraryTile(
+                0,
                 "🗺",
                 ToolLang.Get("Browse all graphs", "Все графы"),
                 ToolLang.Get("Open the graph manager — view, open, or clean up unused chapter graphs from your project.",
@@ -1227,10 +1210,10 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(10);
 
-            // Карточка: Delete all stories — активна только если историй >= 2
             int storiesCount = _stories.Count;
             bool canDeleteAll = storiesCount >= 2;
             DrawLibraryTile(
+                1,
                 "🗑",
                 ToolLang.Get("Delete all stories", "Удалить все истории"),
                 canDeleteAll
@@ -1247,7 +1230,7 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
         }
 
-        private void DrawLibraryTile(string icon, string title, string description, Color accent, System.Action onClick)
+        private void DrawLibraryTile(int idx, string icon, string title, string description, Color accent, System.Action onClick)
         {
             bool enabled = onClick != null;
             float h = 78;
@@ -1262,7 +1245,6 @@ namespace NovellaEngine.Editor
                 ? new Color(accent.r, accent.g, accent.b, 0.55f)
                 : new Color(0.165f, 0.176f, 0.243f));
 
-            // Иконка слева
             Rect iconRect = new Rect(r.x + 14, r.y + 16, 46, 46);
             EditorGUI.DrawRect(iconRect, new Color(accent.r, accent.g, accent.b, enabled ? 0.13f : 0.06f));
             DrawRectBorder(iconRect, new Color(accent.r, accent.g, accent.b, enabled ? 0.5f : 0.25f));
@@ -1270,12 +1252,10 @@ namespace NovellaEngine.Editor
             iconStyle.normal.textColor = enabled ? accent : new Color(accent.r, accent.g, accent.b, 0.5f);
             GUI.Label(iconRect, icon, iconStyle);
 
-            // Заголовок
             var tStyle = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
             tStyle.normal.textColor = enabled ? new Color(0.93f, 0.93f, 0.96f) : new Color(0.55f, 0.56f, 0.62f);
             GUI.Label(new Rect(r.x + 70, r.y + 14, r.width - 80, 18), title, tStyle);
 
-            // Описание
             var dStyle = new GUIStyle(EditorStyles.label) { fontSize = 10, wordWrap = true };
             dStyle.normal.textColor = enabled ? new Color(0.62f, 0.63f, 0.69f) : new Color(0.42f, 0.43f, 0.48f);
             GUI.Label(new Rect(r.x + 70, r.y + 32, r.width - 80, h - 36), description, dStyle);
@@ -1285,17 +1265,21 @@ namespace NovellaEngine.Editor
                 onClick();
                 Event.current.Use();
             }
-            if (Event.current.type == EventType.MouseMove && r.Contains(Event.current.mousePosition))
+
+            // ОПТИМИЗАЦИЯ: раньше Repaint вызывался на каждый MouseMove над тайлом
+            // (десятки раз в секунду пока юзер просто водит мышью по Hub'у — это
+            // инвалидирует и соседнее окно Graph). Теперь Repaint только когда
+            // hover-state РЕАЛЬНО меняется (мышь зашла/вышла).
+            int newHovered = hover ? idx : (_hoveredTileIdx == idx ? -1 : _hoveredTileIdx);
+            if (newHovered != _hoveredTileIdx)
             {
+                _hoveredTileIdx = newHovered;
                 if (_window != null) _window.Repaint();
             }
         }
 
         private void DeleteAllStoriesWithDoubleConfirm()
         {
-            // Двойное подтверждение, чтобы не было случайного клика.
-
-            // Шаг 1: общее предупреждение
             int count = _stories.Count;
             if (!EditorUtility.DisplayDialog(
                 ToolLang.Get("Delete all stories?", "Удалить все истории?"),
@@ -1308,7 +1292,6 @@ namespace NovellaEngine.Editor
                 return;
             }
 
-            // Шаг 2: финальное подтверждение с явной фразой
             if (!EditorUtility.DisplayDialog(
                 ToolLang.Get("⚠ Final confirmation", "⚠ Финальное подтверждение"),
                 ToolLang.Get(
@@ -1320,7 +1303,6 @@ namespace NovellaEngine.Editor
                 return;
             }
 
-            // Удаляем — копируем список чтобы не мутировать во время итерации
             var snapshot = _stories.ToArray();
             int deleted = 0;
             foreach (var st in snapshot)
@@ -1354,7 +1336,6 @@ namespace NovellaEngine.Editor
             Rect tipRect = GUILayoutUtility.GetRect(100, 56, GUILayout.ExpandWidth(true), GUILayout.Height(56));
             EditorGUI.DrawRect(tipRect, new Color(0.075f, 0.082f, 0.11f, 1f));
             DrawRectBorder(tipRect, new Color(0.36f, 0.75f, 0.92f, 0.34f));
-            // Боковая cyan полоска
             EditorGUI.DrawRect(new Rect(tipRect.x, tipRect.y, 3, tipRect.height), new Color(0.36f, 0.75f, 0.92f, 1f));
 
             var tt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
@@ -1404,7 +1385,7 @@ namespace NovellaEngine.Editor
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // Story Settings popup — без изменений с прошлой версии
+    // Story Settings popup
     // ════════════════════════════════════════════════════════════════════
 
     public class NovellaStorySettingsPopup : EditorWindow
@@ -1420,14 +1401,13 @@ namespace NovellaEngine.Editor
             win.OnClose = onClose;
             win.minSize = new Vector2(540, 420);
             win.maxSize = new Vector2(900, 800);
-            win.ShowUtility(); // НЕ модал, чтобы можно было создавать главы из проекта
+            win.ShowUtility();
         }
 
         private void OnGUI()
         {
             if (Story == null) { Close(); return; }
 
-            // Лёгкий tinted фон под стиль Hub'а
             EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), new Color(0.075f, 0.078f, 0.106f));
 
             GUILayout.Space(14);
@@ -1453,7 +1433,6 @@ namespace NovellaEngine.Editor
                 "Pick which chapter the story will play first. Click 'Create new chapter' to make one if there are none.",
                 "Выбери главу, с которой история начнётся. Нажми «Создать главу» если их ещё нет."));
 
-            // Текущая выбранная глава
             GUILayout.BeginHorizontal();
             string currentName = Story.StartingChapter != null ? Story.StartingChapter.name : ToolLang.Get("Not selected", "Не выбрана");
             Rect currRect = GUILayoutUtility.GetRect(GUIContent.none, EditorStyles.helpBox, GUILayout.ExpandWidth(true), GUILayout.Height(28));
@@ -1472,7 +1451,6 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
 
             GUILayout.Space(10);
-            // Список существующих глав
             DrawSectionLabel(ToolLang.Get("AVAILABLE CHAPTERS", "ДОСТУПНЫЕ ГЛАВЫ"));
             DrawChaptersGrid();
 
@@ -1503,8 +1481,6 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
         }
 
-        // Кэш списка глав. Заполняется при OnEnable / Refresh, не пересчитывается каждый OnGUI-кадр.
-        // Это убирает лаги при создании истории (раньше FindAssets+LoadAssetAtPath гонялся 30+ раз/сек).
         private struct CachedChapter { public NovellaTree Tree; public string Path; public int NodeCount; }
         private List<CachedChapter> _chapterCache;
 
@@ -1592,7 +1568,6 @@ namespace NovellaEngine.Editor
             nodesStyle.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
             GUI.Label(new Rect(cardRect.x + 12, cardRect.y + 40, cardRect.width - 24, 14), $"{nodeCount} nodes", nodesStyle);
 
-            // Кликабельная зона — поверх всей карточки
             if (GUI.Button(cardRect, GUIContent.none, GUIStyle.none))
             {
                 Story.StartingChapter = tree;
@@ -1611,7 +1586,6 @@ namespace NovellaEngine.Editor
             }
             var newTree = ScriptableObject.CreateInstance<NovellaTree>();
             string desiredName = string.IsNullOrEmpty(Story.Title) ? "Chapter_New" : $"{Story.Title}_Chapter1";
-            // Чистим имя от неподходящих символов
             desiredName = System.Text.RegularExpressions.Regex.Replace(desiredName, @"[\\/:*?""<>|]", "_");
             string path = AssetDatabase.GenerateUniqueAssetPath($"{baseDir}/{desiredName}.asset");
             AssetDatabase.CreateAsset(newTree, path);
@@ -1620,7 +1594,7 @@ namespace NovellaEngine.Editor
 
             Story.StartingChapter = newTree;
             EditorUtility.SetDirty(Story);
-            _chapterCache = null; // инвалидируем кэш — на следующем кадре пересоберётся
+            _chapterCache = null;
             Repaint();
         }
 
