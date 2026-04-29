@@ -25,30 +25,72 @@ namespace NovellaEngine.Editor
         void DrawGUI(Rect position);
     }
 
+    internal static class NovellaWinTween
+    {
+        public static void Animate(EditorWindow win, Rect from, Rect to, float duration, Action onComplete = null)
+        {
+            if (win == null) { onComplete?.Invoke(); return; }
+            double t0 = EditorApplication.timeSinceStartup;
+            EditorApplication.CallbackFunction step = null;
+            step = () =>
+            {
+                if (win == null)
+                {
+                    EditorApplication.update -= step;
+                    onComplete?.Invoke();
+                    return;
+                }
+                double dt = EditorApplication.timeSinceStartup - t0;
+                float t = duration > 0 ? Mathf.Clamp01((float)(dt / duration)) : 1f;
+                float e = 1f - Mathf.Pow(1f - t, 3f); // easeOutCubic
+                try
+                {
+                    win.position = new Rect(
+                        Mathf.Lerp(from.x, to.x, e),
+                        Mathf.Lerp(from.y, to.y, e),
+                        Mathf.Lerp(from.width, to.width, e),
+                        Mathf.Lerp(from.height, to.height, e)
+                    );
+                    win.Repaint();
+                }
+                catch { /* окно могло закрыться/быть пересоздано в середине — гасим тихо */ }
+                if (t >= 1f)
+                {
+                    EditorApplication.update -= step;
+                    onComplete?.Invoke();
+                }
+            };
+            EditorApplication.update += step;
+        }
+    }
+
     public class NovellaMiniLauncher : EditorWindow
     {
-        private const float TAB_WIDTH = 18f;
-        private const float TAB_HEIGHT = 110f;
+        public const float STRIP_WIDTH = 10f;
+        private const float BUTTON_HEIGHT = 48f;
+
+        public static NovellaMiniLauncher Instance { get; private set; }
 
         public static void ShowLauncher()
         {
             if (HasOpenInstances<NovellaHubWindow>() || HasOpenInstances<NovellaWelcomeWindow>()) return;
+            if (Instance != null) { Instance.Focus(); return; }
+
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
 
             var win = CreateInstance<NovellaMiniLauncher>();
             win.titleContent = new GUIContent("Novella");
-            win.minSize = new Vector2(TAB_WIDTH, TAB_HEIGHT);
-            win.maxSize = new Vector2(TAB_WIDTH, TAB_HEIGHT);
-            win.AnchorToLeftEdge();
+            win.minSize = new Vector2(STRIP_WIDTH, 100f);
+            win.maxSize = new Vector2(STRIP_WIDTH, 8192f);
+            win.position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
             win.ShowPopup();
+            Instance = win;
         }
 
-        private void AnchorToLeftEdge()
+        private void OnDisable()
         {
-            Rect main = EditorGUIUtility.GetMainWindowPosition();
-            if (main.width < 200 || main.height < 200)
-                main = new Rect(0, 0, 1280, 720);
-            float y = main.y + (main.height - TAB_HEIGHT) * 0.5f;
-            position = new Rect(main.x, y, TAB_WIDTH, TAB_HEIGHT);
+            if (Instance == this) Instance = null;
         }
 
         private void OnGUI()
@@ -56,38 +98,55 @@ namespace NovellaEngine.Editor
             Rect main = EditorGUIUtility.GetMainWindowPosition();
             if (main.width >= 200 && main.height >= 200)
             {
-                float targetY = main.y + (main.height - TAB_HEIGHT) * 0.5f;
-                Rect target = new Rect(main.x, targetY, TAB_WIDTH, TAB_HEIGHT);
+                Rect target = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
                 if (Mathf.Abs(position.x - target.x) > 0.5f
-                    || Mathf.Abs(position.y - target.y) > 0.5f)
+                    || Mathf.Abs(position.y - target.y) > 0.5f
+                    || Mathf.Abs(position.height - target.height) > 0.5f)
                 {
                     position = target;
                 }
             }
 
             Rect r = new Rect(0, 0, position.width, position.height);
-            bool hover = r.Contains(Event.current.mousePosition);
 
-            Color bg = hover ? new Color(0.32f, 0.34f, 0.40f, 0.98f) : new Color(0.22f, 0.23f, 0.28f, 0.95f);
-            EditorGUI.DrawRect(r, bg);
+            // Фон под цвет редактора — чтобы полоска визуально сливалась.
+            Color editorBg = EditorGUIUtility.isProSkin
+                ? new Color(0.219f, 0.219f, 0.219f)
+                : new Color(0.76f, 0.76f, 0.76f);
+            EditorGUI.DrawRect(r, editorBg);
 
-            EditorGUI.DrawRect(new Rect(r.xMax - 1, 0, 1, r.height), new Color(0, 0, 0, 0.55f));
+            // Тонкая вертикальная линия по центру — основной визуальный элемент.
+            float lineX = Mathf.Floor(r.center.x);
+            EditorGUI.DrawRect(new Rect(lineX, 0, 1, r.height), new Color(0, 0, 0, 0.55f));
+
+            // Маленькая кнопка по центру по вертикали.
+            float btnY = Mathf.Floor((r.height - BUTTON_HEIGHT) * 0.5f);
+            Rect btnRect = new Rect(0, btnY, r.width, BUTTON_HEIGHT);
+            bool btnHover = btnRect.Contains(Event.current.mousePosition);
+
+            Color btnBg = btnHover
+                ? new Color(0.36f, 0.75f, 0.92f, 0.98f)
+                : new Color(0.24f, 0.26f, 0.32f, 0.98f);
+            EditorGUI.DrawRect(btnRect, btnBg);
+            EditorGUI.DrawRect(new Rect(btnRect.x, btnRect.y, btnRect.width, 1), new Color(0, 0, 0, 0.55f));
+            EditorGUI.DrawRect(new Rect(btnRect.x, btnRect.yMax - 1, btnRect.width, 1), new Color(0, 0, 0, 0.55f));
 
             var st = new GUIStyle(EditorStyles.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 12,
+                fontSize = 10,
                 fontStyle = FontStyle.Bold,
             };
-            st.normal.textColor = hover ? new Color(0.45f, 0.80f, 0.95f) : new Color(0.85f, 0.87f, 0.93f);
-            GUI.Label(r, "▶", st);
+            st.normal.textColor = Color.white;
+            GUI.Label(btnRect, "▶", st);
 
             if (Event.current.type == EventType.MouseMove) Repaint();
-            if (Event.current.type == EventType.MouseDown && hover)
+            if (Event.current.type == EventType.MouseDown && btnHover)
             {
                 Event.current.Use();
+                Rect launcherFrom = new Rect(position.x, position.y + btnY, position.width, BUTTON_HEIGHT);
                 Close();
-                EditorApplication.delayCall += NovellaHubWindow.ShowWindow;
+                EditorApplication.delayCall += () => NovellaHubWindow.ShowWindowAnimatedFrom(launcherFrom);
             }
         }
     }
@@ -135,7 +194,7 @@ namespace NovellaEngine.Editor
         [MenuItem("Novella Engine/🚀 Novella Studio (Hub)", false, 0)]
         public static void ShowWindow()
         {
-            if (HasOpenInstances<NovellaMiniLauncher>()) GetWindow<NovellaMiniLauncher>().Close();
+            if (NovellaMiniLauncher.Instance != null) NovellaMiniLauncher.Instance.Close();
 
             var win = GetWindow<NovellaHubWindow>("Novella Studio");
             win.minSize = new Vector2(1100, 700);
@@ -154,6 +213,28 @@ namespace NovellaEngine.Editor
             };
 
             win.Show();
+        }
+
+        public static void ShowWindowAnimatedFrom(Rect from)
+        {
+            if (NovellaMiniLauncher.Instance != null) NovellaMiniLauncher.Instance.Close();
+
+            var win = GetWindow<NovellaHubWindow>("Novella Studio");
+            win.minSize = new Vector2(40, 40);
+            win.position = from;
+            win.Show();
+
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
+            float pad = 20f;
+            Rect to = new Rect(main.x + pad, main.y + pad, main.width - pad * 2f, main.height - pad * 2f);
+
+            NovellaWinTween.Animate(win, from, to, 0.22f, () =>
+            {
+                if (win == null) return;
+                win.minSize = new Vector2(1100, 700);
+                win.Focus();
+            });
         }
 
         // ─────────────── OnEnable / OnDisable ───────────────
@@ -829,8 +910,17 @@ namespace NovellaEngine.Editor
 
         private void MinimizeToLauncher()
         {
-            Close();
-            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
+            Rect from = position;
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
+            Rect to = new Rect(main.x, main.y + (main.height - 48f) * 0.5f, NovellaMiniLauncher.STRIP_WIDTH, 48f);
+
+            minSize = new Vector2(8, 30);
+            NovellaWinTween.Animate(this, from, to, 0.18f, () =>
+            {
+                Close();
+                EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
+            });
         }
 
         // ─────────── Content area ───────────
