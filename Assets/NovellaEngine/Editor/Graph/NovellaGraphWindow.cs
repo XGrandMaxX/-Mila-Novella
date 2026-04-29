@@ -473,7 +473,36 @@ namespace NovellaEngine.Editor
             var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 550 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
             toolbarContainer.Add(toggleInspectorBtn);
 
+            var minimize = new VisualElement();
+            minimize.style.width = 32;
+            minimize.style.height = 22;
+            minimize.style.marginLeft = 6;
+            minimize.style.marginRight = 4;
+            minimize.style.alignItems = Align.Center;
+            minimize.style.justifyContent = Justify.Center;
+            minimize.style.borderTopLeftRadius = 4;
+            minimize.style.borderTopRightRadius = 4;
+            minimize.style.borderBottomLeftRadius = 4;
+            minimize.style.borderBottomRightRadius = 4;
+            minimize.tooltip = ToolLang.Get("Minimize", "Свернуть");
+            minimize.RegisterCallback<MouseEnterEvent>(_ => minimize.style.backgroundColor = new Color(1f, 1f, 1f, 0.10f));
+            minimize.RegisterCallback<MouseLeaveEvent>(_ => minimize.style.backgroundColor = new StyleColor(StyleKeyword.Initial));
+            minimize.RegisterCallback<ClickEvent>(_ => MinimizeToLauncher());
+            var dash = new VisualElement();
+            dash.style.width = 12;
+            dash.style.height = 2;
+            dash.style.backgroundColor = new Color(0.85f, 0.87f, 0.93f);
+            dash.style.marginTop = 1;
+            minimize.Add(dash);
+            toolbarContainer.Add(minimize);
+
             container.Add(toolbarContainer);
+        }
+
+        private void MinimizeToLauncher()
+        {
+            Close();
+            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
         }
 
         private void DrawInspectorPanel()

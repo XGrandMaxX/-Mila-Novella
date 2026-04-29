@@ -27,26 +27,53 @@ namespace NovellaEngine.Editor
 
     public class NovellaMiniLauncher : EditorWindow
     {
+        private const float STRIP_WIDTH = 28f;
+
         public static void ShowLauncher()
         {
             if (HasOpenInstances<NovellaHubWindow>() || HasOpenInstances<NovellaWelcomeWindow>()) return;
-            var win = GetWindow<NovellaMiniLauncher>(true, "🚀 Novella", true);
-            win.minSize = new Vector2(160, 40);
-            win.maxSize = new Vector2(160, 40);
-            win.ShowUtility();
+
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width < 200 || main.height < 200)
+            {
+                main = new Rect(0, 0, 1280, 720);
+            }
+
+            var win = CreateInstance<NovellaMiniLauncher>();
+            win.titleContent = new GUIContent("🚀 Novella");
+            win.minSize = new Vector2(STRIP_WIDTH, 100f);
+            win.maxSize = new Vector2(STRIP_WIDTH, 4096f);
+            win.position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
+            win.ShowPopup();
         }
 
         private void OnGUI()
         {
-            GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
-            if (GUILayout.Button("🚀 " + ToolLang.Get("Open Studio", "Открыть Студию"),
-                new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold },
-                GUILayout.ExpandHeight(true), GUILayout.ExpandWidth(true)))
+            Rect r = new Rect(0, 0, position.width, position.height);
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            Color baseCol = new Color(0.36f, 0.75f, 0.92f);
+            Color hotCol = new Color(0.45f, 0.80f, 0.95f);
+            EditorGUI.DrawRect(r, hover ? hotCol : baseCol);
+
+            EditorGUI.DrawRect(new Rect(r.xMax - 2, 0, 2, r.height), new Color(0, 0, 0, 0.25f));
+
+            var st = new GUIStyle(EditorStyles.label)
             {
-                NovellaHubWindow.ShowWindow();
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 22,
+                fontStyle = FontStyle.Bold,
+            };
+            st.normal.textColor = Color.white;
+            GUI.Label(r, "▶", st);
+
+            if (Event.current.type == EventType.MouseMove) Repaint();
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                Event.current.Use();
                 Close();
+                EditorApplication.delayCall += NovellaHubWindow.ShowWindow;
             }
-            GUI.backgroundColor = Color.white;
         }
     }
 
@@ -759,6 +786,36 @@ namespace NovellaEngine.Editor
 
             _topActions = actions;
             _topActions.style.display = (_currentModuleIndex == 0) ? DisplayStyle.Flex : DisplayStyle.None;
+
+            var minimize = new VisualElement();
+            minimize.style.width = 32;
+            minimize.style.height = 24;
+            minimize.style.marginRight = 8;
+            minimize.style.marginLeft = 6;
+            minimize.style.alignItems = Align.Center;
+            minimize.style.justifyContent = Justify.Center;
+            minimize.style.borderTopLeftRadius = 4;
+            minimize.style.borderTopRightRadius = 4;
+            minimize.style.borderBottomLeftRadius = 4;
+            minimize.style.borderBottomRightRadius = 4;
+            minimize.tooltip = ToolLang.Get("Minimize", "Свернуть");
+            minimize.RegisterCallback<MouseEnterEvent>(_ => minimize.style.backgroundColor = new Color(1f, 1f, 1f, 0.08f));
+            minimize.RegisterCallback<MouseLeaveEvent>(_ => minimize.style.backgroundColor = new StyleColor(StyleKeyword.Initial));
+            minimize.RegisterCallback<ClickEvent>(_ => MinimizeToLauncher());
+
+            var dash = new VisualElement();
+            dash.style.width = 12;
+            dash.style.height = 2;
+            dash.style.backgroundColor = new Color(0.85f, 0.87f, 0.93f);
+            dash.style.marginTop = 1;
+            minimize.Add(dash);
+            top.Add(minimize);
+        }
+
+        private void MinimizeToLauncher()
+        {
+            Close();
+            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
         }
 
         // ─────────── Content area ───────────
