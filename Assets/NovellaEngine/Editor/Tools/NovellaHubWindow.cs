@@ -27,45 +27,71 @@ namespace NovellaEngine.Editor
 
     public class NovellaMiniLauncher : EditorWindow
     {
-        private const float STRIP_WIDTH = 28f;
+        private const float STRIP_WIDTH = 16f;
 
         public static void ShowLauncher()
         {
             if (HasOpenInstances<NovellaHubWindow>() || HasOpenInstances<NovellaWelcomeWindow>()) return;
 
+            var win = CreateInstance<NovellaMiniLauncher>();
+            win.titleContent = new GUIContent("Novella");
+            win.minSize = new Vector2(STRIP_WIDTH, 100f);
+            win.maxSize = new Vector2(STRIP_WIDTH, 8192f);
+            win.AnchorToLeftEdge();
+            win.ShowPopup();
+        }
+
+        private void AnchorToLeftEdge()
+        {
             Rect main = EditorGUIUtility.GetMainWindowPosition();
             if (main.width < 200 || main.height < 200)
-            {
                 main = new Rect(0, 0, 1280, 720);
-            }
-
-            var win = CreateInstance<NovellaMiniLauncher>();
-            win.titleContent = new GUIContent("🚀 Novella");
-            win.minSize = new Vector2(STRIP_WIDTH, 100f);
-            win.maxSize = new Vector2(STRIP_WIDTH, 4096f);
-            win.position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
-            win.ShowPopup();
+            position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
         }
 
         private void OnGUI()
         {
+            // Re-anchor every frame in case Unity's main window was moved or resized.
+            // Сравнение через small epsilon чтобы не вызывать setPosition впустую и не ловить дрожь.
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width >= 200 && main.height >= 200)
+            {
+                Rect target = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
+                if (Mathf.Abs(position.x - target.x) > 0.5f
+                    || Mathf.Abs(position.y - target.y) > 0.5f
+                    || Mathf.Abs(position.width - target.width) > 0.5f
+                    || Mathf.Abs(position.height - target.height) > 0.5f)
+                {
+                    position = target;
+                }
+            }
+
             Rect r = new Rect(0, 0, position.width, position.height);
             bool hover = r.Contains(Event.current.mousePosition);
 
-            Color baseCol = new Color(0.36f, 0.75f, 0.92f);
-            Color hotCol = new Color(0.45f, 0.80f, 0.95f);
-            EditorGUI.DrawRect(r, hover ? hotCol : baseCol);
+            // Двухступенчатый фон: тёмный slate-фон + бирюзовая полоса по центру (не на всю ширину),
+            // чтобы выглядело как "ярлык" а не как сплошная цветная стена.
+            Color bgCol = new Color(0.13f, 0.14f, 0.18f);
+            EditorGUI.DrawRect(r, bgCol);
 
-            EditorGUI.DrawRect(new Rect(r.xMax - 2, 0, 2, r.height), new Color(0, 0, 0, 0.25f));
+            float accentW = 3f;
+            float accentX = (r.width - accentW) * 0.5f;
+            Color accent = hover ? new Color(0.45f, 0.80f, 0.95f) : new Color(0.36f, 0.75f, 0.92f);
+            EditorGUI.DrawRect(new Rect(accentX, 0, accentW, r.height), accent);
 
+            // Тонкая граница справа — отделяет от Unity-контента.
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, 0, 1, r.height), new Color(0, 0, 0, 0.45f));
+
+            // Стрелка по центру (по вертикали — середина окна).
             var st = new GUIStyle(EditorStyles.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 22,
+                fontSize = 14,
                 fontStyle = FontStyle.Bold,
             };
-            st.normal.textColor = Color.white;
-            GUI.Label(r, "▶", st);
+            st.normal.textColor = hover ? Color.white : new Color(0.93f, 0.95f, 1f, 0.92f);
+            float arrowH = 28f;
+            GUI.Label(new Rect(0, (r.height - arrowH) * 0.5f, r.width, arrowH), "▶", st);
 
             if (Event.current.type == EventType.MouseMove) Repaint();
             if (Event.current.type == EventType.MouseDown && hover)
