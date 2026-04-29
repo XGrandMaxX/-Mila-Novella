@@ -759,21 +759,6 @@ namespace NovellaEngine.Editor
 
             _topActions = actions;
             _topActions.style.display = (_currentModuleIndex == 0) ? DisplayStyle.Flex : DisplayStyle.None;
-
-            var minimize = new Button(MinimizeToLauncher) { text = "—", tooltip = ToolLang.Get("Minimize", "Свернуть") };
-            minimize.style.width = 36;
-            minimize.style.height = 28;
-            minimize.style.marginRight = 8;
-            minimize.style.marginLeft = 4;
-            minimize.style.fontSize = 16;
-            minimize.style.unityFontStyleAndWeight = FontStyle.Bold;
-            top.Add(minimize);
-        }
-
-        private void MinimizeToLauncher()
-        {
-            Close();
-            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
         }
 
         // ─────────── Content area ───────────
