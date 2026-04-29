@@ -25,10 +25,26 @@ namespace NovellaEngine.Editor
         private static VisualElement _ring;
         private static double _flashStart;
         private static bool _hovered;
+        private static int _retryCount;
 
         static NovellaToolbarButton()
         {
+            _retryCount = 0;
             EditorApplication.delayCall += Attach;
+            // На холодном старте Unity тулбар может пересоздаваться несколько раз —
+            // ловим эти моменты и переподключаем кнопку первые ~3 секунды.
+            EditorApplication.update += MonitorAttachment;
+        }
+
+        private static void MonitorAttachment()
+        {
+            _retryCount++;
+            bool stillAttached = _btn != null && _btn.parent != null;
+            if (!stillAttached) Attach();
+            if (_retryCount > 180) // ~3s @ 60fps
+            {
+                EditorApplication.update -= MonitorAttachment;
+            }
         }
 
         private static void Attach()
@@ -37,11 +53,7 @@ namespace NovellaEngine.Editor
             if (toolbarType == null) return;
 
             var toolbars = Resources.FindObjectsOfTypeAll(toolbarType);
-            if (toolbars == null || toolbars.Length == 0)
-            {
-                EditorApplication.delayCall += Attach;
-                return;
-            }
+            if (toolbars == null || toolbars.Length == 0) return;
 
             var rootField = toolbarType.GetField("m_Root", BindingFlags.NonPublic | BindingFlags.Instance);
             if (rootField == null) return;
@@ -60,6 +72,9 @@ namespace NovellaEngine.Editor
             _btn.style.alignItems = Align.Center;
             _btn.style.justifyContent = Justify.Center;
             _btn.style.height = 22;
+            _btn.style.minWidth = 96;
+            _btn.style.flexShrink = 0;
+            _btn.style.flexGrow = 0;
             _btn.style.paddingLeft = 10;
             _btn.style.paddingRight = 10;
             _btn.style.marginLeft = 6;
@@ -76,6 +91,7 @@ namespace NovellaEngine.Editor
             label.style.unityFontStyleAndWeight = FontStyle.Bold;
             label.style.fontSize = 11;
             label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            label.pickingMode = PickingMode.Ignore;
             _btn.Add(label);
 
             // Ping-кольцо: расширяющаяся рамка с затуханием. Сидит ребёнком кнопки,
@@ -108,6 +124,8 @@ namespace NovellaEngine.Editor
             _btn.RegisterCallback<ClickEvent>(_ => NovellaHubWindow.ShowWindow());
 
             rightZone.Add(_btn);
+            rightZone.MarkDirtyRepaint();
+            _btn.MarkDirtyRepaint();
         }
 
         public static void Flash()
@@ -215,20 +233,30 @@ namespace NovellaEngine.Editor
             var win = GetWindow<NovellaHubWindow>("Novella Studio");
             win.minSize = new Vector2(1100, 700);
 
+            ApplyFullscreenPosition(win);
+            win.Show();
+            win.Focus();
+
+            // Дубль-страховка: иногда `GetMainWindowPosition()` на первом тике
+            // отдаёт неактуальный размер (Unity ещё доинициализирует docking).
+            // Повторно прижимаем окно к экрану на следующем кадре.
             EditorApplication.delayCall += () =>
             {
                 if (win == null) return;
-                Rect main = EditorGUIUtility.GetMainWindowPosition();
-                if (main.width > 200 && main.height > 200)
-                {
-                    float pad = 20f;
-                    win.position = new Rect(main.x + pad, main.y + pad, main.width - pad * 2f, main.height - pad * 2f);
-                }
+                ApplyFullscreenPosition(win);
                 win.Show();
                 win.Focus();
             };
+        }
 
-            win.Show();
+        private static void ApplyFullscreenPosition(NovellaHubWindow win)
+        {
+            Rect main = EditorGUIUtility.GetMainWindowPosition();
+            if (main.width > 200 && main.height > 200)
+            {
+                float pad = 20f;
+                win.position = new Rect(main.x + pad, main.y + pad, main.width - pad * 2f, main.height - pad * 2f);
+            }
         }
         // ─────────────── OnEnable / OnDisable ───────────────
 
