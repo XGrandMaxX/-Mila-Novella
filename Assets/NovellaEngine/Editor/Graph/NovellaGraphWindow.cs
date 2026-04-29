@@ -473,7 +473,19 @@ namespace NovellaEngine.Editor
             var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 550 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
             toolbarContainer.Add(toggleInspectorBtn);
 
+            var minimizeBtn = new Button(MinimizeToLauncher) { text = "—", tooltip = ToolLang.Get("Minimize", "Свернуть") };
+            minimizeBtn.style.width = 32;
+            minimizeBtn.style.marginLeft = 4;
+            minimizeBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
+            toolbarContainer.Add(minimizeBtn);
+
             container.Add(toolbarContainer);
+        }
+
+        private void MinimizeToLauncher()
+        {
+            Close();
+            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
         }
 
         private void DrawInspectorPanel()
