@@ -328,10 +328,12 @@ namespace NovellaEngine.Editor
                 string.Format(ToolLang.Get("{0} in your project", "{0} в проекте"), _allScenes.Count), s);
 
             Rect newBtn = new Rect(rect.x + 14, rect.y + 64, rect.width - 28, 32);
-            if (DrawCreateButton(newBtn, "＋ " + ToolLang.Get("New scene", "Новая сцена")))
+            GUI.backgroundColor = C_ACCENT;
+            if (GUI.Button(newBtn, "＋ " + ToolLang.Get("New scene", "Новая сцена")))
             {
                 EditorApplication.delayCall += CreateNewScene;
             }
+            GUI.backgroundColor = Color.white;
 
             Rect searchRect = new Rect(rect.x + 14, rect.y + 102, rect.width - 28, 28);
             EditorGUI.DrawRect(searchRect, C_BG_PRIMARY);
