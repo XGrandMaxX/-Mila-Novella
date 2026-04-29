@@ -14,13 +14,16 @@ namespace NovellaEngine.Editor
     internal static class NovellaToolbarButton
     {
         private const string ELEMENT_NAME = "novella-studio-toolbar-btn";
+        private const float PULSE_DURATION = 1.6f;
+        private const int PULSE_COUNT = 3;
+
         private static readonly Color BaseColor = new Color(0.36f, 0.75f, 0.92f);
         private static readonly Color HoverColor = new Color(0.45f, 0.80f, 0.95f);
-        private static readonly Color FlashColorA = new Color(1f, 0.84f, 0.30f);
-        private static readonly Color FlashColorB = new Color(0.98f, 0.55f, 0.20f);
+        private static readonly Color RingColor = new Color(1f, 0.78f, 0.20f);
 
         private static VisualElement _btn;
-        private static double _flashUntil;
+        private static VisualElement _ring;
+        private static double _flashStart;
         private static bool _hovered;
 
         static NovellaToolbarButton()
@@ -75,6 +78,31 @@ namespace NovellaEngine.Editor
             label.style.unityTextAlign = TextAnchor.MiddleCenter;
             _btn.Add(label);
 
+            // Ping-кольцо: расширяющаяся рамка с затуханием. Сидит ребёнком кнопки,
+            // позиционируется абсолютно с отрицательными отступами — чтобы выходить
+            // за границы кнопки.
+            _ring = new VisualElement();
+            _ring.pickingMode = PickingMode.Ignore;
+            _ring.style.position = Position.Absolute;
+            _ring.style.left = -2;
+            _ring.style.right = -2;
+            _ring.style.top = -2;
+            _ring.style.bottom = -2;
+            _ring.style.borderTopWidth = 2;
+            _ring.style.borderRightWidth = 2;
+            _ring.style.borderBottomWidth = 2;
+            _ring.style.borderLeftWidth = 2;
+            _ring.style.borderTopColor = RingColor;
+            _ring.style.borderRightColor = RingColor;
+            _ring.style.borderBottomColor = RingColor;
+            _ring.style.borderLeftColor = RingColor;
+            _ring.style.borderTopLeftRadius = 6;
+            _ring.style.borderTopRightRadius = 6;
+            _ring.style.borderBottomLeftRadius = 6;
+            _ring.style.borderBottomRightRadius = 6;
+            _ring.style.opacity = 0f;
+            _btn.Add(_ring);
+
             _btn.RegisterCallback<MouseEnterEvent>(_ => { _hovered = true; ApplyIdleColor(); });
             _btn.RegisterCallback<MouseLeaveEvent>(_ => { _hovered = false; ApplyIdleColor(); });
             _btn.RegisterCallback<ClickEvent>(_ => NovellaHubWindow.ShowWindow());
@@ -82,32 +110,40 @@ namespace NovellaEngine.Editor
             rightZone.Add(_btn);
         }
 
-        public static void Flash(float duration = 1.5f)
+        public static void Flash()
         {
-            if (_btn == null) Attach();
-            if (_btn == null) return;
-            _flashUntil = EditorApplication.timeSinceStartup + duration;
+            if (_ring == null) Attach();
+            if (_ring == null) return;
+            _flashStart = EditorApplication.timeSinceStartup;
             EditorApplication.update -= Pulse;
             EditorApplication.update += Pulse;
         }
 
         private static void Pulse()
         {
-            if (_btn == null)
+            if (_ring == null)
             {
                 EditorApplication.update -= Pulse;
                 return;
             }
-            double now = EditorApplication.timeSinceStartup;
-            if (now > _flashUntil)
+            double elapsed = EditorApplication.timeSinceStartup - _flashStart;
+            if (elapsed > PULSE_DURATION)
             {
+                _ring.style.opacity = 0f;
+                _ring.style.scale = new StyleScale(new Scale(Vector3.one));
                 EditorApplication.update -= Pulse;
-                ApplyIdleColor();
                 return;
             }
-            float t = (float)now * 6f;
-            float k = 0.5f + 0.5f * Mathf.Sin(t);
-            _btn.style.backgroundColor = Color.Lerp(FlashColorB, FlashColorA, k);
+
+            // Цикл одной пульсации: scale 1.0 -> 1.55, opacity 1.0 -> 0.0.
+            float globalT = (float)(elapsed / PULSE_DURATION);
+            float pulseT = Mathf.Repeat(globalT * PULSE_COUNT, 1f);
+            float ease = 1f - Mathf.Pow(1f - pulseT, 2f); // easeOutQuad
+            float s = Mathf.Lerp(1f, 1.55f, ease);
+            float o = Mathf.Lerp(0.95f, 0f, ease);
+
+            _ring.style.opacity = o;
+            _ring.style.scale = new StyleScale(new Scale(new Vector3(s, s, 1f)));
         }
 
         private static void ApplyIdleColor()
