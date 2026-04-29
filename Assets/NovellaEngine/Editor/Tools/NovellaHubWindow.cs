@@ -398,7 +398,14 @@ namespace NovellaEngine.Editor
                     if (s != null) return s.Title;
                 }
             }
-            return ToolLang.Get("No story selected", "Выбери историю");
+            return ToolLang.Get("Select a story!", "Выберите историю!");
+        }
+
+        public void RefreshActiveStoryLabel()
+        {
+            if (_root == null) return;
+            var nameEl = _root.Q<Label>("activeStoryName");
+            if (nameEl != null) nameEl.text = GetActiveStoryName();
         }
 
         private void OpenStorySwitcher()
@@ -1143,8 +1150,16 @@ namespace NovellaEngine.Editor
                         string.Format(ToolLang.Get("Delete '{0}'?", "Удалить «{0}»?"), capturedStory.Title),
                         ToolLang.Get("Yes", "Да"), ToolLang.Get("Cancel", "Отмена")))
                     {
-                        AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(capturedStory));
+                        string deletedPath = AssetDatabase.GetAssetPath(capturedStory);
+                        string deletedGuid = AssetDatabase.AssetPathToGUID(deletedPath);
+                        AssetDatabase.DeleteAsset(deletedPath);
+                        if (!string.IsNullOrEmpty(deletedGuid) &&
+                            EditorPrefs.GetString("Novella_ActiveStoryGuid", "") == deletedGuid)
+                        {
+                            EditorPrefs.DeleteKey("Novella_ActiveStoryGuid");
+                        }
                         RefreshData();
+                        if (_window is NovellaHubWindow hub) hub.RefreshActiveStoryLabel();
                         if (_window != null) _window.Repaint();
                     }
                 };
@@ -1311,9 +1326,11 @@ namespace NovellaEngine.Editor
                 string path = AssetDatabase.GetAssetPath(st);
                 if (!string.IsNullOrEmpty(path) && AssetDatabase.DeleteAsset(path)) deleted++;
             }
+            EditorPrefs.DeleteKey("Novella_ActiveStoryGuid");
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             RefreshData();
+            if (_window is NovellaHubWindow hub) hub.RefreshActiveStoryLabel();
             if (_window != null) _window.Repaint();
 
             EditorUtility.DisplayDialog(
