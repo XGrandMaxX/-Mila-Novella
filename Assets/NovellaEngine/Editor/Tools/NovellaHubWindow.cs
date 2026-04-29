@@ -27,7 +27,8 @@ namespace NovellaEngine.Editor
 
     public class NovellaMiniLauncher : EditorWindow
     {
-        private const float STRIP_WIDTH = 16f;
+        private const float TAB_WIDTH = 18f;
+        private const float TAB_HEIGHT = 110f;
 
         public static void ShowLauncher()
         {
@@ -35,8 +36,8 @@ namespace NovellaEngine.Editor
 
             var win = CreateInstance<NovellaMiniLauncher>();
             win.titleContent = new GUIContent("Novella");
-            win.minSize = new Vector2(STRIP_WIDTH, 100f);
-            win.maxSize = new Vector2(STRIP_WIDTH, 8192f);
+            win.minSize = new Vector2(TAB_WIDTH, TAB_HEIGHT);
+            win.maxSize = new Vector2(TAB_WIDTH, TAB_HEIGHT);
             win.AnchorToLeftEdge();
             win.ShowPopup();
         }
@@ -46,21 +47,19 @@ namespace NovellaEngine.Editor
             Rect main = EditorGUIUtility.GetMainWindowPosition();
             if (main.width < 200 || main.height < 200)
                 main = new Rect(0, 0, 1280, 720);
-            position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
+            float y = main.y + (main.height - TAB_HEIGHT) * 0.5f;
+            position = new Rect(main.x, y, TAB_WIDTH, TAB_HEIGHT);
         }
 
         private void OnGUI()
         {
-            // Re-anchor every frame in case Unity's main window was moved or resized.
-            // Сравнение через small epsilon чтобы не вызывать setPosition впустую и не ловить дрожь.
             Rect main = EditorGUIUtility.GetMainWindowPosition();
             if (main.width >= 200 && main.height >= 200)
             {
-                Rect target = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
+                float targetY = main.y + (main.height - TAB_HEIGHT) * 0.5f;
+                Rect target = new Rect(main.x, targetY, TAB_WIDTH, TAB_HEIGHT);
                 if (Mathf.Abs(position.x - target.x) > 0.5f
-                    || Mathf.Abs(position.y - target.y) > 0.5f
-                    || Mathf.Abs(position.width - target.width) > 0.5f
-                    || Mathf.Abs(position.height - target.height) > 0.5f)
+                    || Mathf.Abs(position.y - target.y) > 0.5f)
                 {
                     position = target;
                 }
@@ -69,29 +68,19 @@ namespace NovellaEngine.Editor
             Rect r = new Rect(0, 0, position.width, position.height);
             bool hover = r.Contains(Event.current.mousePosition);
 
-            // Двухступенчатый фон: тёмный slate-фон + бирюзовая полоса по центру (не на всю ширину),
-            // чтобы выглядело как "ярлык" а не как сплошная цветная стена.
-            Color bgCol = new Color(0.13f, 0.14f, 0.18f);
-            EditorGUI.DrawRect(r, bgCol);
+            Color bg = hover ? new Color(0.32f, 0.34f, 0.40f, 0.98f) : new Color(0.22f, 0.23f, 0.28f, 0.95f);
+            EditorGUI.DrawRect(r, bg);
 
-            float accentW = 3f;
-            float accentX = (r.width - accentW) * 0.5f;
-            Color accent = hover ? new Color(0.45f, 0.80f, 0.95f) : new Color(0.36f, 0.75f, 0.92f);
-            EditorGUI.DrawRect(new Rect(accentX, 0, accentW, r.height), accent);
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, 0, 1, r.height), new Color(0, 0, 0, 0.55f));
 
-            // Тонкая граница справа — отделяет от Unity-контента.
-            EditorGUI.DrawRect(new Rect(r.xMax - 1, 0, 1, r.height), new Color(0, 0, 0, 0.45f));
-
-            // Стрелка по центру (по вертикали — середина окна).
             var st = new GUIStyle(EditorStyles.label)
             {
                 alignment = TextAnchor.MiddleCenter,
-                fontSize = 14,
+                fontSize = 12,
                 fontStyle = FontStyle.Bold,
             };
-            st.normal.textColor = hover ? Color.white : new Color(0.93f, 0.95f, 1f, 0.92f);
-            float arrowH = 28f;
-            GUI.Label(new Rect(0, (r.height - arrowH) * 0.5f, r.width, arrowH), "▶", st);
+            st.normal.textColor = hover ? new Color(0.45f, 0.80f, 0.95f) : new Color(0.85f, 0.87f, 0.93f);
+            GUI.Label(r, "▶", st);
 
             if (Event.current.type == EventType.MouseMove) Repaint();
             if (Event.current.type == EventType.MouseDown && hover)
