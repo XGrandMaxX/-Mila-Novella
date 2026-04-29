@@ -133,14 +133,32 @@ namespace NovellaEngine.Editor
 
             BuildUI();
             SwitchToModule(_currentModuleIndex);
+
+            EditorApplication.projectChanged += OnProjectChanged;
         }
 
         private void OnDisable()
         {
+            EditorApplication.projectChanged -= OnProjectChanged;
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
             _tutorialPoll?.Pause();
             _tutorialPoll = null;
             if (Instance == this) Instance = null;
+        }
+
+        private void OnProjectChanged()
+        {
+            string activeGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
+            if (!string.IsNullOrEmpty(activeGuid))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(activeGuid);
+                if (string.IsNullOrEmpty(path) ||
+                    AssetDatabase.LoadAssetAtPath<NovellaStory>(path) == null)
+                {
+                    EditorPrefs.DeleteKey("Novella_ActiveStoryGuid");
+                }
+            }
+            RefreshActiveStoryLabel();
         }
 
         // Когда юзер возвращается в Hub из Graph-окна, Dashboard должен перечитать времена правки
@@ -1384,20 +1402,21 @@ namespace NovellaEngine.Editor
             string guid = Guid.NewGuid().ToString().Substring(0, 5);
 
             var newTree = ScriptableObject.CreateInstance<NovellaTree>();
-            string treePath = $"{baseDir}/Chapter_1_{guid}.asset";
-            AssetDatabase.CreateAsset(newTree, treePath);
+            newTree.name = $"Chapter_1_{guid}";
 
             var newStory = ScriptableObject.CreateInstance<NovellaStory>();
+            newStory.name = $"Story_{guid}";
             newStory.Title = "New Story";
             newStory.StartingChapter = newTree;
+
+            string treePath = $"{baseDir}/Chapter_1_{guid}.asset";
             string storyPath = $"{baseDir}/Story_{guid}.asset";
-            AssetDatabase.CreateAsset(newStory, storyPath);
 
-            AssetDatabase.SaveAssets();
-            RefreshData();
-
-            EditorPrefs.SetString("Novella_ActiveStoryGuid", AssetDatabase.AssetPathToGUID(storyPath));
-            NovellaStorySettingsPopup.ShowWindow(newStory, RefreshData);
+            NovellaStorySettingsPopup.ShowWindowForNew(newStory, newTree, storyPath, treePath, () =>
+            {
+                RefreshData();
+                if (_window is NovellaHubWindow hub) hub.RefreshActiveStoryLabel();
+            });
         }
     }
 
@@ -1411,14 +1430,79 @@ namespace NovellaEngine.Editor
         public Action OnClose;
         private Vector2 _scroll;
 
+        // Pending-mode: assets are not yet on disk; created only on Save & Close.
+        private bool _isPending;
+        private NovellaTree _pendingTree;
+        private string _pendingStoryPath;
+        private string _pendingTreePath;
+        private bool _saved;
+
         public static void ShowWindow(NovellaStory story, Action onClose)
         {
             var win = GetWindow<NovellaStorySettingsPopup>(true, ToolLang.Get("Story Settings", "Настройки истории"), true);
             win.Story = story;
             win.OnClose = onClose;
+            win._isPending = false;
+            win._pendingTree = null;
+            win._pendingStoryPath = null;
+            win._pendingTreePath = null;
+            win._saved = false;
             win.minSize = new Vector2(540, 420);
             win.maxSize = new Vector2(900, 800);
             win.ShowUtility();
+        }
+
+        public static void ShowWindowForNew(NovellaStory pendingStory, NovellaTree pendingTree,
+                                            string storyPath, string treePath, Action onClose)
+        {
+            var win = GetWindow<NovellaStorySettingsPopup>(true, ToolLang.Get("Story Settings", "Настройки истории"), true);
+            win.Story = pendingStory;
+            win.OnClose = onClose;
+            win._isPending = true;
+            win._pendingTree = pendingTree;
+            win._pendingStoryPath = storyPath;
+            win._pendingTreePath = treePath;
+            win._saved = false;
+            win.minSize = new Vector2(540, 420);
+            win.maxSize = new Vector2(900, 800);
+            win.ShowUtility();
+        }
+
+        private void OnDestroy()
+        {
+            if (_isPending && !_saved)
+            {
+                if (_pendingTree != null) DestroyImmediate(_pendingTree);
+                if (Story != null && !AssetDatabase.Contains(Story)) DestroyImmediate(Story);
+            }
+        }
+
+        private void CommitPendingAssets()
+        {
+            if (!_isPending) return;
+
+            bool useInitialTree = Story.StartingChapter == _pendingTree;
+            if (useInitialTree && _pendingTree != null)
+            {
+                AssetDatabase.CreateAsset(_pendingTree, _pendingTreePath);
+            }
+            else if (_pendingTree != null)
+            {
+                DestroyImmediate(_pendingTree);
+                _pendingTree = null;
+            }
+
+            AssetDatabase.CreateAsset(Story, _pendingStoryPath);
+            AssetDatabase.SaveAssets();
+
+            string storyGuid = AssetDatabase.AssetPathToGUID(_pendingStoryPath);
+            if (!string.IsNullOrEmpty(storyGuid))
+            {
+                EditorPrefs.SetString("Novella_ActiveStoryGuid", storyGuid);
+            }
+
+            _saved = true;
+            _isPending = false;
         }
 
         private void OnGUI()
@@ -1484,8 +1568,15 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
             if (GUILayout.Button(ToolLang.Get("Save & Close", "Сохранить и закрыть"), GUILayout.Width(180), GUILayout.Height(32)))
             {
-                EditorUtility.SetDirty(Story);
-                AssetDatabase.SaveAssets();
+                if (_isPending)
+                {
+                    CommitPendingAssets();
+                }
+                else
+                {
+                    EditorUtility.SetDirty(Story);
+                    AssetDatabase.SaveAssets();
+                }
                 OnClose?.Invoke();
                 Close();
             }
