@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using NovellaEngine.Data;
 using UnityEditor;
 using UnityEngine;
@@ -9,6 +10,113 @@ using UnityEngine.UIElements;
 
 namespace NovellaEngine.Editor
 {
+    [InitializeOnLoad]
+    internal static class NovellaToolbarButton
+    {
+        private const string ELEMENT_NAME = "novella-studio-toolbar-btn";
+        private static readonly Color BaseColor = new Color(0.36f, 0.75f, 0.92f);
+        private static readonly Color HoverColor = new Color(0.45f, 0.80f, 0.95f);
+        private static readonly Color FlashColorA = new Color(1f, 0.84f, 0.30f);
+        private static readonly Color FlashColorB = new Color(0.98f, 0.55f, 0.20f);
+
+        private static VisualElement _btn;
+        private static double _flashUntil;
+        private static bool _hovered;
+
+        static NovellaToolbarButton()
+        {
+            EditorApplication.delayCall += Attach;
+        }
+
+        private static void Attach()
+        {
+            var toolbarType = typeof(EditorWindow).Assembly.GetType("UnityEditor.Toolbar");
+            if (toolbarType == null) return;
+
+            var toolbars = Resources.FindObjectsOfTypeAll(toolbarType);
+            if (toolbars == null || toolbars.Length == 0)
+            {
+                EditorApplication.delayCall += Attach;
+                return;
+            }
+
+            var rootField = toolbarType.GetField("m_Root", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (rootField == null) return;
+
+            var root = rootField.GetValue(toolbars[0]) as VisualElement;
+            if (root == null) return;
+
+            var rightZone = root.Q("ToolbarZoneRightAlign");
+            if (rightZone == null) return;
+
+            var existing = rightZone.Q(ELEMENT_NAME);
+            if (existing != null) existing.RemoveFromHierarchy();
+
+            _btn = new VisualElement { name = ELEMENT_NAME };
+            _btn.style.flexDirection = FlexDirection.Row;
+            _btn.style.alignItems = Align.Center;
+            _btn.style.justifyContent = Justify.Center;
+            _btn.style.height = 22;
+            _btn.style.paddingLeft = 10;
+            _btn.style.paddingRight = 10;
+            _btn.style.marginLeft = 6;
+            _btn.style.marginRight = 6;
+            _btn.style.borderTopLeftRadius = 4;
+            _btn.style.borderTopRightRadius = 4;
+            _btn.style.borderBottomLeftRadius = 4;
+            _btn.style.borderBottomRightRadius = 4;
+            _btn.style.backgroundColor = BaseColor;
+            _btn.tooltip = "Open Novella Studio";
+
+            var label = new Label("🚀 Novella");
+            label.style.color = new Color(0.07f, 0.08f, 0.10f);
+            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            label.style.fontSize = 11;
+            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _btn.Add(label);
+
+            _btn.RegisterCallback<MouseEnterEvent>(_ => { _hovered = true; ApplyIdleColor(); });
+            _btn.RegisterCallback<MouseLeaveEvent>(_ => { _hovered = false; ApplyIdleColor(); });
+            _btn.RegisterCallback<ClickEvent>(_ => NovellaHubWindow.ShowWindow());
+
+            rightZone.Add(_btn);
+        }
+
+        public static void Flash(float duration = 1.5f)
+        {
+            if (_btn == null) Attach();
+            if (_btn == null) return;
+            _flashUntil = EditorApplication.timeSinceStartup + duration;
+            EditorApplication.update -= Pulse;
+            EditorApplication.update += Pulse;
+        }
+
+        private static void Pulse()
+        {
+            if (_btn == null)
+            {
+                EditorApplication.update -= Pulse;
+                return;
+            }
+            double now = EditorApplication.timeSinceStartup;
+            if (now > _flashUntil)
+            {
+                EditorApplication.update -= Pulse;
+                ApplyIdleColor();
+                return;
+            }
+            float t = (float)now * 6f;
+            float k = 0.5f + 0.5f * Mathf.Sin(t);
+            _btn.style.backgroundColor = Color.Lerp(FlashColorB, FlashColorA, k);
+        }
+
+        private static void ApplyIdleColor()
+        {
+            if (_btn == null) return;
+            _btn.style.backgroundColor = _hovered ? HoverColor : BaseColor;
+        }
+    }
+
     // ════════════════════════════════════════════════════════════════════
     // Контракт модулей — НЕ ИЗМЕНЯЕТСЯ. Старые модули (CharacterEditor,
     // VariableEditor, SceneManager, UIEditor) продолжают рисоваться через
@@ -23,132 +131,6 @@ namespace NovellaEngine.Editor
         void OnEnable(EditorWindow hostWindow);
         void OnDisable();
         void DrawGUI(Rect position);
-    }
-
-    internal static class NovellaWinTween
-    {
-        public static void Animate(EditorWindow win, Rect from, Rect to, float duration, Action onComplete = null)
-        {
-            if (win == null) { onComplete?.Invoke(); return; }
-            double t0 = EditorApplication.timeSinceStartup;
-            EditorApplication.CallbackFunction step = null;
-            step = () =>
-            {
-                if (win == null)
-                {
-                    EditorApplication.update -= step;
-                    onComplete?.Invoke();
-                    return;
-                }
-                double dt = EditorApplication.timeSinceStartup - t0;
-                float t = duration > 0 ? Mathf.Clamp01((float)(dt / duration)) : 1f;
-                float e = 1f - Mathf.Pow(1f - t, 3f); // easeOutCubic
-                try
-                {
-                    win.position = new Rect(
-                        Mathf.Lerp(from.x, to.x, e),
-                        Mathf.Lerp(from.y, to.y, e),
-                        Mathf.Lerp(from.width, to.width, e),
-                        Mathf.Lerp(from.height, to.height, e)
-                    );
-                    win.Repaint();
-                }
-                catch { /* окно могло закрыться/быть пересоздано в середине — гасим тихо */ }
-                if (t >= 1f)
-                {
-                    EditorApplication.update -= step;
-                    onComplete?.Invoke();
-                }
-            };
-            EditorApplication.update += step;
-        }
-    }
-
-    public class NovellaMiniLauncher : EditorWindow
-    {
-        public const float STRIP_WIDTH = 10f;
-        private const float BUTTON_HEIGHT = 48f;
-
-        public static NovellaMiniLauncher Instance { get; private set; }
-
-        public static void ShowLauncher()
-        {
-            if (HasOpenInstances<NovellaHubWindow>() || HasOpenInstances<NovellaWelcomeWindow>()) return;
-            if (Instance != null) { Instance.Focus(); return; }
-
-            Rect main = EditorGUIUtility.GetMainWindowPosition();
-            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
-
-            var win = CreateInstance<NovellaMiniLauncher>();
-            win.titleContent = new GUIContent("Novella");
-            win.minSize = new Vector2(STRIP_WIDTH, 100f);
-            win.maxSize = new Vector2(STRIP_WIDTH, 8192f);
-            win.position = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
-            win.ShowPopup();
-            Instance = win;
-        }
-
-        private void OnDisable()
-        {
-            if (Instance == this) Instance = null;
-        }
-
-        private void OnGUI()
-        {
-            Rect main = EditorGUIUtility.GetMainWindowPosition();
-            if (main.width >= 200 && main.height >= 200)
-            {
-                Rect target = new Rect(main.x, main.y, STRIP_WIDTH, main.height);
-                if (Mathf.Abs(position.x - target.x) > 0.5f
-                    || Mathf.Abs(position.y - target.y) > 0.5f
-                    || Mathf.Abs(position.height - target.height) > 0.5f)
-                {
-                    position = target;
-                }
-            }
-
-            Rect r = new Rect(0, 0, position.width, position.height);
-
-            // Фон под цвет редактора — чтобы полоска визуально сливалась.
-            Color editorBg = EditorGUIUtility.isProSkin
-                ? new Color(0.219f, 0.219f, 0.219f)
-                : new Color(0.76f, 0.76f, 0.76f);
-            EditorGUI.DrawRect(r, editorBg);
-
-            // Тонкая вертикальная линия по центру — основной визуальный элемент.
-            float lineX = Mathf.Floor(r.center.x);
-            EditorGUI.DrawRect(new Rect(lineX, 0, 1, r.height), new Color(0, 0, 0, 0.55f));
-
-            // Маленькая кнопка по центру по вертикали.
-            float btnY = Mathf.Floor((r.height - BUTTON_HEIGHT) * 0.5f);
-            Rect btnRect = new Rect(0, btnY, r.width, BUTTON_HEIGHT);
-            bool btnHover = btnRect.Contains(Event.current.mousePosition);
-
-            Color btnBg = btnHover
-                ? new Color(0.36f, 0.75f, 0.92f, 0.98f)
-                : new Color(0.24f, 0.26f, 0.32f, 0.98f);
-            EditorGUI.DrawRect(btnRect, btnBg);
-            EditorGUI.DrawRect(new Rect(btnRect.x, btnRect.y, btnRect.width, 1), new Color(0, 0, 0, 0.55f));
-            EditorGUI.DrawRect(new Rect(btnRect.x, btnRect.yMax - 1, btnRect.width, 1), new Color(0, 0, 0, 0.55f));
-
-            var st = new GUIStyle(EditorStyles.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontSize = 10,
-                fontStyle = FontStyle.Bold,
-            };
-            st.normal.textColor = Color.white;
-            GUI.Label(btnRect, "▶", st);
-
-            if (Event.current.type == EventType.MouseMove) Repaint();
-            if (Event.current.type == EventType.MouseDown && btnHover)
-            {
-                Event.current.Use();
-                Rect launcherFrom = new Rect(position.x, position.y + btnY, position.width, BUTTON_HEIGHT);
-                Close();
-                EditorApplication.delayCall += () => NovellaHubWindow.ShowWindowAnimatedFrom(launcherFrom);
-            }
-        }
     }
 
     /// <summary>
@@ -194,8 +176,6 @@ namespace NovellaEngine.Editor
         [MenuItem("Novella Engine/🚀 Novella Studio (Hub)", false, 0)]
         public static void ShowWindow()
         {
-            if (NovellaMiniLauncher.Instance != null) NovellaMiniLauncher.Instance.Close();
-
             var win = GetWindow<NovellaHubWindow>("Novella Studio");
             win.minSize = new Vector2(1100, 700);
 
@@ -214,29 +194,6 @@ namespace NovellaEngine.Editor
 
             win.Show();
         }
-
-        public static void ShowWindowAnimatedFrom(Rect from)
-        {
-            if (NovellaMiniLauncher.Instance != null) NovellaMiniLauncher.Instance.Close();
-
-            var win = GetWindow<NovellaHubWindow>("Novella Studio");
-            win.minSize = new Vector2(40, 40);
-            win.position = from;
-            win.Show();
-
-            Rect main = EditorGUIUtility.GetMainWindowPosition();
-            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
-            float pad = 20f;
-            Rect to = new Rect(main.x + pad, main.y + pad, main.width - pad * 2f, main.height - pad * 2f);
-
-            NovellaWinTween.Animate(win, from, to, 0.22f, () =>
-            {
-                if (win == null) return;
-                win.minSize = new Vector2(1100, 700);
-                win.Focus();
-            });
-        }
-
         // ─────────────── OnEnable / OnDisable ───────────────
 
         private void OnEnable()
@@ -910,17 +867,8 @@ namespace NovellaEngine.Editor
 
         private void MinimizeToLauncher()
         {
-            Rect from = position;
-            Rect main = EditorGUIUtility.GetMainWindowPosition();
-            if (main.width < 200 || main.height < 200) main = new Rect(0, 0, 1280, 720);
-            Rect to = new Rect(main.x, main.y + (main.height - 48f) * 0.5f, NovellaMiniLauncher.STRIP_WIDTH, 48f);
-
-            minSize = new Vector2(8, 30);
-            NovellaWinTween.Animate(this, from, to, 0.18f, () =>
-            {
-                Close();
-                EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
-            });
+            Close();
+            EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
         }
 
         // ─────────── Content area ───────────

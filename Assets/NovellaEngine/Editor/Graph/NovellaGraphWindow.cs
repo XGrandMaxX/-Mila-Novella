@@ -502,7 +502,6 @@ namespace NovellaEngine.Editor
         private void MinimizeToLauncher()
         {
             Close();
-            EditorApplication.delayCall += NovellaMiniLauncher.ShowLauncher;
         }
 
         private void DrawInspectorPanel()
