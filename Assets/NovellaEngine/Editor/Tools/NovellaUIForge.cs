@@ -547,7 +547,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(8);
 
-            // Items + Catalog в одной прокрутке
+            // Items
             _treeScroll = GUILayout.BeginScrollView(_treeScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
             string filter = _treeFilter?.Trim().ToLowerInvariant() ?? "";
 
@@ -559,65 +559,28 @@ namespace NovellaEngine.Editor
                 if (filter.Length > 0 && !name.ToLowerInvariant().Contains(filter)) continue;
 
                 int depth = ComputeDepth(rt);
-                DrawTreeRow(rt, name, GetDisplayIcon(rt), depth);
+                DrawTreeRow(rt, name, GetDisplayIcon(rt), depth, i);
             }
 
-            GUILayout.Space(14);
-            DrawCatalogSection();
-
             GUILayout.EndScrollView();
+
+            // Подсказка про правый клик
+            GUILayout.Space(8);
+            var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true, alignment = TextAnchor.MiddleCenter };
+            hint.normal.textColor = C_TEXT_4;
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            GUILayout.Label("💡 " + ToolLang.Get(
+                "Right-click on canvas or tree to add elements",
+                "ПКМ по холсту или дереву — добавить элемент"), hint);
+            GUILayout.Space(10);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+
             GUILayout.EndArea();
         }
 
-        // ─── Каталог: создание новых элементов одним кликом ───────────────────
-
-        private void DrawCatalogSection()
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(14);
-            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11 };
-            titleSt.normal.textColor = C_TEXT_3;
-            GUILayout.Label("➕ " + ToolLang.Get("CATALOG", "КАТАЛОГ"), titleSt);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(2);
-
-            DrawCatalogItem("📝", ToolLang.Get("Text", "Текст"),         CreateText);
-            DrawCatalogItem("🔘", ToolLang.Get("Button", "Кнопка"),       CreateButton);
-            DrawCatalogItem("🖼", ToolLang.Get("Image", "Картинка"),       CreateImage);
-            DrawCatalogItem("▣",  ToolLang.Get("Panel", "Панель"),         CreatePanel);
-        }
-
-        private void DrawCatalogItem(string icon, string label, Action onCreate)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(8);
-            Rect r = GUILayoutUtility.GetRect(0, 30, GUILayout.ExpandWidth(true));
-            GUILayout.Space(8);
-            GUILayout.EndHorizontal();
-
-            bool hover = r.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(r, hover ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f) : C_BG_RAISED);
-            DrawRectBorder(r, hover ? C_ACCENT : C_BORDER);
-
-            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = hover ? C_ACCENT : C_TEXT_2;
-            GUI.Label(new Rect(r.x + 6, r.y, 24, r.height), icon, iconSt);
-
-            var labelSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
-            labelSt.normal.textColor = C_TEXT_1;
-            GUI.Label(new Rect(r.x + 32, r.y, r.width - 40, r.height), label, labelSt);
-
-            var plusSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
-            plusSt.normal.textColor = hover ? C_ACCENT : C_TEXT_4;
-            GUI.Label(new Rect(r.xMax - 24, r.y, 18, r.height), "+", plusSt);
-
-            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
-            {
-                onCreate?.Invoke();
-                _window?.Repaint();
-                Event.current.Use();
-            }
-        }
+        // ─── Создание новых элементов (через ПКМ) ──────────────────────────────
 
         private Transform GetCreationParent()
         {
@@ -718,35 +681,75 @@ namespace NovellaEngine.Editor
             return Mathf.Max(0, d - 1);
         }
 
-        private void DrawTreeRow(RectTransform rt, string name, string icon, int depth)
+        private void DrawTreeRow(RectTransform rt, string name, string icon, int depth, int index)
         {
             bool isSel = rt == _selected;
 
             GUILayout.BeginHorizontal();
-            GUILayout.Space(8);
+            GUILayout.Space(0);
             Rect row = GUILayoutUtility.GetRect(0, 26, GUILayout.ExpandWidth(true));
-            GUILayout.Space(8);
+            GUILayout.Space(0);
             GUILayout.EndHorizontal();
 
             EditorGUI.DrawRect(row, isSel ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f) : Color.clear);
             if (isSel) EditorGUI.DrawRect(new Rect(row.x, row.y, 3, row.height), C_ACCENT);
 
-            float indent = 6f + depth * 12f;
+            // Tree-line indent: вертикальные направляющие для каждого уровня + L-коннектор.
+            const float STEP = 14f;
+            float baseX = row.x + 12f;
+            Color lineCol = new Color(0.30f, 0.32f, 0.40f, 0.55f);
+
+            if (depth > 0)
+            {
+                // Вертикальные направляющие для всех родительских уровней (кроме корня)
+                for (int d = 1; d <= depth; d++)
+                {
+                    float lx = baseX + (d - 1) * STEP + STEP * 0.5f;
+                    EditorGUI.DrawRect(new Rect(lx, row.y, 1, row.height), lineCol);
+                }
+                // L-коннектор для текущей строки (горизонтальная палочка)
+                float branchX = baseX + (depth - 1) * STEP + STEP * 0.5f;
+                EditorGUI.DrawRect(new Rect(branchX, row.y + row.height * 0.5f, STEP * 0.5f, 1), lineCol);
+            }
+
+            float iconX = baseX + depth * STEP;
 
             var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
             iconSt.normal.textColor = isSel ? C_ACCENT : C_TEXT_3;
-            GUI.Label(new Rect(row.x + indent, row.y, 18, row.height), icon, iconSt);
+            GUI.Label(new Rect(iconX, row.y, 18, row.height), icon, iconSt);
 
-            var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
             nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
-            GUI.Label(new Rect(row.x + indent + 20, row.y, row.width - indent - 24, row.height), name, nameSt);
+            GUI.Label(new Rect(iconX + 20, row.y, row.width - (iconX - row.x) - 28, row.height), name, nameSt);
 
+            // Левый клик — выбрать. Правый — контекстное меню создания / удаления.
             if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition))
             {
                 _selected = rt;
+                if (Event.current.button == 1)
+                {
+                    ShowTreeContextMenu(rt);
+                }
                 _window?.Repaint();
                 Event.current.Use();
             }
+        }
+
+        private void ShowTreeContextMenu(RectTransform rt)
+        {
+            var menu = new GenericMenu();
+            string parentName = GetDisplayName(rt);
+
+            menu.AddDisabledItem(new GUIContent(string.Format(ToolLang.Get("Create inside: {0}", "Создать внутри: {0}"), parentName)));
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")),     false, () => { _selected = rt; CreateText();   });
+            menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")),  false, () => { _selected = rt; CreateButton(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")),  false, () => { _selected = rt; CreateImage();  });
+            menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")),    false, () => { _selected = rt; CreatePanel();  });
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get("📋 Duplicate", "📋 Дублировать")), false, () => { _selected = rt; DuplicateSelected(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("🗑 Delete", "🗑 Удалить")), false, () => { _selected = rt; DeleteSelected(); });
+            menu.ShowAsContext();
         }
 
         // ─── Центр: интерактивный canvas ───────────────────────────────────────
@@ -862,7 +865,7 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
 
-            // Dropdown пресетов разрешения
+            // ── Группа 1 (слева): разрешение + custom W/H ──
             string[] options = new string[RESOLUTION_PRESETS.Length + 1];
             for (int i = 0; i < RESOLUTION_PRESETS.Length; i++) options[i] = RESOLUTION_PRESETS[i].label;
             options[RESOLUTION_PRESETS.Length] = ToolLang.Get("⚙ Custom…", "⚙ Своё…");
@@ -875,7 +878,6 @@ namespace NovellaEngine.Editor
                 ResetPreviewTexture();
             }
 
-            // Custom W/H поля — показываем только если выбран пресет "Custom"
             if (_resolutionPresetIndex == RESOLUTION_PRESETS.Length)
             {
                 GUILayout.Space(6);
@@ -892,14 +894,13 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            GUILayout.Space(16);
+            GUILayout.FlexibleSpace();
 
-            _showGrid = GUILayout.Toggle(_showGrid, ToolLang.Get(" Grid", " Сетка"), EditorStyles.toolbarButton, GUILayout.Height(22));
-
-            // Safe Area — только в мобильном режиме (вертикальное разрешение)
+            // ── Группа 2 (центр): toggles ──
+            _showGrid = GUILayout.Toggle(_showGrid, ToolLang.Get("  Grid", "  Сетка"), EditorStyles.toolbarButton, GUILayout.Width(80), GUILayout.Height(22));
             if (_isMobileMode)
             {
-                _showSafeArea = GUILayout.Toggle(_showSafeArea, ToolLang.Get(" Safe Area", " Безопасная зона"), EditorStyles.toolbarButton, GUILayout.Height(22));
+                _showSafeArea = GUILayout.Toggle(_showSafeArea, ToolLang.Get("  Safe Area", "  Безопасная зона"), EditorStyles.toolbarButton, GUILayout.Width(140), GUILayout.Height(22));
             }
             else
             {
@@ -908,17 +909,18 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
-            // Кнопка помощи
-            if (GUILayout.Button("❓ " + ToolLang.Get("Help", "Помощь"), EditorStyles.toolbarButton, GUILayout.Width(80), GUILayout.Height(22)))
+            // ── Группа 3 (справа): zoom + help ──
+            var zoomLabelSt = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 }, alignment = TextAnchor.MiddleRight };
+            GUILayout.Label(ToolLang.Get("Zoom", "Масштаб"), zoomLabelSt, GUILayout.Width(58));
+            _previewZoom = GUILayout.HorizontalSlider(_previewZoom, 0.25f, 1.5f, GUILayout.Width(110));
+            GUILayout.Label((_previewZoom * 100f).ToString("F0") + "%", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
+
+            GUILayout.Space(8);
+
+            if (GUILayout.Button("❓", EditorStyles.toolbarButton, GUILayout.Width(30), GUILayout.Height(22)))
             {
                 NovellaUIForgeHelpWindow.ShowHelp();
             }
-
-            GUILayout.Space(12);
-
-            GUILayout.Label("Zoom", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
-            _previewZoom = GUILayout.HorizontalSlider(_previewZoom, 0.25f, 1.5f, GUILayout.Width(120));
-            GUILayout.Label((_previewZoom * 100f).ToString("F0") + "%", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
 
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
@@ -1014,6 +1016,15 @@ namespace NovellaEngine.Editor
             Event e = Event.current;
             if (e == null) return;
 
+            // Удаление через Del (если над холстом, не идёт drag/resize)
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Delete &&
+                _selected != null && drawRect.Contains(e.mousePosition))
+            {
+                DeleteSelected();
+                e.Use();
+                return;
+            }
+
             // Pre-pass: если уже идёт drag/resize — обрабатываем независимо от позиции
             if (_dragging || _resizeHandle >= 0)
             {
@@ -1033,9 +1044,18 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            if (e.type == EventType.MouseDown && drawRect.Contains(e.mousePosition))
+            // Правый клик — контекстное меню создания
+            if (e.type == EventType.ContextClick && drawRect.Contains(e.mousePosition))
             {
-                // Если кликнули по handle выбранного элемента — начать resize
+                RectTransform under = PickRectAt(e.mousePosition, drawRect, targetW, targetH);
+                ShowCanvasCreateMenu(under);
+                e.Use();
+                return;
+            }
+
+            if (e.type == EventType.MouseDown && e.button == 0 && drawRect.Contains(e.mousePosition))
+            {
+                // Resize handles имеют приоритет над всем (даже если кликнули внутри родителя)
                 if (_selected != null)
                 {
                     Rect selRect = ComputeSelectedScreenRect(drawRect, targetW, targetH);
@@ -1049,17 +1069,12 @@ namespace NovellaEngine.Editor
                             return;
                         }
                     }
-
-                    // Внутри selection rect — начать drag
-                    if (selRect.Contains(e.mousePosition))
-                    {
-                        BeginDrag(e.mousePosition);
-                        e.Use();
-                        return;
-                    }
                 }
 
-                // Иначе — pick новый элемент под курсором
+                // ВСЕГДА переподбираем элемент под курсором.
+                // Раньше: если ребёнок был внутри selection rect родителя, мы тащили родителя.
+                // Теперь: pick всегда возвращает самый ГЛУБОКИЙ элемент (PickRectAt),
+                // и драг применяется именно к нему.
                 RectTransform picked = PickRectAt(e.mousePosition, drawRect, targetW, targetH);
                 if (picked != null)
                 {
@@ -1072,6 +1087,33 @@ namespace NovellaEngine.Editor
                 }
                 e.Use();
             }
+        }
+
+        private void ShowCanvasCreateMenu(RectTransform under)
+        {
+            var menu = new GenericMenu();
+
+            Transform creationParent;
+            string parentName;
+            if (under != null && under != _canvas.GetComponent<RectTransform>())
+            {
+                creationParent = under.transform;
+                parentName = GetDisplayName(under);
+                _selected = under; // визуально выделяем родителя для подсказки
+            }
+            else
+            {
+                creationParent = _canvas.transform;
+                parentName = "Canvas";
+            }
+
+            menu.AddDisabledItem(new GUIContent(string.Format(ToolLang.Get("Create inside: {0}", "Создать внутри: {0}"), parentName)));
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")),     false, () => { _selected = creationParent.GetComponent<RectTransform>(); CreateText();   });
+            menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")),  false, () => { _selected = creationParent.GetComponent<RectTransform>(); CreateButton(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")),  false, () => { _selected = creationParent.GetComponent<RectTransform>(); CreateImage();  });
+            menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")),    false, () => { _selected = creationParent.GetComponent<RectTransform>(); CreatePanel();  });
+            menu.ShowAsContext();
         }
 
         // Возвращает самый глубокий RT, чей world rect содержит экранную точку.
@@ -1287,7 +1329,7 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorPositionSection()
         {
-            DrawSectionLabel(ToolLang.Get("POSITION & SIZE", "ПОЛОЖЕНИЕ И РАЗМЕР"));
+            DrawSectionLabel(ToolLang.Get("POSITION & SIZE", "ПОЛОЖЕНИЕ И РАЗМЕР"), "position");
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
@@ -1361,7 +1403,7 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorAnchorSection()
         {
-            DrawSectionLabel(ToolLang.Get("ANCHOR", "ЯКОРЬ"));
+            DrawSectionLabel(ToolLang.Get("ANCHOR", "ЯКОРЬ"), "anchor");
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
@@ -1489,16 +1531,40 @@ namespace NovellaEngine.Editor
 
         private void DrawImageSection(Image img)
         {
-            DrawSectionLabel(ToolLang.Get("IMAGE", "ИЗОБРАЖЕНИЕ"));
+            DrawSectionLabel(ToolLang.Get("IMAGE", "ИЗОБРАЖЕНИЕ"), "image");
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             GUILayout.BeginVertical();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Sprite", "Спрайт"), GUILayout.Width(72));
-            EditorGUI.BeginChangeCheck();
-            var newSp = (Sprite)EditorGUILayout.ObjectField(img.sprite, typeof(Sprite), false);
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(img, "Sprite"); img.sprite = newSp; }
+            string spName = img.sprite != null ? img.sprite.name : ToolLang.Get("(none)", "(не выбрано)");
+            if (GUILayout.Button(spName, EditorStyles.popup, GUILayout.Height(20)))
+            {
+                var captured = img;
+                NovellaGalleryWindow.ShowWindow((obj) =>
+                {
+                    if (captured == null) return;
+                    Sprite picked = null;
+                    if (obj is Sprite sp) picked = sp;
+                    else if (obj is Texture2D tex)
+                    {
+                        string p = AssetDatabase.GetAssetPath(tex);
+                        picked = AssetDatabase.LoadAssetAtPath<Sprite>(p);
+                    }
+                    if (picked != null)
+                    {
+                        Undo.RecordObject(captured, "Sprite");
+                        captured.sprite = picked;
+                        EditorUtility.SetDirty(captured);
+                    }
+                }, NovellaGalleryWindow.EGalleryFilter.Image, "");
+            }
+            if (img.sprite != null && GUILayout.Button("✕", GUILayout.Width(24), GUILayout.Height(20)))
+            {
+                Undo.RecordObject(img, "Clear Sprite");
+                img.sprite = null;
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -1533,7 +1599,7 @@ namespace NovellaEngine.Editor
 
         private void DrawTextSection(TMP_Text txt)
         {
-            DrawSectionLabel(ToolLang.Get("TEXT STYLE (TMP)", "СТИЛЬ ТЕКСТА (TMP)"));
+            DrawSectionLabel(ToolLang.Get("TEXT STYLE (TMP)", "СТИЛЬ ТЕКСТА (TMP)"), "text");
 
             // Подсказка про локализацию
             GUILayout.BeginHorizontal();
@@ -1602,7 +1668,7 @@ namespace NovellaEngine.Editor
 
         private void DrawLegacyTextSection(UnityEngine.UI.Text txt)
         {
-            DrawSectionLabel(ToolLang.Get("TEXT STYLE (Legacy)", "СТИЛЬ ТЕКСТА (Legacy)"));
+            DrawSectionLabel(ToolLang.Get("TEXT STYLE (Legacy)", "СТИЛЬ ТЕКСТА (Legacy)"), "text");
 
             // Предупреждение про legacy + подсказка локализации
             GUILayout.BeginHorizontal();
@@ -1672,7 +1738,7 @@ namespace NovellaEngine.Editor
 
         private void DrawButtonSection(Button btn)
         {
-            DrawSectionLabel(ToolLang.Get("BUTTON", "КНОПКА"));
+            DrawSectionLabel(ToolLang.Get("BUTTON", "КНОПКА"), "button");
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             GUILayout.BeginVertical();
@@ -1768,14 +1834,30 @@ namespace NovellaEngine.Editor
 
         // ─── Утилиты ───────────────────────────────────────────────────────────
 
-        private static void DrawSectionLabel(string text)
+        private static void DrawSectionLabel(string text, string helpKey = null)
         {
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
             var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, fontStyle = FontStyle.Bold };
             st.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
-            GUILayout.Label(text, st);
+            GUILayout.Label(text, st, GUILayout.Width(180));
+
+            if (!string.IsNullOrEmpty(helpKey))
+            {
+                Rect btnRect = GUILayoutUtility.GetRect(18, 14, GUILayout.Width(18), GUILayout.Height(14));
+                bool hover = btnRect.Contains(Event.current.mousePosition);
+                var qSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 11, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+                qSt.normal.textColor = hover ? new Color(0.36f, 0.75f, 0.92f) : new Color(0.62f, 0.63f, 0.69f);
+                GUI.Label(btnRect, "?", qSt);
+                if (Event.current.type == EventType.MouseDown && hover)
+                {
+                    NovellaUIForgeTipPopup.Show(GUIUtility.GUIToScreenRect(btnRect), helpKey);
+                    Event.current.Use();
+                }
+            }
+
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             GUILayout.Space(2);
         }
@@ -1790,9 +1872,108 @@ namespace NovellaEngine.Editor
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // Окно помощи: коротко и человеческим языком объясняет ключевые понятия,
-    // чтобы пользователю не приходилось гуглить "что такое Canvas" или "якорь".
+    // Help: словарь подсказок + два UI-варианта — компактный поповер у "?" иконки
+    // и большое окно (запасной вариант через тулбар-кнопку).
     // ════════════════════════════════════════════════════════════════════════
+    internal static class NovellaUIForgeHelpDB
+    {
+        public static (string title, string body) Get(string key)
+        {
+            switch (key)
+            {
+                case "position":
+                    return (
+                        "📐 " + ToolLang.Get("Position & Size", "Положение и размер"),
+                        ToolLang.Get(
+                            "X/Y — offset from the anchor. W/H — width and height in pixels.\n\nYou rarely need to type these: just drag the element on the canvas, and drag the white square handles to resize.",
+                            "X/Y — смещение от якоря. W/H — ширина и высота в пикселях.\n\nЧасто их вводить вручную не нужно: просто тяни элемент мышкой по холсту, а белые квадратики по углам — меняют размер.")
+                    );
+                case "anchor":
+                    return (
+                        "🎯 " + ToolLang.Get("Anchor", "Якорь"),
+                        ToolLang.Get(
+                            "The anchor is the point of the parent that your element 'sticks to'.\n\nClick a corner to snap the element there: it will hold its distance from that corner when the screen size changes.\n\n'Stretch H / V / Fill' — make the element grow together with the parent.",
+                            "Якорь — это точка родителя, к которой «прилипает» элемент.\n\nКликни в один из 9 углов — элемент прыгнет туда. При смене разрешения экрана он будет держать расстояние от этого угла.\n\n«Растянуть гор. / верт. / Заполнить» — заставит элемент расти вместе с родителем.")
+                    );
+                case "image":
+                    return (
+                        "🖼 " + ToolLang.Get("Image", "Изображение"),
+                        ToolLang.Get(
+                            "Sprite — what is drawn. Click the field and pick from the project gallery.\nColor — tints the image (full white = no tint).\nType → Filled — useful for HP bars and progress fills (control via 'Fill amount').",
+                            "Спрайт — что нарисовано. Кликни поле и выбери из галереи проекта.\nЦвет — окрашивает картинку (полностью белый = без тонировки).\nТип → Filled — удобно для HP-баров и шкал прогресса (управляется через «Заполн.»).")
+                    );
+                case "text":
+                    return (
+                        "𝐓 " + ToolLang.Get("Text", "Текст"),
+                        ToolLang.Get(
+                            "Here you only set the look: font, size, color, alignment, bold.\n\nThe actual text content comes from localization (RU/EN tables) and is edited in the Localization tab — not here. So translations stay consistent for all languages.",
+                            "Здесь только внешний вид: шрифт, размер, цвет, выравнивание, жирный.\n\nСам текст берётся из локализации (таблицы RU/EN) и редактируется на вкладке Локализации — не здесь. Так перевод остаётся консистентным на всех языках.")
+                    );
+                case "button":
+                    return (
+                        "🔘 " + ToolLang.Get("Button", "Кнопка"),
+                        ToolLang.Get(
+                            "A clickable element with three colors:\n• Normal — resting\n• Highlight — mouse hovers over\n• Pressed — being clicked\n\nThe button text usually lives as a child element inside the button.",
+                            "Кликабельный элемент с тремя цветами:\n• Обычная — состояние покоя\n• Hover — мышь над кнопкой\n• Нажата — в момент клика\n\nТекст кнопки обычно лежит дочерним элементом внутри кнопки.")
+                    );
+                case "canvas":
+                    return (
+                        "🧱 Canvas",
+                        ToolLang.Get(
+                            "The 'sheet' on top of which all UI lives. The editor configures it automatically — you usually don't touch it directly. One Canvas = one screen of your novel.",
+                            "«Лист», поверх которого живёт весь интерфейс. Редактор настраивает его автоматически — обычно сам ты в него не лазишь. Один Canvas = один экран новеллы.")
+                    );
+                default:
+                    return ("", "");
+            }
+        }
+    }
+
+    // Поповер у "?" иконки. Появляется как dropdown ровно у курсора, исчезает по клику вне.
+    public class NovellaUIForgeTipPopup : EditorWindow
+    {
+        private string _title;
+        private string _body;
+
+        public static void Show(Rect screenAnchor, string helpKey)
+        {
+            var (title, body) = NovellaUIForgeHelpDB.Get(helpKey);
+            if (string.IsNullOrEmpty(title)) return;
+
+            var win = CreateInstance<NovellaUIForgeTipPopup>();
+            win._title = title;
+            win._body = body;
+            win.ShowAsDropDown(screenAnchor, new Vector2(360, 180));
+        }
+
+        private void OnGUI()
+        {
+            EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), new Color(0.13f, 0.14f, 0.18f));
+
+            GUILayout.Space(10);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(14);
+            GUILayout.BeginVertical();
+
+            var ttl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
+            ttl.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+            GUILayout.Label(_title, ttl);
+            GUILayout.Space(4);
+
+            EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), new Color(0.165f, 0.176f, 0.243f));
+            GUILayout.Space(6);
+
+            var bd = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+            bd.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            GUILayout.Label(_body, bd);
+
+            GUILayout.EndVertical();
+            GUILayout.Space(14);
+            GUILayout.EndHorizontal();
+        }
+    }
+
+    // Большое окно — оставляем как fallback из тулбара (полный гид).
     public class NovellaUIForgeHelpWindow : EditorWindow
     {
         private Vector2 _scroll;
@@ -1800,8 +1981,8 @@ namespace NovellaEngine.Editor
         public static void ShowHelp()
         {
             var win = GetWindow<NovellaUIForgeHelpWindow>(true, ToolLang.Get("UI Forge — Help", "Кузница UI — Помощь"), true);
-            win.minSize = new Vector2(560, 480);
-            win.maxSize = new Vector2(900, 900);
+            win.minSize = new Vector2(520, 460);
+            win.maxSize = new Vector2(820, 900);
             win.ShowUtility();
         }
 
@@ -1817,95 +1998,55 @@ namespace NovellaEngine.Editor
             var h1 = new GUIStyle(EditorStyles.boldLabel) { fontSize = 18 };
             h1.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
             GUILayout.Label("❓ " + ToolLang.Get("UI Forge — quick guide", "Кузница UI — краткий гид"), h1);
-            GUILayout.Space(4);
+
             var sub = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
             sub.normal.textColor = new Color(0.78f, 0.80f, 0.86f);
             GUILayout.Label(ToolLang.Get(
-                "Brief explanations of the things you might run into. No Unity background needed.",
-                "Короткое объяснение того, с чем ты столкнёшься. Знание Unity не требуется."), sub);
-            GUILayout.Space(12);
+                "Tip: each section in the inspector has a small '?' next to its name — click it for a short explanation.",
+                "Подсказка: у каждой секции инспектора рядом с названием есть «?» — кликни и появится короткое объяснение."), sub);
 
+            GUILayout.Space(12);
             _scroll = GUILayout.BeginScrollView(_scroll);
 
-            DrawTopic("🧱  Canvas",
-                ToolLang.Get(
-                    "The 'sheet' on top of which all UI lives. Every screen of your novel needs one Canvas. The editor automatically configures it; you usually don't touch it directly.",
-                    "Это «лист», поверх которого живёт весь интерфейс. На каждой сцене нужен один Canvas. Редактор настраивает его автоматически — обычно сам ты в него не лазишь."));
-
-            DrawTopic("🎯  " + ToolLang.Get("Anchor", "Якорь"),
-                ToolLang.Get(
-                    "The anchor decides which point of the parent your element 'sticks to'. If you anchor to top-right, the element will keep its distance from the top-right corner when the screen size changes. The 3×3 grid in the inspector lets you pick one of 9 corners; the three buttons on the right (Stretch H / V / Fill) let the element grow with the parent.",
-                    "Якорь определяет, к какой точке родителя «прилипает» элемент. Поставил якорь в правый верх — элемент будет держать расстояние от правого-верхнего угла даже когда меняется размер экрана. Сетка 3×3 в инспекторе — выбор одного из 9 углов. Три кнопки справа (Растянуть гор. / верт. / Заполнить) — чтобы элемент рос вместе с родителем."));
-
-            DrawTopic("📐  " + ToolLang.Get("Position & Size", "Положение и размер"),
-                ToolLang.Get(
-                    "X / Y — offset from the anchor point. W / H — width and height in pixels. You can edit them in fields, or just drag the element on the canvas with the mouse and drag the corner handles to resize.",
-                    "X / Y — смещение от точки якоря. W / H — ширина и высота в пикселях. Их можно править вручную в полях, а можно просто тащить мышкой по холсту и тянуть за квадратики на углах для изменения размера."));
-
-            DrawTopic("🖼  " + ToolLang.Get("Image / Sprite", "Картинка / Спрайт"),
-                ToolLang.Get(
-                    "An image is just a picture on screen. The 'Sprite' field is what's drawn (drag any image asset there). 'Color' tints the image. 'Type → Filled' makes it possible to animate fill (handy for HP bars etc.).",
-                    "Картинка — это просто рисунок на экране. В поле «Спрайт» кладёшь изображение из ассетов. «Цвет» окрашивает. «Тип → Filled» позволяет анимировать заполнение (удобно для шкалы HP и т.п.)."));
-
-            DrawTopic("🔘  " + ToolLang.Get("Button", "Кнопка"),
-                ToolLang.Get(
-                    "A clickable element. The Inspector lets you set colors for three states: Normal (resting), Highlight (when mouse hovers), Pressed (when clicked). Inside a button there's usually a child Text element with the button label.",
-                    "Кликабельный элемент. В инспекторе настраивается цвет для трёх состояний: Обычная (покой), Hover (наведение), Нажата (клик). Внутри кнопки обычно лежит дочерний текст с надписью."));
-
-            DrawTopic("𝐓  " + ToolLang.Get("Text (TMP vs Legacy)", "Текст (TMP vs Legacy)"),
-                ToolLang.Get(
-                    "TextMeshPro (TMP) is the modern, sharp version. Legacy Text is older and looks blurry on big resolutions. We recommend TMP. The actual displayed text comes from localization (RU/EN tables), the inspector only changes the look (font, size, color, alignment).",
-                    "TextMeshPro (TMP) — современная, чёткая версия. Legacy Text — старая, размывается на больших разрешениях. Рекомендуем TMP. Сам текст приходит из локализации (таблицы RU/EN), а в инспекторе ты меняешь только внешний вид (шрифт, размер, цвет, выравнивание)."));
-
-            DrawTopic("➕  " + ToolLang.Get("Catalog", "Каталог"),
-                ToolLang.Get(
-                    "On the left there's a list of presets — Text, Button, Image, Panel. Click one to add it to the canvas. The new element appears under the currently selected one (or under the canvas root if nothing is selected).",
-                    "Слева — каталог пресетов: Текст, Кнопка, Картинка, Панель. Клик добавляет элемент на холст. Новый элемент создаётся внутри выбранного (или внутри корня канваса, если ничего не выбрано)."));
-
-            DrawTopic("📱  " + ToolLang.Get("Resolutions", "Разрешения"),
-                ToolLang.Get(
-                    "The dropdown above the canvas switches between common screen sizes — Full HD desktop, iPhone, iPad, etc. Pick 'Custom' to set any size manually. The 'Safe Area' toggle (only in mobile mode) shows the area not covered by notches and home indicator.",
-                    "Выпадающий список над холстом переключает популярные разрешения — Full HD, iPhone, iPad и т.д. «Своё…» — задать любой размер вручную. Переключатель «Безопасная зона» (только в мобильном режиме) показывает область, не закрытую вырезами и системными элементами."));
-
-            DrawTopic("⌨  " + ToolLang.Get("Drag & resize", "Перемещение и ресайз"),
-                ToolLang.Get(
-                    "Click an element on the canvas to select it. Drag to move. Drag the small white squares on the bounding box to resize. With grid enabled, movement snaps to the grid for clean alignment.",
-                    "Клик по элементу на холсте — выделение. Тяни мышкой — двигаешь. Тяни белые квадратики на рамке — меняешь размер. При включённой сетке движение прилипает к узлам сетки — для аккуратного выравнивания."));
-
-            DrawTopic("↶ " + ToolLang.Get("Undo", "Отмена"),
-                ToolLang.Get(
-                    "All changes use Unity's standard Undo. Press Ctrl+Z to undo, Ctrl+Y / Ctrl+Shift+Z to redo. Don't be afraid to experiment.",
-                    "Все изменения работают через стандартный Undo Unity. Ctrl+Z — отмена, Ctrl+Y / Ctrl+Shift+Z — вернуть. Можно смело экспериментировать."));
+            foreach (var key in new[] { "canvas", "anchor", "position", "image", "text", "button" })
+            {
+                var (t, b) = NovellaUIForgeHelpDB.Get(key);
+                if (string.IsNullOrEmpty(t)) continue;
+                var ttl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
+                ttl.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+                GUILayout.Label(t, ttl);
+                GUILayout.Space(2);
+                var bd = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+                bd.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+                GUILayout.Label(b, bd);
+                GUILayout.Space(10);
+                EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), new Color(0.165f, 0.176f, 0.243f));
+                GUILayout.Space(8);
+            }
 
             GUILayout.Space(10);
+
+            // Дополнительные подсказки про управление
+            var ttl2 = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
+            ttl2.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+            GUILayout.Label("⌨ " + ToolLang.Get("Hotkeys & gestures", "Горячие клавиши и жесты"), ttl2);
+            GUILayout.Space(2);
+            var bd2 = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+            bd2.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            GUILayout.Label(ToolLang.Get(
+                "• Left click on the canvas — select element\n• Right click on canvas/tree — create new element inside\n• Drag — move; drag handles — resize\n• Del — delete selected\n• Ctrl+Z / Ctrl+Y — undo/redo",
+                "• ЛКМ по холсту — выбрать элемент\n• ПКМ по холсту/дереву — создать новый элемент внутри\n• Drag — двигать; тяни за квадратики — менять размер\n• Del — удалить выделенный\n• Ctrl+Z / Ctrl+Y — отменить/вернуть"), bd2);
+
             GUILayout.EndScrollView();
 
             GUILayout.Space(8);
             if (GUILayout.Button(ToolLang.Get("Got it", "Понятно"), GUILayout.Height(32)))
-            {
                 Close();
-            }
 
             GUILayout.EndVertical();
             GUILayout.Space(20);
             GUILayout.EndHorizontal();
             GUILayout.Space(14);
-        }
-
-        private void DrawTopic(string title, string body)
-        {
-            var ttl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
-            ttl.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
-            GUILayout.Label(title, ttl);
-            GUILayout.Space(2);
-
-            var bd = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
-            bd.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
-            GUILayout.Label(body, bd);
-            GUILayout.Space(10);
-
-            EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), new Color(0.165f, 0.176f, 0.243f));
-            GUILayout.Space(8);
         }
     }
 }
