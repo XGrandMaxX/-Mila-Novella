@@ -370,7 +370,7 @@ namespace NovellaEngine.Editor
         private static string IconFor(string fieldName, GameObject go)
         {
             if (go.GetComponent<Button>() != null) return "🔘";
-            if (go.GetComponent<TMP_Text>() != null) return "𝐓";
+            if (go.GetComponent<TMP_Text>() != null || go.GetComponent<UnityEngine.UI.Text>() != null) return "𝐓";
             if (go.GetComponent<Image>() != null) return "🖼";
             if (fieldName.Contains("Container") || fieldName.Contains("Panel")) return "▣";
             return "◆";
@@ -1120,10 +1120,7 @@ namespace NovellaEngine.Editor
 
                 if (Event.current.type == EventType.MouseDown && cellRect.Contains(Event.current.mousePosition))
                 {
-                    Undo.RecordObject(_selected, "Set Anchor");
-                    _selected.anchorMin = presets[i].min;
-                    _selected.anchorMax = presets[i].max;
-                    _selected.anchoredPosition = Vector2.zero;
+                    SetAnchorPreservingVisual(presets[i].min, presets[i].max);
                     Event.current.Use();
                 }
             }
@@ -1158,15 +1155,50 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = Color.white;
         }
 
+        // Установить якорь так, чтобы визуальное положение элемента не изменилось.
+        // Для не-stretch якорей восстанавливаем world-позицию + размер.
+        private void SetAnchorPreservingVisual(Vector2 newMin, Vector2 newMax)
+        {
+            if (_selected == null) return;
+            Undo.RecordObject(_selected, "Set Anchor");
+
+            Vector3 worldPos = _selected.position;
+            Vector2 oldSize = _selected.rect.size;
+
+            _selected.anchorMin = newMin;
+            _selected.anchorMax = newMax;
+
+            // Не stretch — восстановим визуал
+            if (Mathf.Approximately(newMin.x, newMax.x) && Mathf.Approximately(newMin.y, newMax.y))
+            {
+                _selected.position = worldPos;
+                _selected.sizeDelta = oldSize;
+            }
+
+            EditorUtility.SetDirty(_selected);
+        }
+
         private void DrawInspectorTypeSpecificSections()
         {
             // Image
             var img = _selected.GetComponent<Image>();
             if (img != null) DrawImageSection(img);
 
-            // Text (TMP)
-            var txt = _selected.GetComponent<TMP_Text>();
-            if (txt != null) DrawTextSection(txt);
+            // Raw Image (тоже встречается — поддержим базово через Image-блок если есть)
+            // (опускаем, чтобы не путать)
+
+            // Text (TMP) — приоритет, т.к. у Novella по умолчанию TMP
+            var tmp = _selected.GetComponent<TMP_Text>();
+            if (tmp != null)
+            {
+                DrawTextSection(tmp);
+            }
+            else
+            {
+                // Legacy UnityEngine.UI.Text
+                var legacy = _selected.GetComponent<UnityEngine.UI.Text>();
+                if (legacy != null) DrawLegacyTextSection(legacy);
+            }
 
             // Button
             var btn = _selected.GetComponent<Button>();
@@ -1219,7 +1251,7 @@ namespace NovellaEngine.Editor
 
         private void DrawTextSection(TMP_Text txt)
         {
-            DrawSectionLabel(ToolLang.Get("TEXT", "ТЕКСТ"));
+            DrawSectionLabel(ToolLang.Get("TEXT (TMP)", "ТЕКСТ (TMP)"));
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             GUILayout.BeginVertical();
@@ -1229,6 +1261,13 @@ namespace NovellaEngine.Editor
             EditorGUI.BeginChangeCheck();
             string newTxt = EditorGUILayout.TextArea(txt.text, GUILayout.Height(50));
             if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Text"); txt.text = newTxt; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Font", "Шрифт"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            var newFont = (TMP_FontAsset)EditorGUILayout.ObjectField(txt.font, typeof(TMP_FontAsset), false);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Font"); txt.font = newFont; }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -1263,6 +1302,76 @@ namespace NovellaEngine.Editor
                 if (nb) txt.fontStyle |= FontStyles.Bold;
                 else txt.fontStyle &= ~FontStyles.Bold;
             }
+            GUILayout.EndHorizontal();
+
+            // Конвертация Legacy → TMP, если рядом нет TMP но юзер хочет
+            // (опускаем — у нас здесь и так TMP).
+
+            GUILayout.EndVertical();
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10);
+        }
+
+        private void DrawLegacyTextSection(UnityEngine.UI.Text txt)
+        {
+            DrawSectionLabel(ToolLang.Get("TEXT (Legacy)", "ТЕКСТ (Legacy)"));
+
+            // Подсказка про legacy
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            var warnSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            warnSt.normal.textColor = new Color(1f, 0.78f, 0.20f);
+            GUILayout.Label("⚠ " + ToolLang.Get(
+                "This is a legacy UI Text. Recommended: convert to TextMeshPro for sharper rendering.",
+                "Это устаревший UI Text. Рекомендуется конвертировать в TextMeshPro — чёткость лучше."), warnSt);
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            GUILayout.BeginVertical();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Text", "Текст"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            string newTxt = EditorGUILayout.TextArea(txt.text, GUILayout.Height(50));
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Text"); txt.text = newTxt; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Font", "Шрифт"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            var newFont = (Font)EditorGUILayout.ObjectField(txt.font, typeof(Font), false);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Font"); txt.font = newFont; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Font Size", "Размер"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            int fs = EditorGUILayout.IntField(txt.fontSize);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Font Size"); txt.fontSize = fs; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Color", "Цвет"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            var col = EditorGUILayout.ColorField(txt.color);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Text Color"); txt.color = col; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Align", "Выравн."), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            var al = (TextAnchor)EditorGUILayout.EnumPopup(txt.alignment);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Align"); txt.alignment = al; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Style", "Стиль"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            var st = (FontStyle)EditorGUILayout.EnumPopup(txt.fontStyle);
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Style"); txt.fontStyle = st; }
             GUILayout.EndHorizontal();
 
             GUILayout.EndVertical();
