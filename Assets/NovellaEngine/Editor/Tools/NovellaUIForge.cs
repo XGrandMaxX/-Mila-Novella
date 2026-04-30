@@ -540,9 +540,6 @@ namespace NovellaEngine.Editor
 
             Rect viewport = new Rect(rect.x, rect.y + topH, rect.width, rect.height - topH);
 
-            // Подложка
-            EditorGUI.DrawRect(viewport, new Color(0.05f, 0.05f, 0.07f));
-
             if (_camera == null) return;
 
             // Целевое разрешение
@@ -555,7 +552,11 @@ namespace NovellaEngine.Editor
                 if (_previewTexture == null || _previewTexture.width != targetW || _previewTexture.height != targetH)
                 {
                     if (_previewTexture != null) { _previewTexture.Release(); UnityEngine.Object.DestroyImmediate(_previewTexture); }
-                    _previewTexture = new RenderTexture(targetW, targetH, 24);
+                    _previewTexture = new RenderTexture(targetW, targetH, 24)
+                    {
+                        antiAliasing = 4,
+                        filterMode = FilterMode.Bilinear,
+                    };
                 }
 
                 var oldRT = _camera.targetTexture;
@@ -564,7 +565,8 @@ namespace NovellaEngine.Editor
                 _camera.targetTexture = oldRT;
             }
 
-            // Рассчитать draw rect (вписать в viewport, центрировать)
+            // Рассчитать draw rect В ЛОКАЛЬНЫХ КООРДИНАТАХ КЛИПА (origin = viewport.x/y).
+            // Зум >1 разрешён — лишнее обрежется по границам clip'а.
             float aspect = (float)targetW / targetH;
             float maxW = (viewport.width - 32f) * _previewZoom;
             float maxH = (viewport.height - 32f) * _previewZoom;
@@ -572,35 +574,49 @@ namespace NovellaEngine.Editor
             float h = w / aspect;
             if (h > maxH) { h = maxH; w = h * aspect; }
 
-            Rect drawRect = new Rect(
-                viewport.x + (viewport.width - w) * 0.5f,
-                viewport.y + (viewport.height - h) * 0.5f,
+            // drawRect в LOCAL координатах (внутри clip)
+            Rect drawRectLocal = new Rect(
+                (viewport.width - w) * 0.5f,
+                (viewport.height - h) * 0.5f,
                 w, h);
 
-            // Тень-кадр вокруг превью
-            var frame = new Rect(drawRect.x - 2, drawRect.y - 2, drawRect.width + 4, drawRect.height + 4);
-            EditorGUI.DrawRect(frame, C_BORDER);
-
-            if (Event.current.type == EventType.Repaint && _previewTexture != null)
+            // Всё рисование внутри clip'а — координаты локальные относительно viewport.
+            GUI.BeginClip(viewport);
+            try
             {
-                GUI.DrawTexture(drawRect, _previewTexture, ScaleMode.ScaleToFit, false);
+                // Подложка viewport
+                EditorGUI.DrawRect(new Rect(0, 0, viewport.width, viewport.height), new Color(0.05f, 0.05f, 0.07f));
+
+                // Тень-кадр вокруг превью
+                var frame = new Rect(drawRectLocal.x - 2, drawRectLocal.y - 2, drawRectLocal.width + 4, drawRectLocal.height + 4);
+                EditorGUI.DrawRect(frame, C_BORDER);
+
+                if (Event.current.type == EventType.Repaint && _previewTexture != null)
+                {
+                    GUI.DrawTexture(drawRectLocal, _previewTexture, ScaleMode.ScaleToFit, false);
+                }
+
+                // Сетка
+                if (_showGrid) DrawGridOverlay(drawRectLocal, targetW, targetH);
+
+                // Safe area
+                if (_isMobileMode && _showSafeArea) DrawSafeAreaOverlay(drawRectLocal);
+
+                // Селекшен + handles
+                if (_selected != null)
+                {
+                    Rect selRect = ComputeRectScreenForRT(_selected, drawRectLocal, targetW, targetH);
+                    DrawSelectionOverlay(selRect);
+                }
+
+                // Input — Event.current.mousePosition внутри BeginClip уже локальный,
+                // и drawRectLocal тоже локальный → проверки совпадают.
+                HandleCanvasInput(drawRectLocal, targetW, targetH);
             }
-
-            // Сетка
-            if (_showGrid) DrawGridOverlay(drawRect, targetW, targetH);
-
-            // Safe area (для мобильного)
-            if (_isMobileMode && _showSafeArea) DrawSafeAreaOverlay(drawRect);
-
-            // Селекшен и handles
-            if (_selected != null)
+            finally
             {
-                Rect selRect = ComputeSelectedScreenRect(drawRect, targetW, targetH);
-                DrawSelectionOverlay(selRect);
+                GUI.EndClip();
             }
-
-            // Input
-            HandleCanvasInput(drawRect, targetW, targetH);
         }
 
         private void DrawCanvasTopbar(Rect topbar)
@@ -681,31 +697,11 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(safe.xMax - 1, safe.y, 1, safe.height), c);
         }
 
-        // Считаем экранный прямоугольник выделенного RT в координатах previewRect.
-        // Используем формулу: child_world_rect → camera screen → previewRect normalized.
+        // Считаем экранный прямоугольник выделенного RT.
+        // Делегируем в ComputeRectScreenForRT (одна формула для всех).
         private Rect ComputeSelectedScreenRect(Rect drawRect, int targetW, int targetH)
         {
-            if (_selected == null || _camera == null) return Rect.zero;
-
-            Vector3[] worldCorners = new Vector3[4];
-            _selected.GetWorldCorners(worldCorners);
-
-            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
-            foreach (var w in worldCorners)
-            {
-                Vector3 sp = _camera.WorldToScreenPoint(w);
-                // sp уже в пикселях relative к рендертекстуре (т.к. камера рендерит в неё)
-                float u = sp.x / _previewTexture.width;
-                float v = 1f - sp.y / _previewTexture.height; // GUI инверсия Y
-                float px = drawRect.x + u * drawRect.width;
-                float py = drawRect.y + v * drawRect.height;
-                if (px < minX) minX = px;
-                if (px > maxX) maxX = px;
-                if (py < minY) minY = py;
-                if (py > maxY) maxY = py;
-            }
-
-            return new Rect(minX, minY, maxX - minX, maxY - minY);
+            return ComputeRectScreenForRT(_selected, drawRect, targetW, targetH);
         }
 
         private void DrawSelectionOverlay(Rect selRect)
@@ -830,19 +826,34 @@ namespace NovellaEngine.Editor
             return null;
         }
 
+        // Преобразуем мировые координаты RT в пиксели окна редактора.
+        // Подход: canvas (в режиме ScreenSpaceCamera) занимает строго такую же область
+        // мира, что и кадр камеры → берём мировой rect канваса как 0..1 и нормируем
+        // мировой rect элемента в эти координаты. Не зависит от Camera.pixelWidth.
         private Rect ComputeRectScreenForRT(RectTransform rt, Rect drawRect, int targetW, int targetH)
         {
-            if (rt == null || _camera == null || _previewTexture == null) return Rect.zero;
+            if (rt == null || _canvas == null) return Rect.zero;
+            var canvasRT = _canvas.GetComponent<RectTransform>();
+            if (canvasRT == null) return Rect.zero;
+
+            Vector3[] cw = new Vector3[4]; // 0=BL, 1=TL, 2=TR, 3=BR
+            canvasRT.GetWorldCorners(cw);
+            float canvasMinX = cw[0].x, canvasMinY = cw[0].y;
+            float canvasMaxX = cw[2].x, canvasMaxY = cw[2].y;
+            float canvasW = canvasMaxX - canvasMinX;
+            float canvasH = canvasMaxY - canvasMinY;
+            if (canvasW < 0.0001f || canvasH < 0.0001f) return Rect.zero;
+
             Vector3[] worldCorners = new Vector3[4];
             rt.GetWorldCorners(worldCorners);
+
             float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
             foreach (var w in worldCorners)
             {
-                Vector3 sp = _camera.WorldToScreenPoint(w);
-                float u = sp.x / _previewTexture.width;
-                float v = 1f - sp.y / _previewTexture.height;
+                float u = (w.x - canvasMinX) / canvasW;
+                float v = (w.y - canvasMinY) / canvasH;
                 float px = drawRect.x + u * drawRect.width;
-                float py = drawRect.y + v * drawRect.height;
+                float py = drawRect.y + (1f - v) * drawRect.height; // GUI: y вниз
                 if (px < minX) minX = px;
                 if (px > maxX) maxX = px;
                 if (py < minY) minY = py;
@@ -865,10 +876,8 @@ namespace NovellaEngine.Editor
         private void ProcessDragMove(Event e, Rect drawRect, int targetW, int targetH)
         {
             if (_selected == null) return;
-            // Перевод delta в прев-пикселях → в canvas-пикселях
             Vector2 deltaPreview = e.mousePosition - _dragMouseStart;
-            float pxPerUnit = drawRect.width / targetW;
-            Vector2 deltaCanvas = new Vector2(deltaPreview.x / pxPerUnit, -deltaPreview.y / pxPerUnit);
+            Vector2 deltaCanvas = PreviewDeltaToCanvasDelta(deltaPreview, drawRect);
 
             Vector2 newAnchor = _dragAnchorStart + deltaCanvas;
             if (_showGrid && _gridStep > 0.5f)
@@ -879,6 +888,19 @@ namespace NovellaEngine.Editor
 
             _selected.anchoredPosition = newAnchor;
             EditorUtility.SetDirty(_selected);
+        }
+
+        // Перевод дельты курсора в превью-пикселях → в локальные пиксели канваса.
+        // Используем реальный размер RectTransform канваса (учитывает CanvasScaler).
+        private Vector2 PreviewDeltaToCanvasDelta(Vector2 deltaPreview, Rect drawRect)
+        {
+            if (_canvas == null || drawRect.width < 1f) return Vector2.zero;
+            var canvasRT = _canvas.GetComponent<RectTransform>();
+            if (canvasRT == null) return Vector2.zero;
+            float scaleX = canvasRT.rect.width / drawRect.width;
+            float scaleY = canvasRT.rect.height / drawRect.height;
+            // GUI Y вниз — компенсируем
+            return new Vector2(deltaPreview.x * scaleX, -deltaPreview.y * scaleY);
         }
 
         private void BeginResize(int handleIdx, Vector2 mousePos)
@@ -895,8 +917,7 @@ namespace NovellaEngine.Editor
         {
             if (_selected == null) return;
             Vector2 deltaPreview = e.mousePosition - _resizeMouseStart;
-            float pxPerUnit = drawRect.width / targetW;
-            Vector2 deltaCanvas = new Vector2(deltaPreview.x / pxPerUnit, -deltaPreview.y / pxPerUnit);
+            Vector2 deltaCanvas = PreviewDeltaToCanvasDelta(deltaPreview, drawRect);
 
             Vector2 newSize = _resizeSizeStart;
             Vector2 newAnchor = _resizeAnchorStart;
