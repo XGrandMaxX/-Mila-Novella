@@ -197,6 +197,10 @@ namespace NovellaEngine.Editor
 
         public static NovellaHubWindow Instance { get; private set; }
 
+        // Флаг — анимировать открытие на ближайшем OnEnable.
+        // Ставится из ShowWindow и потребляется один раз; на reload’е скриптов не срабатывает.
+        private static bool _shouldAnimateOpen;
+
         public void SwitchToModule(int index)
         {
             if (_modules == null || index < 0 || index >= _modules.Count) return;
@@ -230,6 +234,8 @@ namespace NovellaEngine.Editor
         [MenuItem("Novella Engine/🚀 Novella Studio (Hub)", false, 0)]
         public static void ShowWindow()
         {
+            _shouldAnimateOpen = true;
+
             var win = GetWindow<NovellaHubWindow>("Novella Studio");
             win.minSize = new Vector2(1100, 700);
 
@@ -279,6 +285,43 @@ namespace NovellaEngine.Editor
             SwitchToModule(_currentModuleIndex);
 
             EditorApplication.projectChanged += OnProjectChanged;
+
+            if (_shouldAnimateOpen)
+            {
+                _shouldAnimateOpen = false;
+                PlayOpenAnimation();
+            }
+        }
+
+        private void PlayOpenAnimation()
+        {
+            if (rootVisualElement == null) return;
+
+            // Стартовое состояние: чуть сжато, прозрачно. Без transition — сразу.
+            rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> { new TimeValue(0f, TimeUnit.Second) });
+            rootVisualElement.style.opacity = 0f;
+            rootVisualElement.style.scale = new StyleScale(new Scale(new Vector3(0.94f, 0.94f, 1f)));
+            rootVisualElement.style.transformOrigin = new StyleTransformOrigin(new TransformOrigin(Length.Percent(50f), Length.Percent(50f)));
+
+            // На следующем кадре — включаем transition и поднимаем значения, чтобы UIE плавно довёл.
+            rootVisualElement.schedule.Execute(() =>
+            {
+                if (rootVisualElement == null) return;
+                rootVisualElement.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
+                    new StylePropertyName("opacity"),
+                    new StylePropertyName("scale"),
+                });
+                rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
+                    new TimeValue(0.22f, TimeUnit.Second),
+                    new TimeValue(0.22f, TimeUnit.Second),
+                });
+                rootVisualElement.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
+                    new EasingFunction(EasingMode.EaseOutCubic),
+                    new EasingFunction(EasingMode.EaseOutCubic),
+                });
+                rootVisualElement.style.opacity = 1f;
+                rootVisualElement.style.scale = new StyleScale(new Scale(Vector3.one));
+            }).StartingIn(20);
         }
 
         private void OnDisable()
@@ -931,8 +974,34 @@ namespace NovellaEngine.Editor
 
         private void MinimizeToLauncher()
         {
-            Close();
-            EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
+            if (rootVisualElement == null)
+            {
+                Close();
+                EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
+                return;
+            }
+
+            rootVisualElement.style.transformOrigin = new StyleTransformOrigin(new TransformOrigin(Length.Percent(50f), Length.Percent(50f)));
+            rootVisualElement.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
+                new StylePropertyName("opacity"),
+                new StylePropertyName("scale"),
+            });
+            rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
+                new TimeValue(0.16f, TimeUnit.Second),
+                new TimeValue(0.16f, TimeUnit.Second),
+            });
+            rootVisualElement.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
+                new EasingFunction(EasingMode.EaseInCubic),
+                new EasingFunction(EasingMode.EaseInCubic),
+            });
+            rootVisualElement.style.opacity = 0f;
+            rootVisualElement.style.scale = new StyleScale(new Scale(new Vector3(0.92f, 0.92f, 1f)));
+
+            rootVisualElement.schedule.Execute(() =>
+            {
+                Close();
+                EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
+            }).StartingIn(170);
         }
 
         // ─────────── Content area ───────────
