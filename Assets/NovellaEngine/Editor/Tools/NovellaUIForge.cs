@@ -921,17 +921,24 @@ namespace NovellaEngine.Editor
 
             Vector2 newSize = _resizeSizeStart;
             Vector2 newAnchor = _resizeAnchorStart;
+            // Координаты в canvas: Y вверх. deltaCanvas.y > 0 = курсор пошёл вверх.
+            // Логика: edge_moved_by_delta. Если ребро TOP двинулось вверх (Δy > 0) — высота увеличилась.
+            // Если ребро BOTTOM двинулось вверх (Δy > 0) — высота уменьшилась.
+            // Центр обоих случаев двигается на Δ/2 в сторону сдвига ребра.
+            //
             // 0=tl 1=t 2=tr 3=r 4=br 5=b 6=bl 7=l
+            float dx = deltaCanvas.x;
+            float dy = deltaCanvas.y;
             switch (_resizeHandle)
             {
-                case 0: newSize.x -= deltaCanvas.x; newSize.y -= deltaCanvas.y; newAnchor += deltaCanvas * 0.5f; break;
-                case 1: newSize.y -= deltaCanvas.y; newAnchor.y += deltaCanvas.y * 0.5f; break;
-                case 2: newSize.x += deltaCanvas.x; newSize.y -= deltaCanvas.y; newAnchor += new Vector2(deltaCanvas.x * 0.5f, deltaCanvas.y * 0.5f); break;
-                case 3: newSize.x += deltaCanvas.x; newAnchor.x += deltaCanvas.x * 0.5f; break;
-                case 4: newSize.x += deltaCanvas.x; newSize.y += deltaCanvas.y; newAnchor += deltaCanvas * 0.5f; break;
-                case 5: newSize.y += deltaCanvas.y; newAnchor.y += deltaCanvas.y * 0.5f; break;
-                case 6: newSize.x -= deltaCanvas.x; newSize.y += deltaCanvas.y; newAnchor += new Vector2(deltaCanvas.x * 0.5f, deltaCanvas.y * 0.5f); break;
-                case 7: newSize.x -= deltaCanvas.x; newAnchor.x += deltaCanvas.x * 0.5f; break;
+                case 0: newSize.x -= dx; newSize.y += dy; newAnchor.x += dx * 0.5f; newAnchor.y += dy * 0.5f; break; // TL
+                case 1:                  newSize.y += dy;                              newAnchor.y += dy * 0.5f; break; // T
+                case 2: newSize.x += dx; newSize.y += dy; newAnchor.x += dx * 0.5f; newAnchor.y += dy * 0.5f; break; // TR
+                case 3: newSize.x += dx;                  newAnchor.x += dx * 0.5f;                              break; // R
+                case 4: newSize.x += dx; newSize.y -= dy; newAnchor.x += dx * 0.5f; newAnchor.y += dy * 0.5f; break; // BR
+                case 5:                  newSize.y -= dy;                              newAnchor.y += dy * 0.5f; break; // B
+                case 6: newSize.x -= dx; newSize.y -= dy; newAnchor.x += dx * 0.5f; newAnchor.y += dy * 0.5f; break; // BL
+                case 7: newSize.x -= dx;                  newAnchor.x += dx * 0.5f;                              break; // L
             }
 
             // Snap
@@ -1120,7 +1127,7 @@ namespace NovellaEngine.Editor
 
                 if (Event.current.type == EventType.MouseDown && cellRect.Contains(Event.current.mousePosition))
                 {
-                    SetAnchorPreservingVisual(presets[i].min, presets[i].max);
+                    SnapAnchorToCorner(presets[i].min, presets[i].max);
                     Event.current.Use();
                 }
             }
@@ -1155,26 +1162,20 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = Color.white;
         }
 
-        // Установить якорь так, чтобы визуальное положение элемента не изменилось.
-        // Для не-stretch якорей восстанавливаем world-позицию + размер.
-        private void SetAnchorPreservingVisual(Vector2 newMin, Vector2 newMax)
+        // "Прилипить к углу": ставим якорь и pivot в один угол, обнуляем anchoredPosition.
+        // Так выбранный элемент визуально снэпится к указанному углу/центру родителя.
+        private void SnapAnchorToCorner(Vector2 cornerMin, Vector2 cornerMax)
         {
             if (_selected == null) return;
             Undo.RecordObject(_selected, "Set Anchor");
-
-            Vector3 worldPos = _selected.position;
-            Vector2 oldSize = _selected.rect.size;
-
-            _selected.anchorMin = newMin;
-            _selected.anchorMax = newMax;
-
-            // Не stretch — восстановим визуал
-            if (Mathf.Approximately(newMin.x, newMax.x) && Mathf.Approximately(newMin.y, newMax.y))
+            _selected.anchorMin = cornerMin;
+            _selected.anchorMax = cornerMax;
+            // Если это пресет угла (anchorMin == anchorMax), синхронизируем pivot.
+            if (Mathf.Approximately(cornerMin.x, cornerMax.x) && Mathf.Approximately(cornerMin.y, cornerMax.y))
             {
-                _selected.position = worldPos;
-                _selected.sizeDelta = oldSize;
+                _selected.pivot = cornerMin;
             }
-
+            _selected.anchoredPosition = Vector2.zero;
             EditorUtility.SetDirty(_selected);
         }
 
@@ -1251,17 +1252,22 @@ namespace NovellaEngine.Editor
 
         private void DrawTextSection(TMP_Text txt)
         {
-            DrawSectionLabel(ToolLang.Get("TEXT (TMP)", "ТЕКСТ (TMP)"));
+            DrawSectionLabel(ToolLang.Get("TEXT STYLE (TMP)", "СТИЛЬ ТЕКСТА (TMP)"));
+
+            // Подсказка про локализацию
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            var hintSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            hintSt.normal.textColor = C_TEXT_4;
+            GUILayout.Label("ℹ " + ToolLang.Get(
+                "Actual text comes from localization (RU/EN). Edit it in the Localization tab.",
+                "Сам текст приходит из локализации (RU/EN). Редактируй его на вкладке локализации."), hintSt);
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             GUILayout.BeginVertical();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Text", "Текст"), GUILayout.Width(72));
-            EditorGUI.BeginChangeCheck();
-            string newTxt = EditorGUILayout.TextArea(txt.text, GUILayout.Height(50));
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Text"); txt.text = newTxt; }
-            GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Font", "Шрифт"), GUILayout.Width(72));
@@ -1315,29 +1321,32 @@ namespace NovellaEngine.Editor
 
         private void DrawLegacyTextSection(UnityEngine.UI.Text txt)
         {
-            DrawSectionLabel(ToolLang.Get("TEXT (Legacy)", "ТЕКСТ (Legacy)"));
+            DrawSectionLabel(ToolLang.Get("TEXT STYLE (Legacy)", "СТИЛЬ ТЕКСТА (Legacy)"));
 
-            // Подсказка про legacy
+            // Предупреждение про legacy + подсказка локализации
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             var warnSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
             warnSt.normal.textColor = new Color(1f, 0.78f, 0.20f);
             GUILayout.Label("⚠ " + ToolLang.Get(
-                "This is a legacy UI Text. Recommended: convert to TextMeshPro for sharper rendering.",
-                "Это устаревший UI Text. Рекомендуется конвертировать в TextMeshPro — чёткость лучше."), warnSt);
+                "Legacy UI Text. Recommended: convert to TextMeshPro for sharper rendering.",
+                "Устаревший UI Text. Рекомендуется конвертировать в TextMeshPro — чёткость лучше."), warnSt);
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            var hintSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            hintSt.normal.textColor = C_TEXT_4;
+            GUILayout.Label("ℹ " + ToolLang.Get(
+                "Actual text comes from localization (RU/EN).",
+                "Сам текст приходит из локализации (RU/EN)."), hintSt);
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
             GUILayout.BeginVertical();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Text", "Текст"), GUILayout.Width(72));
-            EditorGUI.BeginChangeCheck();
-            string newTxt = EditorGUILayout.TextArea(txt.text, GUILayout.Height(50));
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(txt, "Text"); txt.text = newTxt; }
-            GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Font", "Шрифт"), GUILayout.Width(72));
