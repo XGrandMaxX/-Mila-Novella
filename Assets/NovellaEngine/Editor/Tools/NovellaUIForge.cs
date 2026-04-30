@@ -180,7 +180,7 @@ namespace NovellaEngine.Editor
             GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            GUILayout.BeginVertical(GUILayout.Width(420));
+            GUILayout.BeginVertical(GUILayout.Width(520));
 
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
             titleSt.normal.textColor = C_TEXT_1;
@@ -189,16 +189,67 @@ namespace NovellaEngine.Editor
 
             var subSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             subSt.normal.textColor = C_TEXT_3;
-            GUILayout.Label(ToolLang.Get(
-                "UI elements not found on the current scene. Open the Scene Manager and load a scene that has the Novella runtime.",
-                "Элементы интерфейса не найдены в текущей сцене. Открой «Менеджер Сцен» и загрузи сцену с Novella-рантаймом."),
-                subSt);
+
+            string statusText;
+            bool canProceed = _camera != null && _canvas != null;
+
+            if (canProceed)
+            {
+                statusText = ToolLang.Get("Loading…", "Загрузка…");
+            }
+            else if (_camera == null && _canvas == null)
+            {
+                statusText = ToolLang.Get(
+                    "Scene seems to be empty. Open the Scene Manager and load a scene that has a Camera and a Canvas.",
+                    "В сцене ничего не найдено. Открой «Менеджер Сцен» и загрузи сцену с камерой и UI Canvas.");
+            }
+            else if (_camera == null)
+            {
+                statusText = ToolLang.Get(
+                    "Canvas found, but no Camera in scene. Add a Camera or load a scene preset.",
+                    "Canvas нашёлся, но в сцене нет камеры. Добавь камеру или загрузи пресет сцены.");
+            }
+            else
+            {
+                statusText = ToolLang.Get(
+                    "Camera found, but no UI Canvas. Add a Canvas to the scene or load a scene preset.",
+                    "Камера нашлась, но в сцене нет UI Canvas. Добавь Canvas или загрузи пресет сцены.");
+            }
+            GUILayout.Label(statusText, subSt);
+
+            GUILayout.Space(10);
+
+            // Диагностический блок — что найдено
+            Rect diagRect = GUILayoutUtility.GetRect(0, 92, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(diagRect, C_BG_RAISED);
+            DrawRectBorder(diagRect, C_BORDER);
+
+            var diagSt = new GUIStyle(EditorStyles.label) { fontSize = 11 };
+            diagSt.normal.textColor = C_TEXT_2;
+            float y = diagRect.y + 8;
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_camera != null ? "✅" : "❌") + "  " + ToolLang.Get("Camera", "Камера") +
+                (_camera != null ? "  ·  " + _camera.gameObject.name : ""), diagSt);
+            y += 18;
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_canvas != null ? "✅" : "❌") + "  " + ToolLang.Get("UI Canvas", "UI Canvas") +
+                (_canvas != null ? "  ·  " + _canvas.gameObject.name : ""), diagSt);
+            y += 18;
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_player != null ? "✅" : "⚪") + "  NovellaPlayer" +
+                (_player != null ? "  ·  " + _player.gameObject.name : "  " + ToolLang.Get("(optional)", "(необязательно)")), diagSt);
+            y += 18;
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_launcher != null ? "✅" : "⚪") + "  StoryLauncher" +
+                (_launcher != null ? "  ·  " + _launcher.gameObject.name : "  " + ToolLang.Get("(optional)", "(необязательно)")), diagSt);
+
             GUILayout.Space(14);
 
             GUI.backgroundColor = C_ACCENT;
             if (GUILayout.Button(ToolLang.Get("🔄 Refresh", "🔄 Обновить"), GUILayout.Height(34)))
             {
                 FindReferences();
+                RefreshRectsCache();
             }
             GUI.backgroundColor = Color.white;
 
@@ -213,24 +264,53 @@ namespace NovellaEngine.Editor
 
         private void FindReferences()
         {
+            // Камера: main → любая в сцене (включая неактивные)
             _camera = Camera.main;
-            if (_camera == null) _camera = UnityEngine.Object.FindFirstObjectByType<Camera>();
+            if (_camera == null) _camera = UnityEngine.Object.FindAnyObjectByType<Camera>(FindObjectsInactive.Include);
 
-            _player = UnityEngine.Object.FindFirstObjectByType<NovellaPlayer>();
-            _launcher = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
+            // Player / Launcher (включая неактивные — некоторые сцены имеют их выключенными)
+            _player = UnityEngine.Object.FindAnyObjectByType<NovellaPlayer>(FindObjectsInactive.Include);
+            _launcher = UnityEngine.Object.FindAnyObjectByType<StoryLauncher>(FindObjectsInactive.Include);
 
+            // Канвас: пробуем по цепочке fallback'ов от наиболее точного к наименее.
             _canvas = null;
+
+            // 1. По полям компонентов
             if (_player != null && _player.DialoguePanel != null)
                 _canvas = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
             else if (_launcher != null && _launcher.StoriesContainer != null)
                 _canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
 
+            // 2. Через сам gameObject компонента
+            if (_canvas == null)
+            {
+                if (_player != null)
+                    _canvas = _player.GetComponentInParent<Canvas>(true)
+                           ?? _player.GetComponentInChildren<Canvas>(true);
+                else if (_launcher != null)
+                    _canvas = _launcher.GetComponentInParent<Canvas>(true)
+                           ?? _launcher.GetComponentInChildren<Canvas>(true);
+            }
+
+            // 3. Любой Canvas в сцене (включая неактивные)
+            if (_canvas == null)
+            {
+                var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                // Предпочитаем root canvas (без вложенных)
+                _canvas = allCanvases.FirstOrDefault(c => c.isRootCanvas) ?? allCanvases.FirstOrDefault();
+            }
+
+            // Настраиваем render mode только если у нас есть И канвас И камера.
             if (_canvas != null && _camera != null)
             {
                 Canvas rc = _canvas.rootCanvas != null ? _canvas.rootCanvas : _canvas;
-                rc.renderMode = RenderMode.ScreenSpaceCamera;
-                rc.worldCamera = _camera;
-                if (rc.planeDistance < 1f) rc.planeDistance = 5f;
+                if (rc.renderMode != RenderMode.ScreenSpaceCamera || rc.worldCamera != _camera)
+                {
+                    rc.renderMode = RenderMode.ScreenSpaceCamera;
+                    rc.worldCamera = _camera;
+                    if (rc.planeDistance < 1f) rc.planeDistance = 5f;
+                    EditorUtility.SetDirty(rc);
+                }
                 _canvas = rc;
             }
 
