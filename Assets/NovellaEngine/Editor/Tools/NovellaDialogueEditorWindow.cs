@@ -566,7 +566,7 @@ namespace NovellaEngine.Editor
             if (line.OverrideDialogueFrame != null)
             {
                 if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25)))
-                    NovellaUIEditorModule.OpenWithCustomPrefab(line.OverrideDialogueFrame);
+                    NovellaUIForge.OpenWithCustomPrefab(line.OverrideDialogueFrame);
 
                 GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
                 if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { Undo.RecordObject(_tree, "Clear UI"); line.OverrideDialogueFrame = null; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); }
@@ -575,7 +575,7 @@ namespace NovellaEngine.Editor
             else
             {
                 if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25)))
-                    NovellaUIEditorModule.ShowWindow();
+                    NovellaUIForge.ShowWindow();
             }
             GUILayout.EndHorizontal();
             GUILayout.Label(ToolLang.Get("💡 Swaps dialogue window style for this specific line.", "💡 Полностью меняет дизайн окна под эту реплику."), EditorStyles.miniLabel);

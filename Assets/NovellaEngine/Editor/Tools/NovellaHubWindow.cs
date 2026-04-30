@@ -276,7 +276,7 @@ namespace NovellaEngine.Editor
                 new DashboardModule(),
                 new NovellaCharacterEditorModule(),
                 new NovellaSceneManagerModule(),
-                new NovellaUIEditorModule(),
+                new NovellaUIForge(),
                 new NovellaVariableEditorModule()
             };
             foreach (var m in _modules) m.OnEnable(this);

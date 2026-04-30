@@ -382,7 +382,7 @@ namespace NovellaEngine.Editor
                 }
                 else EditorUtility.DisplayDialog("Error", "Tutorial Graph Asset not found!", "OK");
             }
-            else if (index == 5) { NovellaUIEditorModule.ShowWindow(); NovellaTutorialManager.StartTutorial("UIEditor"); }
+            else if (index == 5) { NovellaUIForge.ShowWindow(); NovellaTutorialManager.StartTutorial("UIEditor"); }
             else if (index == 6)
             {
                 var lessonAsset = AssetDatabase.LoadAssetAtPath<NovellaTree>("Assets/NovellaEngine/Tutorials/02_InteractiveLesson.asset");

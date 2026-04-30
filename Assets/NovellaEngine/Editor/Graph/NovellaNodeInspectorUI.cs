@@ -1817,7 +1817,7 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("🎨 " + ToolLang.Get("Open UI Editor (Base Frame)", "Открыть редактор UI (Базовая рамка)"), EditorStyles.miniButton, GUILayout.Height(25), GUILayout.Width(250)))
-                    NovellaUIEditorModule.ShowWindow();
+                    NovellaUIForge.ShowWindow();
 
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -2016,7 +2016,7 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(15);
                 GUI.backgroundColor = new Color(0.8f, 0.4f, 0.8f);
                 if (GUILayout.Button("🎨 " + ToolLang.Get("UI Editor", "Редактор UI"), new GUIStyle(GUI.skin.button) { fontSize = 13, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(35)))
-                    NovellaUIEditorModule.ShowWindow();
+                    NovellaUIForge.ShowWindow();
                 GUI.backgroundColor = Color.white;
             }
             else
