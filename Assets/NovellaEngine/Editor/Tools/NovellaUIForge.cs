@@ -245,6 +245,18 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(14);
 
+            // На пустой сцене — кнопка создать всё с нуля
+            if (_canvas == null)
+            {
+                GUI.backgroundColor = C_SUCCESS;
+                if (GUILayout.Button(ToolLang.Get("✨ Create UI Canvas in scene", "✨ Создать UI Canvas в сцене"), GUILayout.Height(34)))
+                {
+                    CreateCanvasInScene();
+                }
+                GUI.backgroundColor = Color.white;
+                GUILayout.Space(8);
+            }
+
             GUI.backgroundColor = C_ACCENT;
             if (GUILayout.Button(ToolLang.Get("🔄 Refresh", "🔄 Обновить"), GUILayout.Height(34)))
             {
@@ -258,6 +270,49 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
             GUILayout.FlexibleSpace();
             GUILayout.EndArea();
+        }
+
+        private void CreateCanvasInScene()
+        {
+            // 1. Camera (если нет)
+            if (_camera == null && Camera.main == null)
+            {
+                var camGo = new GameObject("Main Camera");
+                camGo.tag = "MainCamera";
+                var cam = camGo.AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0.05f, 0.05f, 0.07f);
+                cam.orthographic = false;
+                camGo.AddComponent<AudioListener>();
+                Undo.RegisterCreatedObjectUndo(camGo, "Create Camera");
+                _camera = cam;
+            }
+
+            // 2. Canvas
+            var canvasGo = new GameObject("Canvas");
+            var canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = _camera;
+            canvas.planeDistance = 5f;
+            var scaler = canvasGo.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+            canvasGo.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+            Undo.RegisterCreatedObjectUndo(canvasGo, "Create Canvas");
+
+            // 3. EventSystem (если нет)
+            var es = UnityEngine.Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include);
+            if (es == null)
+            {
+                var esGo = new GameObject("EventSystem");
+                esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+                esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+                Undo.RegisterCreatedObjectUndo(esGo, "Create EventSystem");
+            }
+
+            FindReferences();
+            RefreshRectsCache();
         }
 
         // ─── Find references / scene fixup ─────────────────────────────────────
@@ -460,7 +515,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(8);
 
-            // Items
+            // Items + Catalog в одной прокрутке
             _treeScroll = GUILayout.BeginScrollView(_treeScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
             string filter = _treeFilter?.Trim().ToLowerInvariant() ?? "";
 
@@ -475,8 +530,146 @@ namespace NovellaEngine.Editor
                 DrawTreeRow(rt, name, GetDisplayIcon(rt), depth);
             }
 
+            GUILayout.Space(14);
+            DrawCatalogSection();
+
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        // ─── Каталог: создание новых элементов одним кликом ───────────────────
+
+        private void DrawCatalogSection()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(14);
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11 };
+            titleSt.normal.textColor = C_TEXT_3;
+            GUILayout.Label("➕ " + ToolLang.Get("CATALOG", "КАТАЛОГ"), titleSt);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(2);
+
+            DrawCatalogItem("📝", ToolLang.Get("Text", "Текст"),         CreateText);
+            DrawCatalogItem("🔘", ToolLang.Get("Button", "Кнопка"),       CreateButton);
+            DrawCatalogItem("🖼", ToolLang.Get("Image", "Картинка"),       CreateImage);
+            DrawCatalogItem("▣",  ToolLang.Get("Panel", "Панель"),         CreatePanel);
+        }
+
+        private void DrawCatalogItem(string icon, string label, Action onCreate)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8);
+            Rect r = GUILayoutUtility.GetRect(0, 30, GUILayout.ExpandWidth(true));
+            GUILayout.Space(8);
+            GUILayout.EndHorizontal();
+
+            bool hover = r.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(r, hover ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f) : C_BG_RAISED);
+            DrawRectBorder(r, hover ? C_ACCENT : C_BORDER);
+
+            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = hover ? C_ACCENT : C_TEXT_2;
+            GUI.Label(new Rect(r.x + 6, r.y, 24, r.height), icon, iconSt);
+
+            var labelSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            labelSt.normal.textColor = C_TEXT_1;
+            GUI.Label(new Rect(r.x + 32, r.y, r.width - 40, r.height), label, labelSt);
+
+            var plusSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+            plusSt.normal.textColor = hover ? C_ACCENT : C_TEXT_4;
+            GUI.Label(new Rect(r.xMax - 24, r.y, 18, r.height), "+", plusSt);
+
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            {
+                onCreate?.Invoke();
+                _window?.Repaint();
+                Event.current.Use();
+            }
+        }
+
+        private Transform GetCreationParent()
+        {
+            // Создаём под выбранный элемент, если он есть и это контейнер; иначе под root canvas.
+            if (_selected != null && _selected != _canvas.GetComponent<RectTransform>())
+                return _selected.transform;
+            return _canvas != null ? _canvas.transform : null;
+        }
+
+        private RectTransform PlaceUnderParent(GameObject go, Vector2 size, string undoName)
+        {
+            var parent = GetCreationParent();
+            if (parent == null)
+            {
+                UnityEngine.Object.DestroyImmediate(go);
+                return null;
+            }
+            var rt = go.GetComponent<RectTransform>();
+            if (rt == null) rt = go.AddComponent<RectTransform>();
+            rt.SetParent(parent, false);
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = size;
+            rt.localScale = Vector3.one;
+            Undo.RegisterCreatedObjectUndo(go, undoName);
+            _selected = rt;
+            RefreshRectsCache();
+            EditorUtility.SetDirty(go);
+            return rt;
+        }
+
+        private void CreateText()
+        {
+            var go = new GameObject("Text");
+            var tmp = go.AddComponent<TextMeshProUGUI>();
+            tmp.text = "Текст";
+            tmp.fontSize = 32;
+            tmp.color = Color.white;
+            tmp.alignment = TextAlignmentOptions.Center;
+            PlaceUnderParent(go, new Vector2(220, 60), "Create Text");
+        }
+
+        private void CreateButton()
+        {
+            var go = new GameObject("Button");
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0.36f, 0.75f, 0.92f);
+            go.AddComponent<Button>();
+            var rt = PlaceUnderParent(go, new Vector2(180, 48), "Create Button");
+            if (rt == null) return;
+
+            // Дочерний TMP-текст внутри кнопки
+            var textGo = new GameObject("Text");
+            var tmp = textGo.AddComponent<TextMeshProUGUI>();
+            tmp.text = "Button";
+            tmp.color = new Color(0.07f, 0.08f, 0.10f);
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.fontSize = 18;
+            tmp.fontStyle = FontStyles.Bold;
+            var trt = textGo.GetComponent<RectTransform>();
+            trt.SetParent(go.transform, false);
+            trt.anchorMin = Vector2.zero;
+            trt.anchorMax = Vector2.one;
+            trt.offsetMin = Vector2.zero;
+            trt.offsetMax = Vector2.zero;
+            trt.localScale = Vector3.one;
+        }
+
+        private void CreateImage()
+        {
+            var go = new GameObject("Image");
+            var img = go.AddComponent<Image>();
+            img.color = Color.white;
+            PlaceUnderParent(go, new Vector2(120, 120), "Create Image");
+        }
+
+        private void CreatePanel()
+        {
+            var go = new GameObject("Panel");
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0.10f, 0.11f, 0.15f, 0.85f);
+            PlaceUnderParent(go, new Vector2(420, 220), "Create Panel");
         }
 
         private int ComputeDepth(RectTransform rt)
@@ -1164,18 +1357,26 @@ namespace NovellaEngine.Editor
 
         // "Прилипить к углу": ставим якорь и pivot в один угол, обнуляем anchoredPosition.
         // Так выбранный элемент визуально снэпится к указанному углу/центру родителя.
+        // Важно: сохраняем актуальный размер (rect.size), чтобы stretch-элементы
+        // (например, Dialogue_Text с anchor (0,0)..(1,1)) не схлопывались в точку.
         private void SnapAnchorToCorner(Vector2 cornerMin, Vector2 cornerMax)
         {
             if (_selected == null) return;
             Undo.RecordObject(_selected, "Set Anchor");
+
+            // Запомним реальный размер, т.к. при смене anchor с stretch на corner
+            // sizeDelta теряет смысл и нужно восстановить размер вручную.
+            Vector2 actualSize = _selected.rect.size;
+
             _selected.anchorMin = cornerMin;
             _selected.anchorMax = cornerMax;
-            // Если это пресет угла (anchorMin == anchorMax), синхронизируем pivot.
+
             if (Mathf.Approximately(cornerMin.x, cornerMax.x) && Mathf.Approximately(cornerMin.y, cornerMax.y))
             {
                 _selected.pivot = cornerMin;
+                _selected.anchoredPosition = Vector2.zero;
+                _selected.sizeDelta = actualSize;
             }
-            _selected.anchoredPosition = Vector2.zero;
             EditorUtility.SetDirty(_selected);
         }
 
