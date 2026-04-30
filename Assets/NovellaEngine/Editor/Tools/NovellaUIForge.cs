@@ -167,6 +167,16 @@ namespace NovellaEngine.Editor
         {
             if (_camera == null) FindReferences();
 
+            // Глобальный Del — работает над всем модулем, не требует курсора над холстом.
+            // Перехватываем здесь, чтобы Unity не унёс событие в Hierarchy.
+            Event ev = Event.current;
+            if (ev != null && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Delete && _selected != null)
+            {
+                DeleteSelected();
+                ev.Use();
+                return;
+            }
+
             if (_camera == null || _canvas == null)
             {
                 DrawNoCanvasState(position);
@@ -759,7 +769,7 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(rect, C_BG_PRIMARY);
 
             // Topbar для канваса
-            const float topH = 38f;
+            const float topH = 48f;
             Rect topbar = new Rect(rect.x, rect.y, rect.width, topH);
             EditorGUI.DrawRect(topbar, C_BG_SIDE);
             DrawRectBorder(new Rect(topbar.x, topbar.yMax - 1, topbar.width, 1), C_BORDER);
@@ -861,31 +871,82 @@ namespace NovellaEngine.Editor
 
         private void DrawCanvasTopbar(Rect topbar)
         {
-            GUILayout.BeginArea(topbar);
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(12);
+            // Делим топбар на 3 группы, рисуем каждую как "карточку".
+            // Группы отделяем тонкой вертикальной чертой для визуального разделения.
 
-            // ── Группа 1 (слева): разрешение + custom W/H ──
+            const float pad = 14f;
+            const float groupH = 32f;
+            float yMid = topbar.y + (topbar.height - groupH) * 0.5f;
+
+            // ── ГРУППА 1: разрешение (слева) ──
+            float g1W = (_resolutionPresetIndex == RESOLUTION_PRESETS.Length) ? 360f : 220f;
+            Rect g1 = new Rect(topbar.x + pad, yMid, g1W, groupH);
+            DrawTopbarGroupBg(g1);
+            DrawResolutionGroup(g1);
+
+            // ── ГРУППА 3: zoom + help (справа) ──
+            const float g3W = 290f;
+            Rect g3 = new Rect(topbar.xMax - pad - g3W, yMid, g3W, groupH);
+            DrawTopbarGroupBg(g3);
+            DrawZoomHelpGroup(g3);
+
+            // ── ГРУППА 2: тогглы (по центру между g1 и g3) ──
+            float g2W = _isMobileMode ? 230f : 92f;
+            float availStart = g1.xMax + 12f;
+            float availEnd = g3.x - 12f;
+            float g2X = (availStart + availEnd) * 0.5f - g2W * 0.5f;
+            // если не помещается между группами — прижимаем к правой границе g1
+            if (g2X < availStart) g2X = availStart;
+            if (g2X + g2W > availEnd) g2X = availEnd - g2W;
+            Rect g2 = new Rect(g2X, yMid, g2W, groupH);
+            DrawTopbarGroupBg(g2);
+            DrawTogglesGroup(g2);
+        }
+
+        private void DrawTopbarGroupBg(Rect r)
+        {
+            EditorGUI.DrawRect(r, C_BG_RAISED);
+            DrawRectBorder(r, new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.7f));
+        }
+
+        private void DrawResolutionGroup(Rect r)
+        {
+            float monitorIconW = 28f;
+            // Иконка-индикатор устройства (десктоп/мобила) слева
+            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = C_TEXT_2;
+            GUI.Label(new Rect(r.x, r.y, monitorIconW, r.height), _isMobileMode ? "📱" : "🖥", iconSt);
+
+            // Разделитель
+            EditorGUI.DrawRect(new Rect(r.x + monitorIconW, r.y + 6, 1, r.height - 12), new Color(1, 1, 1, 0.06f));
+
             string[] options = new string[RESOLUTION_PRESETS.Length + 1];
             for (int i = 0; i < RESOLUTION_PRESETS.Length; i++) options[i] = RESOLUTION_PRESETS[i].label;
             options[RESOLUTION_PRESETS.Length] = ToolLang.Get("⚙ Custom…", "⚙ Своё…");
 
+            // Dropdown растягивается на оставшееся место (минус custom-поля если они есть)
+            float ddX = r.x + monitorIconW + 6;
+            float ddW = (_resolutionPresetIndex == RESOLUTION_PRESETS.Length) ? 200f : (r.width - monitorIconW - 12);
+            Rect ddRect = new Rect(ddX, r.y + 5, ddW, 22);
+
             EditorGUI.BeginChangeCheck();
-            int newIdx = EditorGUILayout.Popup(_resolutionPresetIndex, options, GUILayout.Width(220), GUILayout.Height(22));
+            int newIdx = EditorGUI.Popup(ddRect, _resolutionPresetIndex, options);
             if (EditorGUI.EndChangeCheck())
             {
                 _resolutionPresetIndex = newIdx;
                 ResetPreviewTexture();
             }
 
+            // Custom W/H поля
             if (_resolutionPresetIndex == RESOLUTION_PRESETS.Length)
             {
-                GUILayout.Space(6);
-                GUILayout.Label("W", GUILayout.Width(14));
+                float fx = ddRect.xMax + 6;
+                var labelSt = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 }, alignment = TextAnchor.MiddleCenter };
+                GUI.Label(new Rect(fx, r.y, 14, r.height), "W", labelSt);
                 EditorGUI.BeginChangeCheck();
-                int nw = EditorGUILayout.IntField(_customW, GUILayout.Width(60), GUILayout.Height(22));
-                GUILayout.Label("H", GUILayout.Width(14));
-                int nh = EditorGUILayout.IntField(_customH, GUILayout.Width(60), GUILayout.Height(22));
+                int nw = EditorGUI.IntField(new Rect(fx + 14, r.y + 5, 50, 22), _customW);
+                GUI.Label(new Rect(fx + 70, r.y, 14, r.height), "H", labelSt);
+                int nh = EditorGUI.IntField(new Rect(fx + 84, r.y + 5, 50, 22), _customH);
                 if (EditorGUI.EndChangeCheck())
                 {
                     _customW = Mathf.Clamp(nw, 64, 8192);
@@ -893,38 +954,112 @@ namespace NovellaEngine.Editor
                     ResetPreviewTexture();
                 }
             }
+        }
 
-            GUILayout.FlexibleSpace();
+        private void DrawTogglesGroup(Rect r)
+        {
+            float btnW = 86f;
+            float bh = 22f;
+            float bx = r.x + 4;
+            float by = r.y + (r.height - bh) * 0.5f;
 
-            // ── Группа 2 (центр): toggles ──
-            _showGrid = GUILayout.Toggle(_showGrid, ToolLang.Get("  Grid", "  Сетка"), EditorStyles.toolbarButton, GUILayout.Width(80), GUILayout.Height(22));
+            DrawIconToggle(new Rect(bx, by, btnW, bh), "▦", ToolLang.Get("Grid", "Сетка"), ref _showGrid);
+            bx += btnW + 4;
+
             if (_isMobileMode)
             {
-                _showSafeArea = GUILayout.Toggle(_showSafeArea, ToolLang.Get("  Safe Area", "  Безопасная зона"), EditorStyles.toolbarButton, GUILayout.Width(140), GUILayout.Height(22));
+                DrawIconToggle(new Rect(bx, by, 130, bh), "📱", ToolLang.Get("Safe Area", "Безоп. зона"), ref _showSafeArea);
             }
             else
             {
                 _showSafeArea = false;
             }
+        }
 
-            GUILayout.FlexibleSpace();
+        // Кастомный toggle: иконка + текст, бирюзовая обводка/подложка когда активен.
+        private void DrawIconToggle(Rect r, string icon, string label, ref bool value)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            Color bg;
+            if (value) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, hover ? 0.30f : 0.22f);
+            else bg = hover ? new Color(1, 1, 1, 0.05f) : Color.clear;
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(r, value ? C_ACCENT : new Color(1, 1, 1, 0.07f));
 
-            // ── Группа 3 (справа): zoom + help ──
-            var zoomLabelSt = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 }, alignment = TextAnchor.MiddleRight };
-            GUILayout.Label(ToolLang.Get("Zoom", "Масштаб"), zoomLabelSt, GUILayout.Width(58));
-            _previewZoom = GUILayout.HorizontalSlider(_previewZoom, 0.25f, 1.5f, GUILayout.Width(110));
-            GUILayout.Label((_previewZoom * 100f).ToString("F0") + "%", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
+            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = value ? C_ACCENT : C_TEXT_2;
+            GUI.Label(new Rect(r.x + 6, r.y, 20, r.height), icon, iconSt);
 
-            GUILayout.Space(8);
+            var labelSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            labelSt.normal.textColor = value ? C_TEXT_1 : C_TEXT_2;
+            GUI.Label(new Rect(r.x + 26, r.y, r.width - 32, r.height), label, labelSt);
 
-            if (GUILayout.Button("❓", EditorStyles.toolbarButton, GUILayout.Width(30), GUILayout.Height(22)))
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            {
+                value = !value;
+                Event.current.Use();
+            }
+        }
+
+        private void DrawZoomHelpGroup(Rect r)
+        {
+            // Layout: [—] [-▭slider▭-] [+]   |   [Zoom 100%]   |   [❓]
+            float bx = r.x + 6;
+            float by = r.y + (r.height - 22) * 0.5f;
+
+            // Минус
+            if (DrawIconBtn(new Rect(bx, by, 22, 22), "−"))
+            {
+                _previewZoom = Mathf.Max(0.25f, _previewZoom - 0.1f);
+            }
+            bx += 22 + 2;
+
+            // Слайдер
+            float sliderW = 90f;
+            _previewZoom = GUI.HorizontalSlider(new Rect(bx, by + 8, sliderW, 6), _previewZoom, 0.25f, 1.5f);
+            bx += sliderW + 2;
+
+            // Плюс
+            if (DrawIconBtn(new Rect(bx, by, 22, 22), "+"))
+            {
+                _previewZoom = Mathf.Min(1.5f, _previewZoom + 0.1f);
+            }
+            bx += 22 + 6;
+
+            // Разделитель
+            EditorGUI.DrawRect(new Rect(bx, r.y + 6, 1, r.height - 12), new Color(1, 1, 1, 0.06f));
+            bx += 6;
+
+            // Процент
+            var pctSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            pctSt.normal.textColor = C_TEXT_1;
+            GUI.Label(new Rect(bx, r.y, 56, r.height), (_previewZoom * 100f).ToString("F0") + "%", pctSt);
+            bx += 56 + 4;
+
+            // Разделитель
+            EditorGUI.DrawRect(new Rect(bx, r.y + 6, 1, r.height - 12), new Color(1, 1, 1, 0.06f));
+            bx += 6;
+
+            // Help
+            if (DrawIconBtn(new Rect(bx, by, 26, 22), "❓"))
             {
                 NovellaUIForgeHelpWindow.ShowHelp();
             }
+        }
 
-            GUILayout.Space(12);
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
+        private bool DrawIconBtn(Rect r, string icon)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(r, hover ? new Color(1, 1, 1, 0.08f) : Color.clear);
+            DrawRectBorder(r, new Color(1, 1, 1, hover ? 0.12f : 0.04f));
+
+            var st = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+            st.normal.textColor = hover ? C_TEXT_1 : C_TEXT_2;
+            GUI.Label(r, icon, st);
+
+            bool clicked = Event.current.type == EventType.MouseDown && hover && Event.current.button == 0;
+            if (clicked) Event.current.Use();
+            return clicked;
         }
 
         private void ResetPreviewTexture()
@@ -1016,14 +1151,7 @@ namespace NovellaEngine.Editor
             Event e = Event.current;
             if (e == null) return;
 
-            // Удаление через Del (если над холстом, не идёт drag/resize)
-            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Delete &&
-                _selected != null && drawRect.Contains(e.mousePosition))
-            {
-                DeleteSelected();
-                e.Use();
-                return;
-            }
+            // Del обрабатывается на уровне DrawGUI (над всем модулем).
 
             // Pre-pass: если уже идёт drag/resize — обрабатываем независимо от позиции
             if (_dragging || _resizeHandle >= 0)
