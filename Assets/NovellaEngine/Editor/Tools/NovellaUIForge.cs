@@ -87,6 +87,23 @@ namespace NovellaEngine.Editor
         private bool _showGrid = true;
         private float _gridStep = 20f;
 
+        // Разрешение превью (заменяет тогл Desktop/Mobile в части ширины-высоты).
+        // _resolutionPresetIndex < presets.Length — пресет, == presets.Length — Custom.
+        private int _resolutionPresetIndex = 0;
+        private int _customW = 1920;
+        private int _customH = 1080;
+        private static readonly (string label, int w, int h, bool isMobile)[] RESOLUTION_PRESETS = new (string, int, int, bool)[]
+        {
+            ("🖥 1920×1080 (Full HD)",      1920, 1080, false),
+            ("🖥 2560×1440 (QHD)",           2560, 1440, false),
+            ("🖥 3840×2160 (4K UHD)",        3840, 2160, false),
+            ("📱 1080×1920 (Phone Portrait)",1080, 1920, true),
+            ("📱 1170×2532 (iPhone 14)",     1170, 2532, true),
+            ("📱 1290×2796 (iPhone 14 Pro Max)", 1290, 2796, true),
+            ("📱 1668×2388 (iPad Pro 11)",   1668, 2388, true),
+            ("🖥 1366×768 (Laptop HD)",      1366, 768,  false),
+        };
+
         // Drag
         private bool _dragging;
         private Vector2 _dragMouseStart;     // координата мыши в превью при начале drag
@@ -444,12 +461,27 @@ namespace NovellaEngine.Editor
         private static void CollectRectsRecursive(RectTransform rt, List<RectTransform> list, int depth)
         {
             if (rt == null || depth > 16) return;
+            // Прячем технические TMP-подмеши (создаются автоматически от fallback-шрифтов)
+            if (IsHiddenInternal(rt)) return;
             list.Add(rt);
             for (int i = 0; i < rt.childCount; i++)
             {
                 var ch = rt.GetChild(i) as RectTransform;
                 if (ch != null) CollectRectsRecursive(ch, list, depth + 1);
             }
+        }
+
+        // Возвращает true для GameObject'ов, которые юзеру видеть/редактировать НЕ нужно:
+        // например TMP_SubMeshUI, скрытые DontSave и т.п.
+        private static bool IsHiddenInternal(RectTransform rt)
+        {
+            if (rt == null) return true;
+            var go = rt.gameObject;
+            if ((go.hideFlags & HideFlags.HideInHierarchy) != 0) return true;
+            // TMP_SubMeshUI создаёт дочерние объекты для fallback-шрифтов
+            if (go.GetComponent<TMPro.TMP_SubMeshUI>() != null) return true;
+            if (go.GetComponent<TMPro.TMP_SubMesh>() != null) return true;
+            return false;
         }
 
         private string GetDisplayName(RectTransform rt)
@@ -735,9 +767,21 @@ namespace NovellaEngine.Editor
 
             if (_camera == null) return;
 
-            // Целевое разрешение
-            int targetW = _isMobileMode ? 1080 : 1920;
-            int targetH = _isMobileMode ? 1920 : 1080;
+            // Целевое разрешение — из пресета или из custom-полей
+            int targetW, targetH;
+            if (_resolutionPresetIndex >= 0 && _resolutionPresetIndex < RESOLUTION_PRESETS.Length)
+            {
+                var p = RESOLUTION_PRESETS[_resolutionPresetIndex];
+                targetW = p.w;
+                targetH = p.h;
+                _isMobileMode = p.isMobile;
+            }
+            else
+            {
+                targetW = Mathf.Max(64, _customW);
+                targetH = Mathf.Max(64, _customH);
+                _isMobileMode = targetH > targetW;
+            }
 
             // Recreate texture if needed
             if (Event.current.type == EventType.Repaint)
@@ -818,30 +862,59 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
 
-            GUILayout.Space(4);
-            GUILayout.Label(_isMobileMode ? "📱 1080×1920" : "🖥 1920×1080",
-                new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, normal = { textColor = C_TEXT_1 }, alignment = TextAnchor.MiddleLeft },
-                GUILayout.Width(110), GUILayout.Height(38));
+            // Dropdown пресетов разрешения
+            string[] options = new string[RESOLUTION_PRESETS.Length + 1];
+            for (int i = 0; i < RESOLUTION_PRESETS.Length; i++) options[i] = RESOLUTION_PRESETS[i].label;
+            options[RESOLUTION_PRESETS.Length] = ToolLang.Get("⚙ Custom…", "⚙ Своё…");
 
-            // Toggle desktop / mobile
-            GUI.backgroundColor = _isMobileMode ? Color.white : C_ACCENT;
-            if (GUILayout.Button("🖥 Desktop", EditorStyles.toolbarButton, GUILayout.Width(90), GUILayout.Height(22)))
+            EditorGUI.BeginChangeCheck();
+            int newIdx = EditorGUILayout.Popup(_resolutionPresetIndex, options, GUILayout.Width(220), GUILayout.Height(22));
+            if (EditorGUI.EndChangeCheck())
             {
-                if (_isMobileMode) { _isMobileMode = false; ResetPreviewTexture(); }
+                _resolutionPresetIndex = newIdx;
+                ResetPreviewTexture();
             }
-            GUI.backgroundColor = _isMobileMode ? C_ACCENT : Color.white;
-            if (GUILayout.Button("📱 Mobile", EditorStyles.toolbarButton, GUILayout.Width(90), GUILayout.Height(22)))
-            {
-                if (!_isMobileMode) { _isMobileMode = true; ResetPreviewTexture(); }
-            }
-            GUI.backgroundColor = Color.white;
 
-            GUILayout.Space(20);
+            // Custom W/H поля — показываем только если выбран пресет "Custom"
+            if (_resolutionPresetIndex == RESOLUTION_PRESETS.Length)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label("W", GUILayout.Width(14));
+                EditorGUI.BeginChangeCheck();
+                int nw = EditorGUILayout.IntField(_customW, GUILayout.Width(60), GUILayout.Height(22));
+                GUILayout.Label("H", GUILayout.Width(14));
+                int nh = EditorGUILayout.IntField(_customH, GUILayout.Width(60), GUILayout.Height(22));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    _customW = Mathf.Clamp(nw, 64, 8192);
+                    _customH = Mathf.Clamp(nh, 64, 8192);
+                    ResetPreviewTexture();
+                }
+            }
+
+            GUILayout.Space(16);
 
             _showGrid = GUILayout.Toggle(_showGrid, ToolLang.Get(" Grid", " Сетка"), EditorStyles.toolbarButton, GUILayout.Height(22));
-            _showSafeArea = GUILayout.Toggle(_showSafeArea, ToolLang.Get(" Safe", " Безопасная зона"), EditorStyles.toolbarButton, GUILayout.Height(22));
+
+            // Safe Area — только в мобильном режиме (вертикальное разрешение)
+            if (_isMobileMode)
+            {
+                _showSafeArea = GUILayout.Toggle(_showSafeArea, ToolLang.Get(" Safe Area", " Безопасная зона"), EditorStyles.toolbarButton, GUILayout.Height(22));
+            }
+            else
+            {
+                _showSafeArea = false;
+            }
 
             GUILayout.FlexibleSpace();
+
+            // Кнопка помощи
+            if (GUILayout.Button("❓ " + ToolLang.Get("Help", "Помощь"), EditorStyles.toolbarButton, GUILayout.Width(80), GUILayout.Height(22)))
+            {
+                NovellaUIForgeHelpWindow.ShowHelp();
+            }
+
+            GUILayout.Space(12);
 
             GUILayout.Label("Zoom", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
             _previewZoom = GUILayout.HorizontalSlider(_previewZoom, 0.25f, 1.5f, GUILayout.Width(120));
@@ -1187,22 +1260,29 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
             string icon = GetDisplayIcon(_selected);
-            string name = GetDisplayName(_selected);
+            string name = TruncateForHeader(GetDisplayName(_selected), 28);
             var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
             iconSt.normal.textColor = C_ACCENT;
             GUILayout.Label(icon, iconSt, GUILayout.Width(22));
-            var nameSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
+            var nameSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, clipping = TextClipping.Clip };
             nameSt.normal.textColor = C_TEXT_1;
             GUILayout.Label(name, nameSt);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
-            var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, clipping = TextClipping.Clip };
             subSt.normal.textColor = C_TEXT_4;
-            GUILayout.Label(_selected.gameObject.name, subSt);
+            GUILayout.Label(TruncateForHeader(_selected.gameObject.name, 36), subSt);
             GUILayout.EndHorizontal();
             GUILayout.Space(10);
+        }
+
+        private static string TruncateForHeader(string s, int maxLen)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            if (s.Length <= maxLen) return s;
+            return s.Substring(0, maxLen - 1) + "…";
         }
 
         private void DrawInspectorPositionSection()
@@ -1635,24 +1715,27 @@ namespace NovellaEngine.Editor
         private void DrawInspectorActionsSection()
         {
             DrawSectionLabel(ToolLang.Get("ACTIONS", "ДЕЙСТВИЯ"));
+            if (_selected == null) return;
+
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
+            GUILayout.BeginVertical();
 
-            if (_selected != null)
+            if (GUILayout.Button(ToolLang.Get("📋 Duplicate", "📋 Дублировать"), GUILayout.Height(28), GUILayout.ExpandWidth(true)))
             {
-                if (GUILayout.Button(ToolLang.Get("📋 Duplicate", "📋 Дублировать"), GUILayout.Height(28)))
-                {
-                    DuplicateSelected();
-                }
-
-                GUI.backgroundColor = C_DANGER;
-                if (GUILayout.Button(ToolLang.Get("🗑 Delete", "🗑 Удалить"), GUILayout.Height(28)))
-                {
-                    DeleteSelected();
-                }
-                GUI.backgroundColor = Color.white;
+                DuplicateSelected();
             }
 
+            GUILayout.Space(4);
+
+            GUI.backgroundColor = C_DANGER;
+            if (GUILayout.Button(ToolLang.Get("🗑 Delete", "🗑 Удалить"), GUILayout.Height(28), GUILayout.ExpandWidth(true)))
+            {
+                DeleteSelected();
+            }
+            GUI.backgroundColor = Color.white;
+
+            GUILayout.EndVertical();
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
             GUILayout.Space(20);
@@ -1703,6 +1786,126 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), c);
             EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), c);
             EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), c);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Окно помощи: коротко и человеческим языком объясняет ключевые понятия,
+    // чтобы пользователю не приходилось гуглить "что такое Canvas" или "якорь".
+    // ════════════════════════════════════════════════════════════════════════
+    public class NovellaUIForgeHelpWindow : EditorWindow
+    {
+        private Vector2 _scroll;
+
+        public static void ShowHelp()
+        {
+            var win = GetWindow<NovellaUIForgeHelpWindow>(true, ToolLang.Get("UI Forge — Help", "Кузница UI — Помощь"), true);
+            win.minSize = new Vector2(560, 480);
+            win.maxSize = new Vector2(900, 900);
+            win.ShowUtility();
+        }
+
+        private void OnGUI()
+        {
+            EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), new Color(0.075f, 0.078f, 0.106f));
+
+            GUILayout.Space(14);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(20);
+            GUILayout.BeginVertical();
+
+            var h1 = new GUIStyle(EditorStyles.boldLabel) { fontSize = 18 };
+            h1.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            GUILayout.Label("❓ " + ToolLang.Get("UI Forge — quick guide", "Кузница UI — краткий гид"), h1);
+            GUILayout.Space(4);
+            var sub = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+            sub.normal.textColor = new Color(0.78f, 0.80f, 0.86f);
+            GUILayout.Label(ToolLang.Get(
+                "Brief explanations of the things you might run into. No Unity background needed.",
+                "Короткое объяснение того, с чем ты столкнёшься. Знание Unity не требуется."), sub);
+            GUILayout.Space(12);
+
+            _scroll = GUILayout.BeginScrollView(_scroll);
+
+            DrawTopic("🧱  Canvas",
+                ToolLang.Get(
+                    "The 'sheet' on top of which all UI lives. Every screen of your novel needs one Canvas. The editor automatically configures it; you usually don't touch it directly.",
+                    "Это «лист», поверх которого живёт весь интерфейс. На каждой сцене нужен один Canvas. Редактор настраивает его автоматически — обычно сам ты в него не лазишь."));
+
+            DrawTopic("🎯  " + ToolLang.Get("Anchor", "Якорь"),
+                ToolLang.Get(
+                    "The anchor decides which point of the parent your element 'sticks to'. If you anchor to top-right, the element will keep its distance from the top-right corner when the screen size changes. The 3×3 grid in the inspector lets you pick one of 9 corners; the three buttons on the right (Stretch H / V / Fill) let the element grow with the parent.",
+                    "Якорь определяет, к какой точке родителя «прилипает» элемент. Поставил якорь в правый верх — элемент будет держать расстояние от правого-верхнего угла даже когда меняется размер экрана. Сетка 3×3 в инспекторе — выбор одного из 9 углов. Три кнопки справа (Растянуть гор. / верт. / Заполнить) — чтобы элемент рос вместе с родителем."));
+
+            DrawTopic("📐  " + ToolLang.Get("Position & Size", "Положение и размер"),
+                ToolLang.Get(
+                    "X / Y — offset from the anchor point. W / H — width and height in pixels. You can edit them in fields, or just drag the element on the canvas with the mouse and drag the corner handles to resize.",
+                    "X / Y — смещение от точки якоря. W / H — ширина и высота в пикселях. Их можно править вручную в полях, а можно просто тащить мышкой по холсту и тянуть за квадратики на углах для изменения размера."));
+
+            DrawTopic("🖼  " + ToolLang.Get("Image / Sprite", "Картинка / Спрайт"),
+                ToolLang.Get(
+                    "An image is just a picture on screen. The 'Sprite' field is what's drawn (drag any image asset there). 'Color' tints the image. 'Type → Filled' makes it possible to animate fill (handy for HP bars etc.).",
+                    "Картинка — это просто рисунок на экране. В поле «Спрайт» кладёшь изображение из ассетов. «Цвет» окрашивает. «Тип → Filled» позволяет анимировать заполнение (удобно для шкалы HP и т.п.)."));
+
+            DrawTopic("🔘  " + ToolLang.Get("Button", "Кнопка"),
+                ToolLang.Get(
+                    "A clickable element. The Inspector lets you set colors for three states: Normal (resting), Highlight (when mouse hovers), Pressed (when clicked). Inside a button there's usually a child Text element with the button label.",
+                    "Кликабельный элемент. В инспекторе настраивается цвет для трёх состояний: Обычная (покой), Hover (наведение), Нажата (клик). Внутри кнопки обычно лежит дочерний текст с надписью."));
+
+            DrawTopic("𝐓  " + ToolLang.Get("Text (TMP vs Legacy)", "Текст (TMP vs Legacy)"),
+                ToolLang.Get(
+                    "TextMeshPro (TMP) is the modern, sharp version. Legacy Text is older and looks blurry on big resolutions. We recommend TMP. The actual displayed text comes from localization (RU/EN tables), the inspector only changes the look (font, size, color, alignment).",
+                    "TextMeshPro (TMP) — современная, чёткая версия. Legacy Text — старая, размывается на больших разрешениях. Рекомендуем TMP. Сам текст приходит из локализации (таблицы RU/EN), а в инспекторе ты меняешь только внешний вид (шрифт, размер, цвет, выравнивание)."));
+
+            DrawTopic("➕  " + ToolLang.Get("Catalog", "Каталог"),
+                ToolLang.Get(
+                    "On the left there's a list of presets — Text, Button, Image, Panel. Click one to add it to the canvas. The new element appears under the currently selected one (or under the canvas root if nothing is selected).",
+                    "Слева — каталог пресетов: Текст, Кнопка, Картинка, Панель. Клик добавляет элемент на холст. Новый элемент создаётся внутри выбранного (или внутри корня канваса, если ничего не выбрано)."));
+
+            DrawTopic("📱  " + ToolLang.Get("Resolutions", "Разрешения"),
+                ToolLang.Get(
+                    "The dropdown above the canvas switches between common screen sizes — Full HD desktop, iPhone, iPad, etc. Pick 'Custom' to set any size manually. The 'Safe Area' toggle (only in mobile mode) shows the area not covered by notches and home indicator.",
+                    "Выпадающий список над холстом переключает популярные разрешения — Full HD, iPhone, iPad и т.д. «Своё…» — задать любой размер вручную. Переключатель «Безопасная зона» (только в мобильном режиме) показывает область, не закрытую вырезами и системными элементами."));
+
+            DrawTopic("⌨  " + ToolLang.Get("Drag & resize", "Перемещение и ресайз"),
+                ToolLang.Get(
+                    "Click an element on the canvas to select it. Drag to move. Drag the small white squares on the bounding box to resize. With grid enabled, movement snaps to the grid for clean alignment.",
+                    "Клик по элементу на холсте — выделение. Тяни мышкой — двигаешь. Тяни белые квадратики на рамке — меняешь размер. При включённой сетке движение прилипает к узлам сетки — для аккуратного выравнивания."));
+
+            DrawTopic("↶ " + ToolLang.Get("Undo", "Отмена"),
+                ToolLang.Get(
+                    "All changes use Unity's standard Undo. Press Ctrl+Z to undo, Ctrl+Y / Ctrl+Shift+Z to redo. Don't be afraid to experiment.",
+                    "Все изменения работают через стандартный Undo Unity. Ctrl+Z — отмена, Ctrl+Y / Ctrl+Shift+Z — вернуть. Можно смело экспериментировать."));
+
+            GUILayout.Space(10);
+            GUILayout.EndScrollView();
+
+            GUILayout.Space(8);
+            if (GUILayout.Button(ToolLang.Get("Got it", "Понятно"), GUILayout.Height(32)))
+            {
+                Close();
+            }
+
+            GUILayout.EndVertical();
+            GUILayout.Space(20);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(14);
+        }
+
+        private void DrawTopic(string title, string body)
+        {
+            var ttl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
+            ttl.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+            GUILayout.Label(title, ttl);
+            GUILayout.Space(2);
+
+            var bd = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+            bd.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            GUILayout.Label(body, bd);
+            GUILayout.Space(10);
+
+            EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), new Color(0.165f, 0.176f, 0.243f));
+            GUILayout.Space(8);
         }
     }
 }
