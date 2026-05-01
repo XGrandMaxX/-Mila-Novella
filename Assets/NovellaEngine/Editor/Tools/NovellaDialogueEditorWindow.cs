@@ -580,6 +580,19 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
             GUILayout.Label(ToolLang.Get("💡 Swaps dialogue window style for this specific line.", "💡 Полностью меняет дизайн окна под эту реплику."), EditorStyles.miniLabel);
 
+            // UI Bindings — drag&drop UI элементов из сцены, чтобы Player писал
+            // фразу/имя спикера прямо в них, а не в DialoguePanel.
+            GUILayout.Space(8);
+            GUILayout.Label("🎯 " + ToolLang.Get("Scene UI targets (optional)", "UI цели в сцене (опц.)"), EditorStyles.boldLabel);
+            NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("Body text → ", "Текст реплики → "),
+                line.UITextTargetId,
+                NovellaEngine.Runtime.UI.UIBindingKind.Text,
+                newId => { line.UITextTargetId = newId; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
+            NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("Speaker name → ", "Имя спикера → "),
+                line.UISpeakerTargetId,
+                NovellaEngine.Runtime.UI.UIBindingKind.Text,
+                newId => { line.UISpeakerTargetId = newId; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
+
             // СДВИГ РАМКИ
             GUILayout.Space(10);
             line.CustomizeFrameLayout = EditorGUILayout.ToggleLeft(new GUIContent("📍 " + ToolLang.Get("Override Frame Position", "Сдвиг рамки по экрану (Live Sync)"), "Позволяет сместить окно диалога (Например наверх)"), line.CustomizeFrameLayout, EditorStyles.boldLabel);

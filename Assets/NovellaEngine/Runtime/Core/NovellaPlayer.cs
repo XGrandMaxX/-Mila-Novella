@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using NovellaEngine.Data;
+using NovellaEngine.Runtime.UI;
 using System.Linq;
 using System;
 
@@ -17,6 +18,25 @@ namespace NovellaEngine.Runtime
     {
         public static event Action<string, string> OnNovellaEvent;
         public static event Action<NovellaPlayer, NovellaNodeBase> OnExecuteDLCNode;
+
+        // Глобальный доступ для кнопок/UI binding'ов которые должны
+        // дёрнуть JumpToNode по клику. Заполняется в OnEnable.
+        public static NovellaPlayer Instance { get; private set; }
+
+        // Хук для NovellaUIBinding и любых внешних триггеров — перейти на ноду.
+        public void JumpToNode(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId)) return;
+            // Чистим спавнённые choice-кнопки (если были) — пользователь уже
+            // решил куда идти через свою UI.
+            if (ChoiceContainer != null)
+            {
+                for (int i = ChoiceContainer.childCount - 1; i >= 0; i--) Destroy(ChoiceContainer.GetChild(i).gameObject);
+            }
+            // И снимаем listener'ы которые мы навешивали на binding-кнопки в ShowChoices.
+            ClearChoiceBindingListeners();
+            PlayNode(nodeId);
+        }
 
         [Header("Story Data")]
         public NovellaTree StoryTree;
@@ -59,6 +79,13 @@ namespace NovellaEngine.Runtime
 
         private bool _isFastForwarding = false;
         private float _autoSaveTimer = 0f;
+
+        // Listener'ы, которые ShowChoices навесил на binding-кнопки в сцене.
+        // Снимаются при следующем ShowChoices/JumpToNode чтобы не накапливаться.
+        private readonly List<(Button btn, UnityEngine.Events.UnityAction handler)> _choiceBindingListeners = new List<(Button, UnityEngine.Events.UnityAction)>();
+
+        private void OnEnable()  { Instance = this; }
+        private void OnDisable() { if (Instance == this) Instance = null; }
 
         private void Start()
         {
@@ -455,6 +482,26 @@ namespace NovellaEngine.Runtime
                         var charGo = CharactersContainer.Find("Char_" + ev.TargetCharacter.name);
                         if (charGo != null) charGo.gameObject.SetActive(true);
                     }
+                    else if (ev.ActionType == ESceneActionType.ShowUI && !string.IsNullOrEmpty(ev.UITargetId))
+                    {
+                        var b = NovellaUIBinding.Find(ev.UITargetId);
+                        if (b != null) b.gameObject.SetActive(true);
+                    }
+                    else if (ev.ActionType == ESceneActionType.HideUI && !string.IsNullOrEmpty(ev.UITargetId))
+                    {
+                        var b = NovellaUIBinding.Find(ev.UITargetId);
+                        if (b != null) b.gameObject.SetActive(false);
+                    }
+                    else if (ev.ActionType == ESceneActionType.SetUIText && !string.IsNullOrEmpty(ev.UITargetId))
+                    {
+                        var t = NovellaUIBinding.FindText(ev.UITargetId);
+                        if (t != null)
+                        {
+                            string raw = ev.UITextValue ?? "";
+                            if (ev.UITextIsLocalizationKey) raw = NovellaLocalizationManager.Get(raw);
+                            t.text = raw;
+                        }
+                    }
                 }
             }
         }
@@ -617,7 +664,31 @@ namespace NovellaEngine.Runtime
             }
             img.color = _currentWaitNode.WaitIndicatorColor;
 
-            if (!string.IsNullOrWhiteSpace(_currentWaitNode.WaitText))
+            // Если задан UI binding — пишем WaitText туда вместо встроенного индикатора.
+            // Сам индикатор-стрелочка остаётся пульсировать как обычно.
+            if (!string.IsNullOrEmpty(_currentWaitNode.UITextTargetId))
+            {
+                var bound = NovellaUIBinding.FindText(_currentWaitNode.UITextTargetId);
+                if (bound != null)
+                {
+                    bound.text = _currentWaitNode.WaitText ?? "";
+                    txt.gameObject.SetActive(false); // встроенный текст-индикатор отключаем
+                }
+                else
+                {
+                    // Binding не нашёлся — показываем встроенный как fallback.
+                    if (!string.IsNullOrWhiteSpace(_currentWaitNode.WaitText))
+                    {
+                        txt.gameObject.SetActive(true);
+                        txt.text = _currentWaitNode.WaitText;
+                        txt.color = _currentWaitNode.WaitTextColor;
+                        txt.fontSize = _currentWaitNode.WaitTextSize;
+                        txtRt.anchoredPosition = new Vector2(_currentWaitNode.WaitTextPosX, _currentWaitNode.WaitTextPosY);
+                    }
+                    else txt.gameObject.SetActive(false);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(_currentWaitNode.WaitText))
             {
                 txt.gameObject.SetActive(true);
                 txt.text = _currentWaitNode.WaitText;
@@ -961,6 +1032,19 @@ namespace NovellaEngine.Runtime
                 SpeakerNameText = _defaultSpeakerNameText; DialogueBodyText = _defaultDialogueBodyText;
             }
 
+            // UI Binding overrides — drag&drop'нутые в нодe сцены-цели имеют
+            // приоритет над DialoguePanel/CustomFrame: текст пишется прямо туда.
+            if (!string.IsNullOrEmpty(line.UITextTargetId))
+            {
+                var t = NovellaUIBinding.FindText(line.UITextTargetId);
+                if (t != null) DialogueBodyText = t;
+            }
+            if (!string.IsNullOrEmpty(line.UISpeakerTargetId))
+            {
+                var t = NovellaUIBinding.FindText(line.UISpeakerTargetId);
+                if (t != null) SpeakerNameText = t;
+            }
+
             RectTransform activeRect = null;
             if (line.OverrideDialogueFrame != null && _currentCustomFrame != null) activeRect = _currentCustomFrame.GetComponent<RectTransform>();
             else if (_defaultDialoguePanel != null) activeRect = _defaultDialoguePanel.GetComponent<RectTransform>();
@@ -1147,13 +1231,44 @@ namespace NovellaEngine.Runtime
             if (_defaultDialoguePanel != null) _defaultDialoguePanel.SetActive(false);
             if (_currentCustomFrame != null) _currentCustomFrame.SetActive(false);
 
-            foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+            // Сначала чистим всё что могло остаться от предыдущего Branch:
+            // спавнённые кнопки в ChoiceContainer + listener'ы на binding-кнопках.
+            if (ChoiceContainer != null)
+                foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+            ClearChoiceBindingListeners();
 
             GameObject prefabToUse = branchData.OverrideChoiceButtonPrefab != null ? branchData.OverrideChoiceButtonPrefab : ChoiceButtonPrefab;
 
             foreach (var choice in branchData.Choices)
             {
                 if (!CheckConditions(choice.Conditions)) continue;
+
+                // Если на choice есть UIButtonTargetId — используем существующую
+                // в сцене кнопку (главное меню/инвентарь). Префаб не спавним.
+                if (!string.IsNullOrEmpty(choice.UIButtonTargetId))
+                {
+                    var sceneBtn = NovellaUIBinding.FindButton(choice.UIButtonTargetId);
+                    if (sceneBtn != null)
+                    {
+                        var lblTmp = sceneBtn.GetComponentInChildren<TMP_Text>();
+                        if (lblTmp != null) lblTmp.text = choice.LocalizedText.GetText(CurrentLanguage);
+
+                        string nextId = choice.NextNodeID;
+                        UnityEngine.Events.UnityAction handler = () =>
+                        {
+                            ClearChoiceBindingListeners();
+                            if (ChoiceContainer != null)
+                                foreach (Transform c in ChoiceContainer) Destroy(c.gameObject);
+                            PlayNode(nextId);
+                        };
+                        sceneBtn.onClick.AddListener(handler);
+                        _choiceBindingListeners.Add((sceneBtn, handler));
+                        continue;
+                    }
+                    // Если binding не найден — fallback на обычный спавн.
+                }
+
+                if (prefabToUse == null || ChoiceContainer == null) continue;
 
                 GameObject btnGO = Instantiate(prefabToUse, ChoiceContainer);
                 var tmpText = btnGO.GetComponentInChildren<TMP_Text>();
@@ -1163,11 +1278,22 @@ namespace NovellaEngine.Runtime
                 if (button != null)
                 {
                     button.onClick.AddListener(() => {
-                        foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+                        if (ChoiceContainer != null)
+                            foreach (Transform child in ChoiceContainer) Destroy(child.gameObject);
+                        ClearChoiceBindingListeners();
                         PlayNode(choice.NextNodeID);
                     });
                 }
             }
+        }
+
+        private void ClearChoiceBindingListeners()
+        {
+            foreach (var pair in _choiceBindingListeners)
+            {
+                if (pair.btn != null) pair.btn.onClick.RemoveListener(pair.handler);
+            }
+            _choiceBindingListeners.Clear();
         }
 
         private void ClearCharacters()

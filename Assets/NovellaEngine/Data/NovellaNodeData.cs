@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NovellaEngine.Runtime.UI;
 using UnityEngine;
 
 namespace NovellaEngine.Data
@@ -22,7 +23,7 @@ namespace NovellaEngine.Data
     public enum EFramePosition { Default, Top, Center, Bottom, Custom }
     public enum EWaitMode { Time, UserClick }
 
-    public enum ESceneActionType { ChangeBackground, ClearAllCharacters, HideCharacter, ShowCharacter }
+    public enum ESceneActionType { ChangeBackground, ClearAllCharacters, HideCharacter, ShowCharacter, ShowUI, HideUI, SetUIText }
 
     [AttributeUsage(AttributeTargets.Class)]
     public class NovellaDLCNodeAttribute : Attribute
@@ -93,6 +94,14 @@ namespace NovellaEngine.Data
         public float BgTransitionTime = 1f;
 
         public NovellaCharacter TargetCharacter;
+
+        // UI-actions: ShowUI / HideUI / SetUIText адресуют UI-элемент в сцене
+        // через [UIBindingTarget] (drag&drop GameObject в инспекторе).
+        // Для SetUIText TextValue = либо обычная строка, либо ключ локализации
+        // если SetUITextIsLocalizationKey = true.
+        [UIBindingTarget(UIBindingKind.Any)] public string UITargetId = "";
+        public string UITextValue = "";
+        public bool UITextIsLocalizationKey = false;
     }
 
     [Serializable]
@@ -106,9 +115,29 @@ namespace NovellaEngine.Data
         public GameObject OverrideDialogueFrame; public float DelayBefore = 0f; public int FontSize = 32; public LocalizedString LocalizedPhrase = new LocalizedString();
         public bool UseTypewriter = true; public float BaseSpeed = 40f; public bool UseCustomPacing = false; public AnimationCurve PacingCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 1f));
         public bool CustomizeFrameLayout = false; public EFramePosition FramePositionPreset = EFramePosition.Default; public float FramePosX = 0f; public float FramePosY = 0f; public float FrameScale = 1f;
+
+        // Опциональные UI-цели: drag&drop UI-элемента из сцены — Player пишет
+        // фразу/имя спикера в этот binding вместо дефолтной DialoguePanel.
+        // Пусто = используется DialoguePanel как раньше.
+        [UIBindingTarget(UIBindingKind.Text)] public string UITextTargetId = "";
+        [UIBindingTarget(UIBindingKind.Text)] public string UISpeakerTargetId = "";
     }
 
-    [Serializable] public class NovellaChoice { public string PortID; public LocalizedString LocalizedText = new LocalizedString(); public string NextNodeID; public List<ChoiceCondition> Conditions = new List<ChoiceCondition>(); public bool HasCondition; public string ConditionVariable; public int ConditionValue; public int ChanceWeight = 50; public List<ChanceModifier> ChanceModifiers = new List<ChanceModifier>(); public NovellaChoice() { PortID = "Choice_" + Guid.NewGuid().ToString().Substring(0, 5); } }
+    [Serializable] public class NovellaChoice {
+        public string PortID;
+        public LocalizedString LocalizedText = new LocalizedString();
+        public string NextNodeID;
+        public List<ChoiceCondition> Conditions = new List<ChoiceCondition>();
+        public bool HasCondition; public string ConditionVariable; public int ConditionValue;
+        public int ChanceWeight = 50;
+        public List<ChanceModifier> ChanceModifiers = new List<ChanceModifier>();
+        // Если задан — Player не спавнит свою кнопку, а использует существующую
+        // в сцене: пишет в её Text локализованный LocalizedText и навешивает
+        // onClick на переход к NextNodeID. Так делается главное меню/инвентарь
+        // без спавна префабов.
+        [UIBindingTarget(UIBindingKind.Button)] public string UIButtonTargetId = "";
+        public NovellaChoice() { PortID = "Choice_" + Guid.NewGuid().ToString().Substring(0, 5); }
+    }
     [Serializable] public class VariableUpdate { public string VariableName = "MyVariable"; public EVarOperation VarOperation = EVarOperation.Set; public int VarValue = 1; public bool VarBool = true; public string VarString = ""; }
     [Serializable] public class NovellaGroupData { public string GroupID; public string Title = "New Group"; public Color TitleColor = Color.white; public Color BorderColor = new Color(0.6f, 0.6f, 0.6f, 1f); public int TitleFontSize = 24; public Color BackgroundColor = new Color(0.15f, 0.15f, 0.15f, 0.5f); public List<string> ContainedNodeIDs = new List<string>(); public Rect Position; }
 
@@ -242,6 +271,9 @@ namespace NovellaEngine.Data
         public float WaitTextBlinkSpeed = 2f;
         public float WaitTextPosX = 0f;
         public float WaitTextPosY = -35f;
+        // Если задан — Player пишет WaitText в этот UI-элемент вместо
+        // дефолтного индикатора. Подходит для кастомных «press any key» панелей.
+        [UIBindingTarget(UIBindingKind.Text)] public string UITextTargetId = "";
         public string NextNodeID;
     }
 

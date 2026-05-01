@@ -2012,6 +2012,80 @@ namespace NovellaEngine.Editor
 
             var firstBtn = FirstSelected.GetComponent<Button>();
             if (firstBtn != null) DrawButtonSection(firstBtn);
+
+            // Bindings — связь UI-элемента с графом/локализацией/переменными.
+            DrawBindingSection();
+        }
+
+        // ─── BINDINGS section ───────────────────────────────────────────────────
+        // Показывает живой статус NovellaUIBinding для выбранного элемента.
+        // Если binding нет — кнопка добавить. Если есть — короткое summary
+        // и кнопка перейти к нему в инспекторе Unity (для редактирования полей).
+
+        private void DrawBindingSection()
+        {
+            DrawSectionLabel(ToolLang.Get("BINDINGS (CONNECT TO STORY)", "СВЯЗИ С ИСТОРИЕЙ"), "bindings");
+            DrawInlineGuide("bindings");
+
+            var binding = FirstSelected.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+
+            if (binding == null)
+            {
+                if (GUILayout.Button(ToolLang.Get("➕  Add UI Binding", "➕  Сделать привязываемым"), GUILayout.Height(26)))
+                {
+                    foreach (var rt in _selectedList)
+                        if (rt != null && rt.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>() == null)
+                            UnityEditor.Undo.AddComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>(rt.gameObject);
+                }
+            }
+            else
+            {
+                GUILayout.BeginVertical();
+
+                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+                st.normal.textColor = NovellaSettingsModule.GetTextMuted();
+
+                string idShort = binding.Id?.Substring(0, System.Math.Min(8, binding.Id.Length)) ?? "(no id)";
+                GUILayout.Label("ID: " + idShort, st);
+
+                string locShort = string.IsNullOrEmpty(binding.LocalizationKey) ? "—" : binding.LocalizationKey;
+                string varShort = string.IsNullOrEmpty(binding.BoundVariable) ? "—" : binding.BoundVariable;
+                string clkShort = string.IsNullOrEmpty(binding.OnClickGotoNodeId) ? "—" : binding.OnClickGotoNodeId.Substring(0, System.Math.Min(8, binding.OnClickGotoNodeId.Length));
+
+                GUILayout.Label("🔑 " + ToolLang.Get("Loc key", "Ключ лок.") + ": " + locShort, st);
+                GUILayout.Label("📊 " + ToolLang.Get("Variable", "Переменная") + ": " + varShort, st);
+                GUILayout.Label("➡  " + ToolLang.Get("On click", "По клику") + ": " + clkShort, st);
+
+                GUILayout.Space(4);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(ToolLang.Get("Edit in inspector", "Открыть в инспекторе"), EditorStyles.miniButton))
+                {
+                    UnityEditor.Selection.activeObject = binding;
+                }
+                if (GUILayout.Button(ToolLang.Get("Remove", "Удалить"), EditorStyles.miniButton))
+                {
+                    if (UnityEditor.EditorUtility.DisplayDialog(
+                            ToolLang.Get("Remove binding?", "Удалить связь?"),
+                            ToolLang.Get("All graph nodes referring to this UI element will lose the link. Proceed?",
+                                         "Все ноды графа ссылающиеся на этот элемент потеряют связь. Продолжить?"),
+                            ToolLang.Get("Remove", "Удалить"),
+                            ToolLang.Get("Cancel", "Отмена")))
+                    {
+                        UnityEditor.Undo.DestroyObjectImmediate(binding);
+                    }
+                }
+                GUILayout.EndHorizontal();
+
+                GUILayout.EndVertical();
+            }
+
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(8);
         }
 
         private void DrawLegacyTextConvertSection(UnityEngine.UI.Text legacy)
@@ -2583,6 +2657,10 @@ namespace NovellaEngine.Editor
                     return ToolLang.Get(
                         "A clickable element with three colors:\n• Normal — resting state\n• Highlight — mouse hovers over\n• Pressed — being clicked",
                         "Кликабельный элемент реагирующий на действия цветом:\n• Обычная — состояние покоя\n• Hover — мышь находится над кнопкой\n• Нажата — в момент клика мышкой");
+                case "bindings":
+                    return ToolLang.Get(
+                        "Bindings make this UI element controllable from the story graph.\n• Localization key — text auto-updates on language switch.\n• Variable — substitutes a value of a variable into '{var}' inside the text.\n• Click → node — for buttons: clicking jumps the Player to a chosen node.\n\nIn graph nodes (Dialogue, Branch, Wait, Scene Settings) you'll see fields where you can drag this element from scene to target it directly.",
+                        "Bindings связывают UI-элемент с графом истории.\n• Ключ локализации — текст обновляется автоматически при смене языка.\n• Переменная — подставляет её значение вместо «{var}» в тексте.\n• Перейти к ноде — для кнопок: клик переводит Player на нужную ноду графа.\n\nВ нодах графа (Диалог, Развилка, Wait, Scene Settings) появятся поля куда этот элемент можно перетащить мышью прямо из сцены.");
                 default:
                     return "";
             }

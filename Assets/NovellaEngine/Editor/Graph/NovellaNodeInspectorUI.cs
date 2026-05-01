@@ -470,6 +470,13 @@ namespace NovellaEngine.Editor
                 GUILayout.Label("📝 " + ToolLang.Get("Indicator Text (Optional)", "Текст под индикатором (Необязательно)"), EditorStyles.boldLabel);
                 waitData.WaitText = EditorGUILayout.TextField(waitData.WaitText);
 
+                // UI binding для текста — если задан, текст пишется не в встроенный
+                // индикатор а в произвольный TMP-элемент сцены.
+                NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("UI text target (optional)", "UI цель для текста (опц.)"),
+                    waitData.UITextTargetId,
+                    NovellaEngine.Runtime.UI.UIBindingKind.Text,
+                    newId => { waitData.UITextTargetId = newId; _onMarkUnsaved?.Invoke(); });
+
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Color", "Цвет"), GUILayout.Width(60));
                 waitData.WaitTextColor = EditorGUILayout.ColorField(waitData.WaitTextColor, GUILayout.Width(60));
@@ -1295,6 +1302,16 @@ namespace NovellaEngine.Editor
 
                     if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Edit Choice"); choice.LocalizedText.SetText(_window.PreviewLanguage, newText); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
 
+                    // Если задана — Player НЕ спавнит свою кнопку, а кликает на эту scene-кнопку.
+                    {
+                        var choiceLocal = choice;
+                        NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
+                            ToolLang.Get("Use scene button (optional)", "Использовать кнопку из сцены (опц.)"),
+                            choiceLocal.UIButtonTargetId,
+                            NovellaEngine.Runtime.UI.UIBindingKind.Button,
+                            newId => { Undo.RecordObject(_currentTree, "Bind Choice Button"); choiceLocal.UIButtonTargetId = newId; _onMarkUnsaved?.Invoke(); });
+                    }
+
                     GUILayout.Space(5); GUILayout.EndVertical(); GUILayout.Space(5);
                 }
 
@@ -1439,7 +1456,10 @@ namespace NovellaEngine.Editor
                             ToolLang.Get("Change Background", "Сменить фон"),
                             ToolLang.Get("Clear All Characters", "Очистить массовку"),
                             ToolLang.Get("Hide Character", "Скрыть персонажа"),
-                            ToolLang.Get("Show Character", "Показать персонажа")
+                            ToolLang.Get("Show Character", "Показать персонажа"),
+                            ToolLang.Get("Show UI element", "Показать UI элемент"),
+                            ToolLang.Get("Hide UI element", "Скрыть UI элемент"),
+                            ToolLang.Get("Set UI text", "Задать UI текст")
                         };
                         ev.ActionType = (ESceneActionType)EditorGUILayout.Popup(ToolLang.Get("Action", "Действие"), (int)ev.ActionType, actionNames);
 
@@ -1476,6 +1496,25 @@ namespace NovellaEngine.Editor
                             string[] transNames = { ToolLang.Get("None", "Нет"), ToolLang.Get("Fade", "Растворение"), ToolLang.Get("Slide Left", "Сдвиг Влево"), ToolLang.Get("Slide Right", "Сдвиг Вправо"), ToolLang.Get("Flash White", "Вспышка (Белая)"), ToolLang.Get("Flash Black", "Вспышка (Черная)") };
                             ev.BgTransition = (EBgTransition)EditorGUILayout.Popup(ToolLang.Get("Transition", "Переход"), (int)ev.BgTransition, transNames);
                             if (ev.BgTransition != EBgTransition.None) ev.BgTransitionTime = Mathf.Max(0.1f, EditorGUILayout.FloatField(ToolLang.Get("Duration", "Время"), ev.BgTransitionTime));
+                        }
+                        else if (ev.ActionType == ESceneActionType.ShowUI ||
+                                 ev.ActionType == ESceneActionType.HideUI ||
+                                 ev.ActionType == ESceneActionType.SetUIText)
+                        {
+                            // Drag&drop UI-элемента из сцены — Drawer ставит/находит NovellaUIBinding.
+                            NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("UI element", "UI элемент"),
+                                ev.UITargetId,
+                                NovellaEngine.Runtime.UI.UIBindingKind.Any,
+                                newId => { ev.UITargetId = newId; _onMarkUnsaved?.Invoke(); });
+
+                            if (ev.ActionType == ESceneActionType.SetUIText)
+                            {
+                                ev.UITextValue = EditorGUILayout.TextField(
+                                    ToolLang.Get("Text", "Текст"), ev.UITextValue);
+                                ev.UITextIsLocalizationKey = EditorGUILayout.ToggleLeft(
+                                    ToolLang.Get("Treat as localization key", "Это ключ локализации"),
+                                    ev.UITextIsLocalizationKey);
+                            }
                         }
                         else if (ev.ActionType == ESceneActionType.HideCharacter || ev.ActionType == ESceneActionType.ShowCharacter)
                         {
