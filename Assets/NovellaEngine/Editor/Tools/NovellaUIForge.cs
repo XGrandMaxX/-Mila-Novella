@@ -100,6 +100,12 @@ namespace NovellaEngine.Editor
         private const float HANDLE_SIZE_PX = 8f;
         private double _lastCanvasClickTime = 0;
 
+        // Tree drag threshold: чтобы случайное микро-движение мыши не запускало DnD.
+        // Настоящий drag начнётся только если курсор сместился больше чем на TREE_DRAG_THRESHOLD пикселей.
+        private bool _treeDragArmed;     // мышь зажата над строкой и мы готовы начать drag по факту движения
+        private Vector2 _treeMouseDownPos;
+        private const float TREE_DRAG_THRESHOLD = 8f;
+
         private string _treeFilter = "";
         private Vector2 _treeScroll;
         private Vector2 _inspectorScroll;
@@ -176,8 +182,9 @@ namespace NovellaEngine.Editor
         {
             if (string.IsNullOrEmpty(s)) return s;
             string r = s;
-            // Снимаем по очереди в конце: " (1)", " (Copy)", " (копия)"
-            var rgx = new System.Text.RegularExpressions.Regex(@"\s*\((?:\d+|Copy|копия)\)$",
+            // Снимаем по очереди в конце все стандартные хвосты:
+            // " (1)", " (Copy)", " (Clone)", " (копия)", " (Копия)", " (клон)" и т.п.
+            var rgx = new System.Text.RegularExpressions.Regex(@"\s*\((?:\d+|copy|clone|копия|клон)\)$",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             while (true)
             {
@@ -753,42 +760,6 @@ namespace NovellaEngine.Editor
 
             Event e = Event.current;
 
-            // ─── СТРЕЛКИ ВВЕРХ/ВНИЗ — рисуем ПЕРВЫМИ (до row-MouseDown), чтобы клик уходил им ───
-            bool overArrows = false;
-            Rect btnUp = Rect.zero, btnDown = Rect.zero;
-            if (rt != null && _canvas != null && rt != _canvas.GetComponent<RectTransform>())
-            {
-                int sibIdx = rt.GetSiblingIndex();
-                bool canUp = sibIdx > 0;
-                bool canDown = rt.parent != null && sibIdx < rt.parent.childCount - 1;
-
-                btnDown = new Rect(row.xMax - 22, row.y + 4, 18, 18);
-                btnUp = new Rect(row.xMax - 42, row.y + 4, 18, 18);
-                overArrows = btnUp.Contains(e.mousePosition) || btnDown.Contains(e.mousePosition);
-
-                var arrowSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 9, padding = new RectOffset(0, 0, 0, 0) };
-
-                EditorGUI.BeginDisabledGroup(!canUp);
-                if (GUI.Button(btnUp, "▲", arrowSt))
-                {
-                    Undo.RegisterCompleteObjectUndo(rt.parent, "Move Layer Up");
-                    rt.SetSiblingIndex(sibIdx - 1);
-                    RefreshRectsCache();
-                    _window?.Repaint();
-                }
-                EditorGUI.EndDisabledGroup();
-
-                EditorGUI.BeginDisabledGroup(!canDown);
-                if (GUI.Button(btnDown, "▼", arrowSt))
-                {
-                    Undo.RegisterCompleteObjectUndo(rt.parent, "Move Layer Down");
-                    rt.SetSiblingIndex(sibIdx + 1);
-                    RefreshRectsCache();
-                    _window?.Repaint();
-                }
-                EditorGUI.EndDisabledGroup();
-            }
-
             // ─── DRAG & DROP с тремя режимами: Above / Inside / Below ─────────────
             // Ranges по высоте: верхние 25% — Above, нижние 25% — Below, центр — Inside.
             float thirdH = row.height * 0.25f;
@@ -796,13 +767,20 @@ namespace NovellaEngine.Editor
             if (e.mousePosition.y < row.y + thirdH) mode = DropMode.Above;
             else if (e.mousePosition.y > row.yMax - thirdH) mode = DropMode.Below;
 
-            if (e.type == EventType.MouseDrag && row.Contains(e.mousePosition) && isSel && !overArrows)
+            // Drag начинается только если курсор сместился >= TREE_DRAG_THRESHOLD от точки нажатия.
+            // Раньше любое микро-движение мыши после клика триггерило DnD — раздражало.
+            if (e.type == EventType.MouseDrag && _treeDragArmed && isSel)
             {
-                DragAndDrop.PrepareStartDrag();
-                DragAndDrop.objectReferences = _selectedList.Select(x => x.gameObject).ToArray();
-                DragAndDrop.StartDrag("Move UI Elements");
-                e.Use();
+                if (Vector2.Distance(e.mousePosition, _treeMouseDownPos) >= TREE_DRAG_THRESHOLD)
+                {
+                    DragAndDrop.PrepareStartDrag();
+                    DragAndDrop.objectReferences = _selectedList.Select(x => x.gameObject).ToArray();
+                    DragAndDrop.StartDrag("Move UI Elements");
+                    _treeDragArmed = false;
+                    e.Use();
+                }
             }
+            if (e.type == EventType.MouseUp) _treeDragArmed = false;
 
             if (row.Contains(e.mousePosition) && DragAndDrop.objectReferences.Length > 0)
             {
@@ -839,8 +817,8 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            // ─── КЛИКИ ПО СТРОКЕ (вне зоны стрелок) ───────────────────────────────
-            if (e.type == EventType.MouseDown && row.Contains(e.mousePosition) && !overArrows)
+            // ─── КЛИКИ ПО СТРОКЕ ──────────────────────────────────────────────────
+            if (e.type == EventType.MouseDown && row.Contains(e.mousePosition))
             {
                 if (e.button == 0)
                 {
@@ -862,10 +840,17 @@ namespace NovellaEngine.Editor
                     }
                     else
                     {
-                        _selectedList.Clear();
-                        _selectedList.Add(rt);
+                        if (!isSel)
+                        {
+                            _selectedList.Clear();
+                            _selectedList.Add(rt);
+                        }
                         _lastSelectedTreeIndex = index;
                     }
+
+                    // Взводим drag — реальный DnD начнётся только после порога движения.
+                    _treeDragArmed = true;
+                    _treeMouseDownPos = e.mousePosition;
                 }
                 else if (e.button == 1)
                 {
@@ -1858,7 +1843,101 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
+
+            // Smart Anchors — определяет зону экрана и расставляет якоря автоматически.
+            GUILayout.Space(8);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            GUI.backgroundColor = C_ACCENT;
+            string smartLabel = "✨ " + ToolLang.Get("Smart anchors (mobile-friendly)", "Умный якорь (под мобилку)");
+            if (GUILayout.Button(new GUIContent(smartLabel, ToolLang.Get(
+                    "Auto-detect element zone (corner/edge/center) and apply anchors that hold position correctly when screen size changes.",
+                    "Определяет в какой зоне (угол/край/центр) находится элемент и ставит якоря, которые удержат позицию при смене разрешения.")),
+                GUILayout.Height(26), GUILayout.ExpandWidth(true)))
+            {
+                ApplySmartAnchorsToSelection();
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
             GUILayout.Space(10);
+        }
+
+        // "Зональный" авто-якорь: смотрим где центр элемента в канвасе (3×3 зон), и ставим
+        // соответствующие anchorMin/Max. Это упрощённый smart-anchor — для большинства элементов
+        // (логотип в углу, низ-кнопка, центральный диалог) даёт правильное поведение при смене разрешения.
+        private void ApplySmartAnchorsToSelection()
+        {
+            if (_selectedList.Count == 0 || _canvas == null) return;
+            var canvasRT = _canvas.GetComponent<RectTransform>();
+            if (canvasRT == null) return;
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Smart Anchors");
+
+            foreach (var rt in _selectedList)
+            {
+                if (rt == null || rt == canvasRT) continue;
+                Undo.RecordObject(rt, "Smart Anchors");
+
+                // Получаем центр RT в мировом пространстве.
+                Vector3[] worldCorners = new Vector3[4];
+                rt.GetWorldCorners(worldCorners);
+                Vector3 worldCenter = (worldCorners[0] + worldCorners[2]) * 0.5f;
+
+                // И углы канваса.
+                Vector3[] cw = new Vector3[4];
+                canvasRT.GetWorldCorners(cw);
+                float canvasW = cw[2].x - cw[0].x;
+                float canvasH = cw[2].y - cw[0].y;
+                if (canvasW < 0.0001f || canvasH < 0.0001f) continue;
+
+                float u = (worldCenter.x - cw[0].x) / canvasW; // 0 = left, 1 = right
+                float v = (worldCenter.y - cw[0].y) / canvasH; // 0 = bottom, 1 = top
+
+                // Размер RT относительно канваса: если элемент крупный — растягиваем.
+                Vector2 rtSize = rt.rect.size;
+                bool stretchX = rtSize.x > canvasRT.rect.width * 0.6f;
+                bool stretchY = rtSize.y > canvasRT.rect.height * 0.6f;
+
+                // Определяем зону по центру.
+                float ax, axMax;
+                if (stretchX) { ax = 0f; axMax = 1f; }
+                else if (u < 0.33f) { ax = 0f; axMax = 0f; }
+                else if (u > 0.67f) { ax = 1f; axMax = 1f; }
+                else { ax = 0.5f; axMax = 0.5f; }
+
+                float ay, ayMax;
+                if (stretchY) { ay = 0f; ayMax = 1f; }
+                else if (v < 0.33f) { ay = 0f; ayMax = 0f; }
+                else if (v > 0.67f) { ay = 1f; ayMax = 1f; }
+                else { ay = 0.5f; ayMax = 0.5f; }
+
+                Vector2 newMin = new Vector2(ax, ay);
+                Vector2 newMax = new Vector2(axMax, ayMax);
+
+                // Сохраняем визуальное положение и размер.
+                Vector3 worldPos = rt.position;
+                Vector2 oldSize = rt.rect.size;
+
+                rt.anchorMin = newMin;
+                rt.anchorMax = newMax;
+                if (Mathf.Approximately(newMin.x, newMax.x) && Mathf.Approximately(newMin.y, newMax.y))
+                {
+                    rt.pivot = newMin;
+                }
+                rt.position = worldPos;
+
+                // Для не-stretch — восстанавливаем sizeDelta как абсолютный размер.
+                if (newMin.x == newMax.x) rt.sizeDelta = new Vector2(oldSize.x, rt.sizeDelta.y);
+                else { /* оставляем offsetMin/Max как Unity рассчитала */ }
+                if (newMin.y == newMax.y) rt.sizeDelta = new Vector2(rt.sizeDelta.x, oldSize.y);
+
+                EditorUtility.SetDirty(rt);
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            _window?.Repaint();
         }
 
         private void DrawAnchorStretch(string label, Vector2 min, Vector2 max)
@@ -1902,10 +1981,99 @@ namespace NovellaEngine.Editor
             if (firstImg != null) DrawImageSection(firstImg);
 
             var firstTmp = FirstSelected.GetComponent<TMP_Text>();
-            if (firstTmp != null) DrawTextSection(firstTmp);
+            if (firstTmp != null)
+            {
+                DrawTextSection(firstTmp);
+            }
+            else
+            {
+                // Если на объекте легаси UnityEngine.UI.Text — показываем компактный
+                // блок с кнопкой конвертации в TMP. Полный legacy-инспектор не делаем
+                // намеренно, чтобы пользователь сразу мигрировал на современный текст.
+                var firstLegacy = FirstSelected.GetComponent<UnityEngine.UI.Text>();
+                if (firstLegacy != null) DrawLegacyTextConvertSection(firstLegacy);
+            }
 
             var firstBtn = FirstSelected.GetComponent<Button>();
             if (firstBtn != null) DrawButtonSection(firstBtn);
+        }
+
+        private void DrawLegacyTextConvertSection(UnityEngine.UI.Text legacy)
+        {
+            DrawSectionLabel(ToolLang.Get("LEGACY TEXT", "СТАРЫЙ ТЕКСТ"), "text");
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            var warnSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            warnSt.normal.textColor = new Color(1f, 0.78f, 0.20f);
+            GUILayout.Label("⚠ " + ToolLang.Get(
+                "This is the old UI Text component. Convert to TextMeshPro for sharper rendering on big screens.",
+                "Это старый компонент UI Text. Конвертируй в TextMeshPro — будет чётче на больших экранах."), warnSt);
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+            GUI.backgroundColor = C_ACCENT;
+            if (GUILayout.Button("✨ " + ToolLang.Get("Convert to TextMeshPro", "Преобразовать в TextMeshPro"), GUILayout.Height(28), GUILayout.ExpandWidth(true)))
+            {
+                ConvertLegacyToTMP(legacy);
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.Space(12);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10);
+        }
+
+        private void ConvertLegacyToTMP(UnityEngine.UI.Text legacy)
+        {
+            if (legacy == null) return;
+            var go = legacy.gameObject;
+
+            // Запоминаем релевантные свойства до удаления
+            string text = legacy.text;
+            Color color = legacy.color;
+            int fontSize = legacy.fontSize;
+            TextAnchor align = legacy.alignment;
+            FontStyle style = legacy.fontStyle;
+            bool isRich = legacy.supportRichText;
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Convert to TextMeshPro");
+
+            Undo.DestroyObjectImmediate(legacy);
+
+            var tmp = Undo.AddComponent<TextMeshProUGUI>(go);
+            tmp.text = text;
+            tmp.color = color;
+            tmp.fontSize = fontSize;
+            tmp.alignment = MapTextAnchorToTMP(align);
+            tmp.richText = isRich;
+            FontStyles st = FontStyles.Normal;
+            if ((style & FontStyle.Bold) != 0) st |= FontStyles.Bold;
+            if ((style & FontStyle.Italic) != 0) st |= FontStyles.Italic;
+            tmp.fontStyle = st;
+
+            Undo.CollapseUndoOperations(undoGroup);
+            EditorUtility.SetDirty(go);
+        }
+
+        private static TextAlignmentOptions MapTextAnchorToTMP(TextAnchor a)
+        {
+            switch (a)
+            {
+                case TextAnchor.UpperLeft:    return TextAlignmentOptions.TopLeft;
+                case TextAnchor.UpperCenter:  return TextAlignmentOptions.Top;
+                case TextAnchor.UpperRight:   return TextAlignmentOptions.TopRight;
+                case TextAnchor.MiddleLeft:   return TextAlignmentOptions.Left;
+                case TextAnchor.MiddleCenter: return TextAlignmentOptions.Center;
+                case TextAnchor.MiddleRight:  return TextAlignmentOptions.Right;
+                case TextAnchor.LowerLeft:    return TextAlignmentOptions.BottomLeft;
+                case TextAnchor.LowerCenter:  return TextAlignmentOptions.Bottom;
+                case TextAnchor.LowerRight:   return TextAlignmentOptions.BottomRight;
+                default:                      return TextAlignmentOptions.Center;
+            }
         }
 
         private void DrawImageSection(Image firstImg)
@@ -2283,7 +2451,9 @@ namespace NovellaEngine.Editor
             foreach (var rt in _selectedList)
             {
                 var dup = UnityEngine.Object.Instantiate(rt.gameObject, rt.parent);
-                // EnforceUniqueName сам снимет хвост "(копия)/(N)" и подберёт следующий номер.
+                // Берём ИСХОДНОЕ имя оригинала (rt.gameObject.name), а не имя дубля
+                // (которое Unity мог обогатить " (Clone)"). EnforceUniqueName сам снимет
+                // любой хвост и подберёт первый свободный номер: Image → Image (1) → Image (2)…
                 dup.name = EnforceUniqueName(rt.parent, rt.gameObject.name, dup);
                 Undo.RegisterCreatedObjectUndo(dup, "Duplicate");
                 newSel.Add(dup.GetComponent<RectTransform>());
@@ -2387,8 +2557,8 @@ namespace NovellaEngine.Editor
                         "Якорь — это точка родителя, к которой «прилипает» элемент.\n\nКликни в один из углов — элемент привяжется туда. При смене разрешения экрана он будет держать расстояние от этого угла.\n\n«Растянуть гор. / верт. / Заполнить» — заставит элемент расти вместе с родителем.");
                 case "image":
                     return ToolLang.Get(
-                        "Sprite — what is drawn. Click the name button and pick from the gallery.\nColor — tints the image (pure white = no tint).\nType:\n  • Simple — draw the sprite as is\n  • Sliced — '9-slice' stretch keeping the corners (good for buttons/panels)\n  • Tiled — repeat the sprite to fill\n  • Filled — partial fill (HP bars, progress) — control via 'Fill'.",
-                        "Спрайт — что нарисовано. Кликни кнопку с именем и выбери картинку из галереи.\nЦвет — окрашивает картинку (чистый белый = без тонировки).\nТип:\n  • Обычный — рисует спрайт как есть\n  • Нарезанный — «9-slice» с сохранением углов (удобно для кнопок и панелей)\n  • Замощенный — повторяет спрайт, заполняя площадь\n  • Заполненный — частичное заполнение (HP-бары, прогресс) — управляется через «Заполн.».");
+                        "Sprite — the picture itself. Click the field and pick from the project gallery.\nColor — tints the image (pure white means no tint).\n\nThe 'Type' dropdown controls how the sprite stretches:\n  • Simple — drawn 1:1 as-is\n  • Sliced — '9-slice' with fixed corners (perfect for buttons and panels)\n  • Tiled — repeats to fill the area\n  • Filled — partial fill (HP bar / progress; control via the Fill slider)",
+                        "Спрайт — сама картинка. Кликни поле и выбери изображение из галереи проекта.\nЦвет — окрашивает картинку (полностью белый = без оттенка).\n\nВыпадающий список «Тип» решает как картинка будет растягиваться:\n  • Simple — рисует 1:1, как есть\n  • Sliced — «9-slice» с фиксированными углами (идеально для кнопок и панелей)\n  • Tiled — повторяет картинку, заполняя площадь\n  • Filled — частичное заполнение (HP-бар / прогресс; настраивается ползунком «Заполн.»)");
                 case "text":
                     return ToolLang.Get(
                         "Here you only set the look: font, size, color, alignment, bold.\n\nThe actual text content comes from localization (RU/EN tables) and is edited in the Localization tab — not here. This keeps translations safe.",
