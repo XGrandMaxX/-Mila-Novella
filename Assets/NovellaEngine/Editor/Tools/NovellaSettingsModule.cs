@@ -173,6 +173,56 @@ namespace NovellaEngine.Editor
         public static Color GetTextMuted()     => Color.Lerp(GetTextColor(), GetInterfaceColor(), 0.40f);
         public static Color GetTextDisabled()  => Color.Lerp(GetTextColor(), GetInterfaceColor(), 0.62f);
 
+        // ─── Кнопки ────────────────────────────────────────────────────────────
+        //
+        // Кнопки наследуют цвет от подложки: на тёмном интерфейсе текст светлый,
+        // на светлом — тёмный. Это убирает «нечитабельные» состояния когда юзер
+        // выбирает контрастный фон, а Unity-skin оставляет родной theme-color у текста.
+
+        // Выбирает тёмный или светлый текст по луминанции фона (формула BT.601).
+        // Используется для accent/danger/любой цветной кнопки, чтобы лейбл всегда читался.
+        public static Color GetContrastingText(Color bg)
+        {
+            float lum = bg.r * 0.299f + bg.g * 0.587f + bg.b * 0.114f;
+            return lum > 0.55f ? new Color(0.07f, 0.08f, 0.10f) : new Color(0.95f, 0.96f, 0.98f);
+        }
+
+        // Лёгкий tint на основе Interface — для нейтральных кнопок (Reset, Cancel, ...).
+        // Чуть приподнят над фоном, чтобы кнопка отделялась, но не «торчала» цветом.
+        public static Color GetButtonNeutralBg() => Shade(GetInterfaceColor(), 0.10f);
+
+        // Клонирует переданный GUIStyle и проставляет textColor с контрастом к bg.
+        // Так работает с любой базой — GUI.skin.button, EditorStyles.miniButton, miniButtonLeft и т.д.
+        public static GUIStyle ButtonStyleFor(GUIStyle baseStyle, Color bg)
+        {
+            var s = new GUIStyle(baseStyle);
+            var t = GetContrastingText(bg);
+            s.normal.textColor = t;
+            s.hover.textColor = t;
+            s.active.textColor = t;
+            s.focused.textColor = t;
+            s.onNormal.textColor = t;
+            s.onHover.textColor = t;
+            s.onActive.textColor = t;
+            s.onFocused.textColor = t;
+            return s;
+        }
+
+        // Универсальный хелпер: рисует кнопку, тонируя её под bg и подбирая
+        // контрастный цвет текста. Восстанавливает GUI.backgroundColor после.
+        public static bool ColoredButton(string text, Color bg, GUIStyle baseStyle = null, params GUILayoutOption[] opts)
+        {
+            baseStyle ??= GUI.skin.button;
+            var prev = GUI.backgroundColor;
+            GUI.backgroundColor = bg;
+            bool r = GUILayout.Button(text, ButtonStyleFor(baseStyle, bg), opts);
+            GUI.backgroundColor = prev;
+            return r;
+        }
+
+        public static bool NeutralButton(string text, params GUILayoutOption[] opts) => ColoredButton(text, GetButtonNeutralBg(), null, opts);
+        public static bool AccentButton (string text, params GUILayoutOption[] opts) => ColoredButton(text, GetAccentColor(),     null, opts);
+
         public static bool ShowGuide
         {
             get
@@ -247,10 +297,11 @@ namespace NovellaEngine.Editor
 
             // Toggle подсказок — единая кнопка, как во всех модулях.
             bool guide = ShowGuide;
-            GUI.backgroundColor = guide ? GetAccentColor() : Color.white;
+            Color guideBg = guide ? GetAccentColor() : GetButtonNeutralBg();
             string lbl = (guide ? "💡  " : "💡  ") + ToolLang.Get(guide ? "Hints: ON" : "Hints: OFF",
                                                                   guide ? "Подсказки: вкл" : "Подсказки: выкл");
-            if (GUILayout.Button(lbl, GUILayout.Width(170), GUILayout.Height(28)))
+            GUI.backgroundColor = guideBg;
+            if (GUILayout.Button(lbl, ButtonStyleFor(GUI.skin.button, guideBg), GUILayout.Width(170), GUILayout.Height(28)))
             {
                 ShowGuide = !guide;
                 _window?.Repaint();
@@ -307,7 +358,7 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                if (NeutralButton(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
                 {
                     SetAccentColor(C_ACCENT_DEFAULT);
                     _window?.Repaint();
@@ -332,7 +383,7 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                if (NeutralButton(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
                 {
                     SetInterfaceColor(C_INTERFACE_DEFAULT);
                     _window?.Repaint();
@@ -357,7 +408,7 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                if (NeutralButton(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
                 {
                     SetTextColor(C_TEXT_DEFAULT);
                     _window?.Repaint();
@@ -388,7 +439,7 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                if (NeutralButton(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
                 {
                     SetHintColor(C_HINT_DEFAULT);
                     _window?.Repaint();
@@ -424,14 +475,16 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Toolkit language", "Язык инструмента"), lbl, GUILayout.Width(180));
                 bool isRU = ToolLang.IsRU;
-                GUI.backgroundColor = !isRU ? GetAccentColor() : Color.white;
-                if (GUILayout.Button("EN  English", EditorStyles.miniButtonLeft, GUILayout.Width(110), GUILayout.Height(22)))
+                Color enBg = !isRU ? GetAccentColor() : GetButtonNeutralBg();
+                Color ruBg =  isRU ? GetAccentColor() : GetButtonNeutralBg();
+                GUI.backgroundColor = enBg;
+                if (GUILayout.Button("EN  English", ButtonStyleFor(EditorStyles.miniButtonLeft, enBg), GUILayout.Width(110), GUILayout.Height(22)))
                 {
                     if (isRU) ToolLang.Toggle();
                     _window?.Repaint();
                 }
-                GUI.backgroundColor = isRU ? GetAccentColor() : Color.white;
-                if (GUILayout.Button("RU  Русский", EditorStyles.miniButtonRight, GUILayout.Width(110), GUILayout.Height(22)))
+                GUI.backgroundColor = ruBg;
+                if (GUILayout.Button("RU  Русский", ButtonStyleFor(EditorStyles.miniButtonRight, ruBg), GUILayout.Width(110), GUILayout.Height(22)))
                 {
                     if (!isRU) ToolLang.Toggle();
                     _window?.Repaint();
@@ -456,13 +509,16 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Table", "Таблица"), lbl, GUILayout.Width(180));
                 string tName = _activeTable != null ? _activeTable.name : ToolLang.Get("(none)", "(нет)");
-                if (GUILayout.Button(tName, EditorStyles.popup, GUILayout.Height(22)))
+                Color popBg = GetButtonNeutralBg();
+                GUI.backgroundColor = popBg;
+                if (GUILayout.Button(tName, ButtonStyleFor(EditorStyles.popup, popBg), GUILayout.Height(22)))
                 {
                     ShowTablePickerMenu();
                 }
+                GUI.backgroundColor = Color.white;
                 if (_activeTable != null)
                 {
-                    if (GUILayout.Button("👁", GUILayout.Width(28), GUILayout.Height(22)))
+                    if (NeutralButton("👁", GUILayout.Width(28), GUILayout.Height(22)))
                     {
                         EditorGUIUtility.PingObject(_activeTable);
                     }
@@ -480,20 +536,20 @@ namespace NovellaEngine.Editor
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(180);
-                GUI.backgroundColor = GetAccentColor();
-                if (GUILayout.Button("📝 " + ToolLang.Get("Open Translation Editor", "Открыть редактор переводов"), GUILayout.Height(28), GUILayout.MaxWidth(280)))
+                if (AccentButton("📝 " + ToolLang.Get("Open Translation Editor", "Открыть редактор переводов"), GUILayout.Height(28), GUILayout.MaxWidth(280)))
                 {
                     NovellaUILocalizationEditor.ShowWindow();
                 }
-                GUI.backgroundColor = Color.white;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(4);
 
+                Color jsonBg = GetButtonNeutralBg();
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(180);
-                if (GUILayout.Button("📥 " + ToolLang.Get("Import JSON…", "Импорт из JSON…"), EditorStyles.miniButtonLeft, GUILayout.Width(140), GUILayout.Height(22)))
+                GUI.backgroundColor = jsonBg;
+                if (GUILayout.Button("📥 " + ToolLang.Get("Import JSON…", "Импорт из JSON…"), ButtonStyleFor(EditorStyles.miniButtonLeft, jsonBg), GUILayout.Width(140), GUILayout.Height(22)))
                 {
                     string p = EditorUtility.OpenFilePanel(ToolLang.Get("Import JSON", "Импорт JSON"), "", "json");
                     if (!string.IsNullOrEmpty(p))
@@ -511,7 +567,7 @@ namespace NovellaEngine.Editor
                         }
                     }
                 }
-                if (GUILayout.Button("📤 " + ToolLang.Get("Export JSON…", "Экспорт в JSON…"), EditorStyles.miniButtonRight, GUILayout.Width(140), GUILayout.Height(22)))
+                if (GUILayout.Button("📤 " + ToolLang.Get("Export JSON…", "Экспорт в JSON…"), ButtonStyleFor(EditorStyles.miniButtonRight, jsonBg), GUILayout.Width(140), GUILayout.Height(22)))
                 {
                     string p = EditorUtility.SaveFilePanel(ToolLang.Get("Export JSON", "Экспорт JSON"), "", "novella_ui_loc", "json");
                     if (!string.IsNullOrEmpty(p))
@@ -520,6 +576,7 @@ namespace NovellaEngine.Editor
                         EditorUtility.RevealInFinder(p);
                     }
                 }
+                GUI.backgroundColor = Color.white;
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
             });
@@ -578,8 +635,8 @@ namespace NovellaEngine.Editor
                     "Reset clears your accent, interface, text and hint colors. Settings are stored in EditorPrefs (per-machine), so this won't affect anyone else on the team.",
                     "Сброс удалит акцентный цвет, цвет интерфейса, цвет текста и цвет подсказок. Настройки хранятся в EditorPrefs (на твоей машине), на других участников команды это не повлияет."));
 
-                GUI.backgroundColor = C_DANGER;
-                if (GUILayout.Button(ToolLang.Get("Reset all appearance settings", "Сбросить все настройки внешнего вида"), GUILayout.Height(28), GUILayout.MaxWidth(360)))
+                if (ColoredButton(ToolLang.Get("Reset all appearance settings", "Сбросить все настройки внешнего вида"),
+                                  C_DANGER, null, GUILayout.Height(28), GUILayout.MaxWidth(360)))
                 {
                     if (EditorUtility.DisplayDialog(
                         ToolLang.Get("Reset", "Сбросить"),
@@ -591,7 +648,6 @@ namespace NovellaEngine.Editor
                         _window?.Repaint();
                     }
                 }
-                GUI.backgroundColor = Color.white;
             });
         }
 
