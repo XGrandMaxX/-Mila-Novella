@@ -2485,7 +2485,7 @@ namespace NovellaEngine.Editor
             RefreshRectsCache();
         }
 
-        private static void DrawSectionLabel(string text)
+        private static void DrawSectionLabel(string text, string helpKey = "")
         {
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();

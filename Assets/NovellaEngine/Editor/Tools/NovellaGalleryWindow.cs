@@ -19,7 +19,7 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story, Character }
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story, Character, Font }
         private enum UndoType { Delete, Move, Copy }
 
         private struct UndoAction
@@ -63,6 +63,7 @@ namespace NovellaEngine.Editor
         private Texture2D _audioIcon;
         private Texture2D _videoIcon;
         private Texture2D _prefabIcon;
+        private Texture2D _fontIcon;
 
         private List<string> _selectedPaths = new List<string>();
         private int _lastSelectedIndex = -1;
@@ -93,7 +94,7 @@ namespace NovellaEngine.Editor
             window._onSelect = onSelect;
             window._filterMode = onSelect != null ? filter : EGalleryFilter.All;
 
-            if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI)
+            if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI || filter == EGalleryFilter.Font)
             {
                 window._isProjectMode = true;
 
@@ -154,6 +155,7 @@ namespace NovellaEngine.Editor
             _audioIcon = EditorGUIUtility.IconContent("AudioClip Icon").image as Texture2D;
             _videoIcon = EditorGUIUtility.IconContent("VideoClip Icon").image as Texture2D;
             _prefabIcon = EditorGUIUtility.IconContent("Prefab Icon").image as Texture2D;
+            _fontIcon = EditorGUIUtility.IconContent("Font Icon").image as Texture2D;
 
             InitMediaPlayers();
             RequestRefresh();
@@ -264,8 +266,8 @@ namespace NovellaEngine.Editor
             if (isGraph && formattedFile.Contains("NovellaEngine/Tutorials")) return;
 
             bool isStory = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaStory);
-
             bool isCharacter = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaCharacter);
+            bool isFont = ext == ".ttf" || ext == ".otf" || (ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(TMPro.TMP_FontAsset));
 
             if (isPrefab && _filterMode == EGalleryFilter.CustomUI)
             {
@@ -283,7 +285,8 @@ namespace NovellaEngine.Editor
                 if (_filterMode == EGalleryFilter.Graph && !isGraph) return;
                 if (_filterMode == EGalleryFilter.Story && !isStory) return;
                 if (_filterMode == EGalleryFilter.Character && !isCharacter) return;
-                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory || isCharacter)) return;
+                if (_filterMode == EGalleryFilter.Font && !isFont) return;
+                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory || isCharacter || isFont)) return;
             }
 
             Texture2D tex = null;
@@ -298,6 +301,7 @@ namespace NovellaEngine.Editor
             else if (isScript) tex = _scriptIcon;
             else if (isAudio) tex = _audioIcon;
             else if (isVideo) tex = _videoIcon;
+            else if (isFont) tex = _fontIcon ?? _fileIcon;
             else if (isPrefab)
             {
                 GameObject prefabObj = AssetDatabase.LoadAssetAtPath<GameObject>(formattedFile);
@@ -465,7 +469,6 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndHorizontal();
 
-            // === ФИКС ХЛЕБНЫХ КРОШЕК: ИНТЕРАКТИВНАЯ НАВИГАЦИЯ ПО ПУТИ ===
             GUILayout.BeginHorizontal(EditorStyles.toolbar);
             if (!string.IsNullOrEmpty(_searchQuery))
             {
@@ -799,6 +802,12 @@ namespace NovellaEngine.Editor
 
                         if (AssetPreview.IsLoadingAssetPreview(asset.GetInstanceID())) Repaint();
                     }
+                }
+                else if (asset != null && ext == ".ttf" || ext == ".otf" || asset is TMPro.TMP_FontAsset)
+                {
+                    Rect r = GUILayoutUtility.GetRect(280, 280);
+                    GUI.Box(r, GUIContent.none, EditorStyles.helpBox);
+                    GUI.Label(r, "𝐀𝐚\n" + ToolLang.Get("Font Asset", "Шрифт"), new GUIStyle(EditorStyles.label) { fontSize = 24, alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.8f, 0.8f, 0.8f) } });
                 }
                 else if (asset is DefaultAsset && !AssetDatabase.IsValidFolder(path))
                 {
