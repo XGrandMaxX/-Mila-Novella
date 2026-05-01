@@ -34,15 +34,18 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);   // #13141B
-        private static readonly Color C_BG_SIDE = new Color(0.102f, 0.106f, 0.149f);   // #1A1B26
-        private static readonly Color C_BG_RAISED = new Color(0.122f, 0.129f, 0.184f);   // #1F2030
-        private static readonly Color C_BORDER = new Color(0.165f, 0.176f, 0.243f);   // #2A2D3E
-        private static readonly Color C_ACCENT = new Color(0.36f, 0.75f, 0.92f);      // #5BC0EB
-        private static readonly Color C_TEXT_1 = new Color(0.925f, 0.925f, 0.957f);   // #ECECF4
-        private static readonly Color C_TEXT_2 = new Color(0.710f, 0.718f, 0.784f);   // #B5B7C8
-        private static readonly Color C_TEXT_3 = new Color(0.616f, 0.624f, 0.690f);   // #9D9FB0
-        private static readonly Color C_TEXT_4 = new Color(0.427f, 0.435f, 0.502f);   // #6D6F80
+        // Все цвета — динамические, читаются из NovellaSettingsModule (Hub → Settings).
+        // Производные оттенки (sidebar/raised/border, secondary/muted/disabled text)
+        // рассчитываются автоматически от двух базовых: Interface и Text.
+        private static Color C_BG_PRIMARY => NovellaSettingsModule.GetInterfaceColor();
+        private static Color C_BG_SIDE    => NovellaSettingsModule.GetBgSideColor();
+        private static Color C_BG_RAISED  => NovellaSettingsModule.GetBgRaisedColor();
+        private static Color C_BORDER     => NovellaSettingsModule.GetBorderColor();
+        private static Color C_ACCENT     => NovellaSettingsModule.GetAccentColor();
+        private static Color C_TEXT_1     => NovellaSettingsModule.GetTextColor();
+        private static Color C_TEXT_2     => NovellaSettingsModule.GetTextSecondary();
+        private static Color C_TEXT_3     => NovellaSettingsModule.GetTextMuted();
+        private static Color C_TEXT_4     => NovellaSettingsModule.GetTextDisabled();
 
         private EditorWindow _window;
         private List<NovellaCharacter> _characters = new List<NovellaCharacter>();
@@ -1416,7 +1419,7 @@ namespace NovellaEngine.Editor
             if (!ShowHints) return;
 
             var st = new GUIStyle(EditorStyles.label) { fontSize = 10, wordWrap = true, richText = true, padding = new RectOffset(10, 10, 6, 6) };
-            st.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            st.normal.textColor = NovellaSettingsModule.GetHintColor();
 
             float maxW = _settingsWidth - 32f - 20f;
             var content = new GUIContent("💡  " + richTextRu);

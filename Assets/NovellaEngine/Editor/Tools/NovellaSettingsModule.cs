@@ -30,6 +30,7 @@ namespace NovellaEngine.Editor
         private const string PREF_ACCENT = "Novella_AccentColor";
         private const string PREF_INTERFACE = "Novella_InterfaceColor";
         private const string PREF_TEXT = "Novella_TextColor";
+        private const string PREF_HINT = "Novella_HintColor";
         private const string PREF_GUIDE_MODE = "Novella_SettingsGuideMode";
 
         // Событие — стреляет когда юзер меняет внешний вид. Hub/UI Forge/etc.
@@ -39,12 +40,14 @@ namespace NovellaEngine.Editor
         private static Color? _cachedAccent;
         private static Color? _cachedInterface;
         private static Color? _cachedText;
+        private static Color? _cachedHint;
         private static bool _showGuide;
         private static bool _guideLoaded;
 
         // Дефолты — соответствуют исходному тёмному стилю инструмента.
         public static readonly Color C_INTERFACE_DEFAULT = new Color(0.075f, 0.078f, 0.106f);
         public static readonly Color C_TEXT_DEFAULT      = new Color(0.93f,  0.93f,  0.96f);
+        public static readonly Color C_HINT_DEFAULT      = new Color(0.85f,  0.87f,  0.93f);
 
         // ─── Цвета (все динамические — из настроек) ─────────────────────────────
         private static Color C_BG_PRIMARY => GetInterfaceColor();
@@ -122,6 +125,27 @@ namespace NovellaEngine.Editor
             OnAppearanceChanged?.Invoke();
         }
 
+        // Цвет текста в подсказках (плашка "💡 ..." внутри Settings/модулей).
+        // Отдельный от основного, потому что подсказки рисуются на фоне, окрашенном
+        // в полупрозрачный акцент — там часто нужен другой контраст.
+        public static Color GetHintColor()
+        {
+            if (_cachedHint.HasValue) return _cachedHint.Value;
+            string s = EditorPrefs.GetString(PREF_HINT, "");
+            if (!string.IsNullOrEmpty(s) && ColorUtility.TryParseHtmlString("#" + s, out var c))
+                _cachedHint = c;
+            else
+                _cachedHint = C_HINT_DEFAULT;
+            return _cachedHint.Value;
+        }
+
+        public static void SetHintColor(Color c)
+        {
+            _cachedHint = c;
+            EditorPrefs.SetString(PREF_HINT, ColorUtility.ToHtmlStringRGB(c));
+            OnAppearanceChanged?.Invoke();
+        }
+
         // ─── Производные оттенки ───────────────────────────────────────────────
         //
         // Идея: чтобы пользователь не выбирал 7-8 цветов вручную, основные —
@@ -169,9 +193,11 @@ namespace NovellaEngine.Editor
             EditorPrefs.DeleteKey(PREF_ACCENT);
             EditorPrefs.DeleteKey(PREF_INTERFACE);
             EditorPrefs.DeleteKey(PREF_TEXT);
+            EditorPrefs.DeleteKey(PREF_HINT);
             _cachedAccent = null;
             _cachedInterface = null;
             _cachedText = null;
+            _cachedHint = null;
             OnAppearanceChanged?.Invoke();
         }
 
@@ -244,7 +270,7 @@ namespace NovellaEngine.Editor
         {
             if (!ShowGuide) return;
             var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
-            st.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            st.normal.textColor = GetHintColor();
             Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), st);
             Color acc = GetAccentColor();
             EditorGUI.DrawRect(r, new Color(acc.r, acc.g, acc.b, 0.10f));
@@ -261,8 +287,8 @@ namespace NovellaEngine.Editor
             DrawSectionCard("🎨 " + ToolLang.Get("Appearance", "Внешний вид"), () =>
             {
                 DrawGuideTip(ToolLang.Get(
-                    "Two colors:\n• Accent — used for hints, highlights and primary buttons.\n• Interface — the main dark background of all panels and inspectors.",
-                    "Два цвета:\n• Акцентный — используется для подсветок, подсказок и основных кнопок.\n• Интерфейса — основной тёмный фон всех панелей и инспекторов."));
+                    "Four colors:\n• Accent — used for highlights, primary buttons and hint borders.\n• Interface — the main dark background of all panels and inspectors.\n• Text — color of headings and labels (secondary tones derive automatically).\n• Hint text — color of text inside the '💡' guide bubbles like this one.",
+                    "Четыре цвета:\n• Акцентный — используется для подсветок, основных кнопок и рамок подсказок.\n• Интерфейса — основной тёмный фон всех панелей и инспекторов.\n• Текста — цвет заголовков и подписей (вторичные оттенки получаются автоматически).\n• Подсказок — цвет текста внутри «💡»-плашек как эта."));
 
                 var lbl = new GUIStyle(EditorStyles.label) { fontSize = 12 };
                 lbl.normal.textColor = C_TEXT_2;
@@ -346,27 +372,37 @@ namespace NovellaEngine.Editor
                     "Affects headings and labels. Secondary/muted/disabled tones are derived automatically by mixing with the interface color.",
                     "Влияет на заголовки и подписи. Вторичный/серый/выключенный текст рассчитываются автоматически — миксом с цветом интерфейса."), hint);
 
+                GUILayout.Space(14);
+
+                // Hint text color
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(ToolLang.Get("Hint text color", "Цвет текста подсказок"), lbl, GUILayout.Width(180));
+
+                Color hnt = GetHintColor();
+                EditorGUI.BeginChangeCheck();
+                Color newHnt = EditorGUILayout.ColorField(GUIContent.none, hnt, true, false, false, GUILayout.Width(80), GUILayout.Height(22));
+                if (EditorGUI.EndChangeCheck() && newHnt != hnt)
+                {
+                    SetHintColor(newHnt);
+                    _window?.Repaint();
+                }
+
                 GUILayout.Space(10);
+                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                {
+                    SetHintColor(C_HINT_DEFAULT);
+                    _window?.Repaint();
+                }
 
-                // Live preview palette
-                Rect pal = GUILayoutUtility.GetRect(0, 60, GUILayout.ExpandWidth(true));
-                EditorGUI.DrawRect(pal, GetInterfaceColor());
-                DrawRectBorder(pal, GetBorderColor());
-                float colW = pal.width / 4f;
-                DrawSwatch(new Rect(pal.x,            pal.y, colW, pal.height), GetInterfaceColor(),    GetTextColor(),     "Aa  H1");
-                DrawSwatch(new Rect(pal.x + colW,     pal.y, colW, pal.height), GetBgSideColor(),       GetTextSecondary(), "Aa  H2");
-                DrawSwatch(new Rect(pal.x + colW * 2, pal.y, colW, pal.height), GetBgRaisedColor(),     GetTextMuted(),     "Aa  hint");
-                DrawSwatch(new Rect(pal.x + colW * 3, pal.y, colW, pal.height), GetBgRaisedColor(),     GetTextDisabled(),  "Aa  off");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+
+                var hintH = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+                hintH.normal.textColor = C_TEXT_4;
+                GUILayout.Label(ToolLang.Get(
+                    "Color of text inside '💡' guide bubbles (the bordered hints shown in module headers).",
+                    "Цвет текста внутри «💡»-плашек (подсказки с рамкой в шапках модулей)."), hintH);
             });
-        }
-
-        private static void DrawSwatch(Rect r, Color bg, Color textColor, string label)
-        {
-            EditorGUI.DrawRect(r, bg);
-            DrawRectBorder(new Rect(r.x, r.y, 1, r.height), GetBorderColor());
-            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
-            st.normal.textColor = textColor;
-            GUI.Label(r, label, st);
         }
 
         // ─── Section: Language ──────────────────────────────────────────────────
@@ -539,8 +575,8 @@ namespace NovellaEngine.Editor
             DrawSectionCard("🛠 " + ToolLang.Get("Other", "Прочее"), () =>
             {
                 DrawGuideTip(ToolLang.Get(
-                    "Reset clears your accent color, background image and opacity. Settings are stored in EditorPrefs (per-machine), so this won't affect anyone else on the team.",
-                    "Сброс удалит акцентный цвет, фоновую картинку и прозрачность. Настройки хранятся в EditorPrefs (на твоей машине), на других участников команды это не повлияет."));
+                    "Reset clears your accent, interface, text and hint colors. Settings are stored in EditorPrefs (per-machine), so this won't affect anyone else on the team.",
+                    "Сброс удалит акцентный цвет, цвет интерфейса, цвет текста и цвет подсказок. Настройки хранятся в EditorPrefs (на твоей машине), на других участников команды это не повлияет."));
 
                 GUI.backgroundColor = C_DANGER;
                 if (GUILayout.Button(ToolLang.Get("Reset all appearance settings", "Сбросить все настройки внешнего вида"), GUILayout.Height(28), GUILayout.MaxWidth(360)))

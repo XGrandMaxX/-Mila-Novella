@@ -17,8 +17,13 @@ namespace NovellaEngine.Editor
         private const float PULSE_DURATION = 1.6f;
         private const int PULSE_COUNT = 3;
 
-        private static readonly Color BaseColor = new Color(0.36f, 0.75f, 0.92f);
-        private static readonly Color HoverColor = new Color(0.45f, 0.80f, 0.95f);
+        // Базовый цвет кнопки в Unity-тулбаре — следует за акцентом из Settings.
+        // Hover берёт тот же оттенок и слегка осветляет.
+        private static Color BaseColor => NovellaSettingsModule.GetAccentColor();
+        private static Color HoverColor
+        {
+            get { var c = BaseColor; return new Color(Mathf.Min(1f, c.r + 0.09f), Mathf.Min(1f, c.g + 0.05f), Mathf.Min(1f, c.b + 0.03f)); }
+        }
         private static readonly Color RingColor = new Color(1f, 0.78f, 0.20f);
 
         private static VisualElement _btn;
@@ -373,10 +378,67 @@ namespace NovellaEngine.Editor
                 _mainEl.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
             }
 
+            // Текст в sidebar/topbar изначально окрашен через USS (статичные #ECECF4
+            // и подобные). Чтобы он реагировал на смену "Text color" в Settings,
+            // прокидываем inline .style.color по UQuery — inline всегда перекрывает USS.
+            ApplyDynamicTextColors();
+
             // Полная перерисовка, чтобы IMGUI-модули и UI Toolkit-стили синхронизировались.
-            // USS-цвета останутся, но inline-стили выше перекрывают их у sidebar/main.
             if (rootVisualElement != null) rootVisualElement.MarkDirtyRepaint();
             Repaint();
+        }
+
+        // Прокидывает Text/Accent/Muted цвета на лейблы Hub'а по их USS-классам.
+        // Вызывается из ApplyAppearance + после BuildUI, чтобы inline-стили
+        // победили USS даже на первом кадре.
+        private void ApplyDynamicTextColors()
+        {
+            if (_root == null) return;
+
+            Color c1 = NovellaSettingsModule.GetTextColor();      // основной (#ECECF4 в USS)
+            Color c2 = NovellaSettingsModule.GetTextSecondary();  // вторичный (#B5B7C8)
+            Color c3 = NovellaSettingsModule.GetTextMuted();      // приглушённый (#9D9FB0)
+            Color c4 = NovellaSettingsModule.GetTextDisabled();   // выключенный (#6D6F80)
+            Color acc = NovellaSettingsModule.GetAccentColor();
+            Color border = NovellaSettingsModule.GetBorderColor();
+
+            // Sidebar — бренд
+            foreach (var e in _root.Query<Label>(className: "ns-side__brand-name").ToList()) e.style.color = c1;
+            foreach (var e in _root.Query<Label>(className: "ns-side__brand-sub").ToList())  e.style.color = c3;
+
+            // Sidebar — story picker
+            foreach (var e in _root.Query<Label>(className: "ns-story-pick__lbl").ToList())  e.style.color = c3;
+            foreach (var e in _root.Query<Label>(className: "ns-story-pick__name").ToList()) e.style.color = c1;
+            foreach (var e in _root.Query<Label>(className: "ns-story-pick__arr").ToList())  e.style.color = c3;
+
+            // Sidebar — quick search
+            foreach (var e in _root.Query<Label>(className: "ns-search__text").ToList()) e.style.color = c3;
+            foreach (var e in _root.Query<Label>(className: "ns-search__kbd").ToList())  e.style.color = c4;
+
+            // Sidebar — категории и кнопки модулей
+            foreach (var e in _root.Query<Label>(className: "ns-cat").ToList())        e.style.color = c4;
+            foreach (var e in _root.Query<Label>(className: "ns-mod__label").ToList()) e.style.color = c2;
+
+            // Sidebar — help-блок (горячие клавиши)
+            foreach (var e in _root.Query<Label>(className: "ns-help__title").ToList())     e.style.color = c3;
+            foreach (var e in _root.Query<Label>(className: "ns-help__row-label").ToList()) e.style.color = c2;
+            foreach (var e in _root.Query<Label>(className: "ns-help__kbd").ToList())       e.style.color = c4;
+
+            // Topbar — крошки "Novella Studio / [Module]"
+            foreach (var e in _root.Query<Label>(className: "ns-crumb__root").ToList()) e.style.color = c3;
+            foreach (var e in _root.Query<Label>(className: "ns-crumb__sep").ToList())  e.style.color = border;
+            foreach (var e in _root.Query<Label>(className: "ns-crumb__cur").ToList())  e.style.color = c1;
+
+            // Иконки-тинты в sidebar (story-pick, search, mod-icon, crumb-icon, collapse-icon)
+            foreach (var e in _root.Query<VisualElement>(className: "ns-story-pick__icon").ToList())   e.style.unityBackgroundImageTintColor = acc;
+            foreach (var e in _root.Query<VisualElement>(className: "ns-crumb__icon").ToList())        e.style.unityBackgroundImageTintColor = acc;
+            foreach (var e in _root.Query<VisualElement>(className: "ns-side__brand-logo").ToList())
+            {
+                e.style.borderLeftColor = acc; e.style.borderRightColor = acc;
+                e.style.borderTopColor = acc;  e.style.borderBottomColor = acc;
+                e.style.backgroundColor = new Color(acc.r, acc.g, acc.b, 0.09f);
+            }
+            foreach (var e in _root.Query<Label>(className: "ns-side__brand-logo-text").ToList()) e.style.color = acc;
         }
 
         // Когда юзер возвращается в Hub из Graph-окна, Dashboard должен перечитать времена правки
@@ -559,14 +621,14 @@ namespace NovellaEngine.Editor
             logo.style.borderBottomLeftRadius = 7; logo.style.borderBottomRightRadius = 7;
             logo.style.borderLeftWidth = 1; logo.style.borderRightWidth = 1;
             logo.style.borderTopWidth = 1; logo.style.borderBottomWidth = 1;
-            logo.style.borderLeftColor = new Color(0.36f, 0.75f, 0.92f);
-            logo.style.borderRightColor = new Color(0.36f, 0.75f, 0.92f);
-            logo.style.borderTopColor = new Color(0.36f, 0.75f, 0.92f);
-            logo.style.borderBottomColor = new Color(0.36f, 0.75f, 0.92f);
+            logo.style.borderLeftColor = NovellaSettingsModule.GetAccentColor();
+            logo.style.borderRightColor = NovellaSettingsModule.GetAccentColor();
+            logo.style.borderTopColor = NovellaSettingsModule.GetAccentColor();
+            logo.style.borderBottomColor = NovellaSettingsModule.GetAccentColor();
             logo.style.backgroundColor = new Color(0.36f, 0.75f, 0.92f, 0.09f);
             var logoLbl = new Label("N");
             logoLbl.AddToClassList("ns-side__brand-logo-text");
-            logoLbl.style.color = new Color(0.36f, 0.75f, 0.92f);
+            logoLbl.style.color = NovellaSettingsModule.GetAccentColor();
             logoLbl.style.unityFontStyleAndWeight = FontStyle.Bold;
             logo.Add(logoLbl);
             brand.Add(logo);
@@ -576,15 +638,16 @@ namespace NovellaEngine.Editor
             text.style.flexDirection = FlexDirection.Column;
 
             var nameLbl = new Label("Novella Studio") { name = "brandName" };
+            nameLbl.AddToClassList("ns-side__brand-name");
             nameLbl.style.fontSize = 14;
             nameLbl.style.unityFontStyleAndWeight = FontStyle.Bold;
-            nameLbl.style.color = new Color(0.925f, 0.925f, 0.957f);
+            nameLbl.style.color = NovellaSettingsModule.GetTextColor();
             text.Add(nameLbl);
 
             var sub = new Label(ToolLang.Get("Story workshop", "Студия историй"));
             sub.AddToClassList("ns-side__brand-sub");
             sub.style.fontSize = 9;
-            sub.style.color = new Color(0.616f, 0.624f, 0.690f);
+            sub.style.color = NovellaSettingsModule.GetTextMuted();
             sub.style.marginTop = 2;
             text.Add(sub);
             brand.Add(text);
@@ -863,7 +926,7 @@ namespace NovellaEngine.Editor
             tutBtn.style.marginLeft = 12; tutBtn.style.marginRight = 12;
             tutBtn.style.marginTop = 8; tutBtn.style.marginBottom = 8;
             tutBtn.style.height = 34;
-            tutBtn.style.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+            tutBtn.style.backgroundColor = NovellaSettingsModule.GetAccentColor();
             tutBtn.style.color = new Color(0.075f, 0.078f, 0.106f);
             tutBtn.style.borderTopLeftRadius = 6; tutBtn.style.borderTopRightRadius = 6;
             tutBtn.style.borderBottomLeftRadius = 6; tutBtn.style.borderBottomRightRadius = 6;
@@ -1001,7 +1064,7 @@ namespace NovellaEngine.Editor
             var dash = new VisualElement();
             dash.style.width = 12;
             dash.style.height = 2;
-            dash.style.backgroundColor = new Color(0.85f, 0.87f, 0.93f);
+            dash.style.backgroundColor = NovellaSettingsModule.GetTextColor();
             dash.style.marginTop = 1;
             minimize.Add(dash);
             top.Add(minimize);
@@ -1283,11 +1346,11 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical();
 
             var h1 = new GUIStyle(EditorStyles.label) { fontSize = 22, fontStyle = FontStyle.Bold };
-            h1.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            h1.normal.textColor = NovellaSettingsModule.GetTextColor();
             GUILayout.Label(ToolLang.Get("Welcome back", "С возвращением"), h1);
 
             var sub = new GUIStyle(EditorStyles.label) { fontSize = 13 };
-            sub.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            sub.normal.textColor = NovellaSettingsModule.GetTextMuted();
             GUILayout.Label($"{_stories.Count} " + ToolLang.Get("stories in your workshop", "историй в мастерской"), sub);
 
             GUILayout.Space(20);
@@ -1298,7 +1361,7 @@ namespace NovellaEngine.Editor
             GUILayout.Space(18);
             DrawSectionHeader("📖 " + ToolLang.Get("Recent stories", "Последние истории"));
 
-            GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+            GUI.backgroundColor = NovellaSettingsModule.GetAccentColor();
             if (GUILayout.Button("➕ " + ToolLang.Get("Create new story", "Создать новую историю"), GUILayout.Height(34), GUILayout.MaxWidth(360)))
             {
                 EditorApplication.delayCall += CreateNewStory;
@@ -1343,10 +1406,10 @@ namespace NovellaEngine.Editor
         {
             GUILayout.BeginVertical(GUILayout.Width(190));
             var lblStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, fontStyle = FontStyle.Bold };
-            lblStyle.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            lblStyle.normal.textColor = NovellaSettingsModule.GetTextMuted();
 
             var valStyle = new GUIStyle(EditorStyles.label) { fontSize = 24, fontStyle = FontStyle.Bold };
-            valStyle.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            valStyle.normal.textColor = NovellaSettingsModule.GetTextColor();
 
             Rect cardRect = GUILayoutUtility.GetRect(190, 70, GUILayout.Width(190), GUILayout.Height(70));
             EditorGUI.DrawRect(cardRect, new Color(0.10f, 0.106f, 0.149f, 1f));
@@ -1361,7 +1424,7 @@ namespace NovellaEngine.Editor
         private void DrawSectionHeader(string title)
         {
             var st = new GUIStyle(EditorStyles.label) { fontSize = 11, fontStyle = FontStyle.Bold };
-            st.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            st.normal.textColor = NovellaSettingsModule.GetTextMuted();
             GUILayout.Label(title.ToUpperInvariant(), st);
             Rect r = GUILayoutUtility.GetRect(100, 1, GUILayout.ExpandWidth(true));
             EditorGUI.DrawRect(r, new Color(0.165f, 0.176f, 0.243f, 1f));
@@ -1404,18 +1467,18 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical(v, GUILayout.ExpandWidth(true), GUILayout.MinWidth(220));
 
             var t = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            t.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            t.normal.textColor = NovellaSettingsModule.GetTextColor();
             GUILayout.Label(string.IsNullOrEmpty(st.Title) ? "(untitled)" : st.Title, t);
 
             var meta = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            meta.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            meta.normal.textColor = NovellaSettingsModule.GetTextMuted();
             string metaText = _modifiedTimes.TryGetValue(st, out var dt)
                 ? FormatRelativeTime(dt)
                 : ToolLang.Get("never opened", "не открывалось");
             GUILayout.Label(metaText, meta);
 
             var d = new GUIStyle(EditorStyles.wordWrappedMiniLabel) { fixedHeight = 28 };
-            d.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            d.normal.textColor = NovellaSettingsModule.GetTextMuted();
             GUILayout.Label(string.IsNullOrEmpty(st.Description) ? ToolLang.Get("No description.", "Нет описания.") : st.Description, d);
 
             GUILayout.Space(6);
@@ -1427,7 +1490,7 @@ namespace NovellaEngine.Editor
                 EditorApplication.delayCall += () => NovellaStorySettingsPopup.ShowWindow(capturedStory, RefreshData);
             }
 
-            GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+            GUI.backgroundColor = NovellaSettingsModule.GetAccentColor();
             if (GUILayout.Button(ToolLang.Get("Open", "Открыть"), GUILayout.Height(24)))
             {
                 var capturedStory = st;
@@ -1564,11 +1627,11 @@ namespace NovellaEngine.Editor
             GUI.Label(iconRect, icon, iconStyle);
 
             var tStyle = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            tStyle.normal.textColor = enabled ? new Color(0.93f, 0.93f, 0.96f) : new Color(0.55f, 0.56f, 0.62f);
+            tStyle.normal.textColor = enabled ? NovellaSettingsModule.GetTextColor() : new Color(0.55f, 0.56f, 0.62f);
             GUI.Label(new Rect(r.x + 70, r.y + 14, r.width - 80, 18), title, tStyle);
 
             var dStyle = new GUIStyle(EditorStyles.label) { fontSize = 10, wordWrap = true };
-            dStyle.normal.textColor = enabled ? new Color(0.62f, 0.63f, 0.69f) : new Color(0.42f, 0.43f, 0.48f);
+            dStyle.normal.textColor = enabled ? NovellaSettingsModule.GetTextMuted() : new Color(0.42f, 0.43f, 0.48f);
             GUI.Label(new Rect(r.x + 70, r.y + 32, r.width - 80, h - 36), description, dStyle);
 
             if (enabled && Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
@@ -1652,11 +1715,11 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(tipRect.x, tipRect.y, 3, tipRect.height), new Color(0.36f, 0.75f, 0.92f, 1f));
 
             var tt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
-            tt.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+            tt.normal.textColor = NovellaSettingsModule.GetAccentColor();
             GUI.Label(new Rect(tipRect.x + 16, tipRect.y + 8, tipRect.width - 32, 14), ToolLang.Get("DID YOU KNOW", "А ВЫ ЗНАЛИ"), tt);
 
             var bt = new GUIStyle(EditorStyles.label) { fontSize = 12, wordWrap = true };
-            bt.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            bt.normal.textColor = NovellaSettingsModule.GetTextColor();
             GUI.Label(new Rect(tipRect.x + 16, tipRect.y + 22, tipRect.width - 32, 30), tips[dayIdx], bt);
         }
 
@@ -1795,7 +1858,7 @@ namespace NovellaEngine.Editor
             GUILayout.BeginVertical();
 
             var h1 = new GUIStyle(EditorStyles.label) { fontSize = 18, fontStyle = FontStyle.Bold };
-            h1.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            h1.normal.textColor = NovellaSettingsModule.GetTextColor();
             GUILayout.Label(ToolLang.Get("Story Settings", "Настройки истории"), h1);
             GUILayout.Space(10);
 
@@ -1818,10 +1881,10 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(currRect, Story.StartingChapter != null ? new Color(0.1f, 0.106f, 0.149f) : new Color(0.18f, 0.10f, 0.10f));
             DrawRectBorder(currRect, Story.StartingChapter != null ? new Color(0.36f, 0.75f, 0.92f, 0.5f) : new Color(0.7f, 0.3f, 0.3f, 0.5f));
             var currentStyle = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(10, 10, 0, 0) };
-            currentStyle.normal.textColor = Story.StartingChapter != null ? new Color(0.93f, 0.93f, 0.96f) : new Color(1f, 0.65f, 0.5f);
+            currentStyle.normal.textColor = Story.StartingChapter != null ? NovellaSettingsModule.GetTextColor() : new Color(1f, 0.65f, 0.5f);
             GUI.Label(currRect, "▶  " + currentName, currentStyle);
 
-            GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+            GUI.backgroundColor = NovellaSettingsModule.GetAccentColor();
             if (GUILayout.Button("➕ " + ToolLang.Get("New chapter", "Создать главу"), GUILayout.Width(150), GUILayout.Height(28)))
             {
                 CreateNewChapterAndAssign();
@@ -1843,7 +1906,7 @@ namespace NovellaEngine.Editor
                 Close();
             }
             GUILayout.Space(8);
-            GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+            GUI.backgroundColor = NovellaSettingsModule.GetAccentColor();
             if (GUILayout.Button(ToolLang.Get("Save & Close", "Сохранить и закрыть"), GUILayout.Width(180), GUILayout.Height(32)))
             {
                 if (_isPending)
@@ -1899,7 +1962,7 @@ namespace NovellaEngine.Editor
                 EditorGUI.DrawRect(empty, new Color(0.1f, 0.106f, 0.149f));
                 DrawRectBorder(empty, new Color(0.165f, 0.176f, 0.243f));
                 var st = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { fontSize = 12 };
-                st.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+                st.normal.textColor = NovellaSettingsModule.GetTextMuted();
                 GUI.Label(empty, ToolLang.Get("No chapters yet — click 'New chapter' above", "Глав ещё нет — нажми «Создать главу» выше"), st);
                 return;
             }
@@ -1938,20 +2001,20 @@ namespace NovellaEngine.Editor
 
             if (isSelected)
             {
-                EditorGUI.DrawRect(new Rect(cardRect.x, cardRect.y, 3, cardRect.height), new Color(0.36f, 0.75f, 0.92f));
+                EditorGUI.DrawRect(new Rect(cardRect.x, cardRect.y, 3, cardRect.height), NovellaSettingsModule.GetAccentColor());
             }
 
             var titleStyle = new GUIStyle(EditorStyles.label) { fontSize = 12, fontStyle = FontStyle.Bold };
-            titleStyle.normal.textColor = new Color(0.93f, 0.93f, 0.96f);
+            titleStyle.normal.textColor = NovellaSettingsModule.GetTextColor();
             GUI.Label(new Rect(cardRect.x + 12, cardRect.y + 8, cardRect.width - 24, 16), tree.name, titleStyle);
 
             var pathStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            pathStyle.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            pathStyle.normal.textColor = NovellaSettingsModule.GetTextMuted();
             string shortPath = path.Replace("Assets/", "").Replace("NovellaEngine/", "…/");
             GUI.Label(new Rect(cardRect.x + 12, cardRect.y + 26, cardRect.width - 24, 14), shortPath, pathStyle);
 
             var nodesStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            nodesStyle.normal.textColor = new Color(0.36f, 0.75f, 0.92f);
+            nodesStyle.normal.textColor = NovellaSettingsModule.GetAccentColor();
             GUI.Label(new Rect(cardRect.x + 12, cardRect.y + 40, cardRect.width - 24, 14), $"{nodeCount} nodes", nodesStyle);
 
             if (GUI.Button(cardRect, GUIContent.none, GUIStyle.none))
@@ -1987,7 +2050,7 @@ namespace NovellaEngine.Editor
         private static void DrawSectionLabel(string text)
         {
             var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, fontStyle = FontStyle.Bold };
-            st.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            st.normal.textColor = NovellaSettingsModule.GetTextMuted();
             GUILayout.Label(text, st);
         }
 
@@ -1996,10 +2059,10 @@ namespace NovellaEngine.Editor
             Rect r = GUILayoutUtility.GetRect(GUIContent.none, EditorStyles.helpBox, GUILayout.ExpandWidth(true), GUILayout.Height(36));
             EditorGUI.DrawRect(r, new Color(0.075f, 0.082f, 0.11f));
             DrawRectBorder(r, new Color(0.36f, 0.75f, 0.92f, 0.4f));
-            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), new Color(0.36f, 0.75f, 0.92f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), NovellaSettingsModule.GetAccentColor());
 
             var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
-            st.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            st.normal.textColor = NovellaSettingsModule.GetHintColor();
             GUI.Label(new Rect(r.x + 12, r.y + 6, r.width - 24, r.height - 12), "💡  " + text, st);
             GUILayout.Space(4);
         }

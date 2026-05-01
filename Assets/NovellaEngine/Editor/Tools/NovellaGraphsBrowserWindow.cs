@@ -18,16 +18,16 @@ namespace NovellaEngine.Editor
     /// </summary>
     public class NovellaGraphsBrowserWindow : EditorWindow
     {
-        // Палитра — та же что в Hub
-        private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);
-        private static readonly Color C_BG_SIDE    = new Color(0.102f, 0.106f, 0.149f);
-        private static readonly Color C_BG_RAISED  = new Color(0.122f, 0.129f, 0.184f);
-        private static readonly Color C_BORDER     = new Color(0.165f, 0.176f, 0.243f);
-        private static readonly Color C_ACCENT     = new Color(0.36f, 0.75f, 0.92f);
-        private static readonly Color C_TEXT_1     = new Color(0.925f, 0.925f, 0.957f);
-        private static readonly Color C_TEXT_2     = new Color(0.710f, 0.718f, 0.784f);
-        private static readonly Color C_TEXT_3     = new Color(0.616f, 0.624f, 0.690f);
-        private static readonly Color C_TEXT_4     = new Color(0.427f, 0.435f, 0.502f);
+        // Палитра — та же что в Hub. Все основные цвета — динамические, из NovellaSettingsModule.
+        private static Color C_BG_PRIMARY => NovellaSettingsModule.GetInterfaceColor();
+        private static Color C_BG_SIDE    => NovellaSettingsModule.GetBgSideColor();
+        private static Color C_BG_RAISED  => NovellaSettingsModule.GetBgRaisedColor();
+        private static Color C_BORDER     => NovellaSettingsModule.GetBorderColor();
+        private static Color C_ACCENT     => NovellaSettingsModule.GetAccentColor();
+        private static Color C_TEXT_1     => NovellaSettingsModule.GetTextColor();
+        private static Color C_TEXT_2     => NovellaSettingsModule.GetTextSecondary();
+        private static Color C_TEXT_3     => NovellaSettingsModule.GetTextMuted();
+        private static Color C_TEXT_4     => NovellaSettingsModule.GetTextDisabled();
         private static readonly Color C_DANGER     = new Color(0.85f, 0.32f, 0.32f);
         private static readonly Color C_OK         = new Color(0.48f, 0.81f, 0.62f);
         private static readonly Color C_WARN       = new Color(0.96f, 0.76f, 0.43f);

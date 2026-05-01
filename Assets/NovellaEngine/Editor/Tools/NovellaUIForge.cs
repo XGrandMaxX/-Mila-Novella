@@ -2507,7 +2507,7 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
             var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, fontStyle = FontStyle.Bold };
-            st.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            st.normal.textColor = NovellaSettingsModule.GetTextMuted();
             GUILayout.Label(text, st, GUILayout.Width(180));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -2526,7 +2526,7 @@ namespace NovellaEngine.Editor
             var textStyle = new GUIStyle(EditorStyles.label);
             textStyle.fontSize = 11;
             textStyle.wordWrap = true;
-            textStyle.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            textStyle.normal.textColor = NovellaSettingsModule.GetHintColor();
             textStyle.padding = new RectOffset(10, 10, 8, 8);
 
             Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + body), textStyle);

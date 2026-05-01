@@ -164,7 +164,7 @@ namespace NovellaEngine.Editor
         {
             if (!NovellaSettingsModule.ShowGuide) return;
             var sty = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
-            sty.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            sty.normal.textColor = NovellaSettingsModule.GetHintColor();
             Rect rec = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), sty);
             Color a = C_ACCENT;
             EditorGUI.DrawRect(rec, new Color(a.r, a.g, a.b, 0.10f));
