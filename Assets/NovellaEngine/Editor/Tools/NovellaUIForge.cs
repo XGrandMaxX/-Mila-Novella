@@ -324,7 +324,7 @@ namespace NovellaEngine.Editor
                 _camera = cam;
             }
 
-            var canvasGo = new GameObject("Canvas");
+            var canvasGo = new GameObject(ToolLang.Get("Canvas", "Холст"));
             var canvas = canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = _camera;
