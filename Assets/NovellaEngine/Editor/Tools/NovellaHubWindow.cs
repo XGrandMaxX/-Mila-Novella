@@ -220,6 +220,7 @@ namespace NovellaEngine.Editor
         // UI Toolkit references
         private VisualElement _root;
         private VisualElement _sideEl;
+        private VisualElement _mainEl; // правая основная область — нужна для перекраски при смене темы
         private List<VisualElement> _modButtons;
         private Label _crumbCurrent;
         private IMGUIContainer _moduleContainer;
@@ -353,14 +354,28 @@ namespace NovellaEngine.Editor
         }
 
         // Стреляет когда пользователь меняет настройки в Settings-модуле.
-        // Применяет к Hub root цвет интерфейса (главный фон). Акцентный цвет
-        // подтягивается модулями через NovellaSettingsModule.GetAccentColor().
+        // Применяет цвета ко всем UI Toolkit-элементам Hub'а (root, sidebar, main,
+        // breadcrumb, кнопки модулей). Дальше — модули сами читают цвета через
+        // NovellaSettingsModule на следующем Repaint.
         private void ApplyAppearance()
         {
             if (_root != null)
             {
                 _root.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
             }
+            if (_sideEl != null)
+            {
+                _sideEl.style.backgroundColor = NovellaSettingsModule.GetBgSideColor();
+                _sideEl.style.borderRightColor = NovellaSettingsModule.GetBorderColor();
+            }
+            if (_mainEl != null)
+            {
+                _mainEl.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
+            }
+
+            // Полная перерисовка, чтобы IMGUI-модули и UI Toolkit-стили синхронизировались.
+            // USS-цвета останутся, но inline-стили выше перекрывают их у sidebar/main.
+            if (rootVisualElement != null) rootVisualElement.MarkDirtyRepaint();
             Repaint();
         }
 
@@ -418,9 +433,9 @@ namespace NovellaEngine.Editor
             _sideEl.AddToClassList("ns-side");
             _sideEl.style.width = 240;
             _sideEl.style.flexDirection = FlexDirection.Column;
-            _sideEl.style.backgroundColor = new Color(0.102f, 0.106f, 0.149f);
+            _sideEl.style.backgroundColor = NovellaSettingsModule.GetBgSideColor();
             _sideEl.style.borderRightWidth = 1;
-            _sideEl.style.borderRightColor = new Color(0.165f, 0.176f, 0.243f);
+            _sideEl.style.borderRightColor = NovellaSettingsModule.GetBorderColor();
             _root.Add(_sideEl);
 
             BuildSidebarBrand(_sideEl);
@@ -430,15 +445,15 @@ namespace NovellaEngine.Editor
             BuildSidebarHelp(_sideEl);
 
             // ═══════════════════ MAIN AREA ═══════════════════
-            var mainEl = new VisualElement();
-            mainEl.AddToClassList("ns-main");
-            mainEl.style.flexGrow = 1;
-            mainEl.style.flexDirection = FlexDirection.Column;
-            mainEl.style.backgroundColor = new Color(0.075f, 0.078f, 0.106f);
-            _root.Add(mainEl);
+            _mainEl = new VisualElement();
+            _mainEl.AddToClassList("ns-main");
+            _mainEl.style.flexGrow = 1;
+            _mainEl.style.flexDirection = FlexDirection.Column;
+            _mainEl.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
+            _root.Add(_mainEl);
 
-            BuildTopbar(mainEl);
-            BuildContent(mainEl);
+            BuildTopbar(_mainEl);
+            BuildContent(_mainEl);
 
             // ═══════════════════ COMMAND PALETTE OVERLAY ═══════════════════
             _commandPalette = new NovellaCommandPalette(this);

@@ -36,13 +36,16 @@ namespace NovellaEngine.Editor
 
         // Dynamic — из Settings
         private static Color C_BG_PRIMARY => NovellaSettingsModule.GetInterfaceColor();
-        private static readonly Color C_BG_SIDE = new Color(0.102f, 0.106f, 0.149f);
-        private static readonly Color C_BG_RAISED = new Color(0.13f, 0.14f, 0.18f);
-        private static readonly Color C_BORDER = new Color(0.165f, 0.176f, 0.243f);
-        private static readonly Color C_TEXT_1 = new Color(0.93f, 0.93f, 0.96f);
-        private static readonly Color C_TEXT_2 = new Color(0.78f, 0.80f, 0.86f);
-        private static readonly Color C_TEXT_3 = new Color(0.62f, 0.63f, 0.69f);
-        private static readonly Color C_TEXT_4 = new Color(0.42f, 0.43f, 0.49f);
+        // Все производные цвета — из Settings (см. NovellaSettingsModule).
+        // Они рассчитываются автоматически от Interface/Text цветов, поэтому
+        // достаточно указать в Settings 2 цвета — остальные подстроятся.
+        private static Color C_BG_SIDE   => NovellaSettingsModule.GetBgSideColor();
+        private static Color C_BG_RAISED => NovellaSettingsModule.GetBgRaisedColor();
+        private static Color C_BORDER    => NovellaSettingsModule.GetBorderColor();
+        private static Color C_TEXT_1    => NovellaSettingsModule.GetTextColor();
+        private static Color C_TEXT_2    => NovellaSettingsModule.GetTextSecondary();
+        private static Color C_TEXT_3    => NovellaSettingsModule.GetTextMuted();
+        private static Color C_TEXT_4    => NovellaSettingsModule.GetTextDisabled();
         // Акцентный цвет — динамический, из Settings-модуля Hub'а.
         // Кэшируется внутри Settings, поэтому чтение дешёвое.
         private static Color C_ACCENT => NovellaSettingsModule.GetAccentColor();

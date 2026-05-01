@@ -29,34 +29,32 @@ namespace NovellaEngine.Editor
         // EditorPrefs keys
         private const string PREF_ACCENT = "Novella_AccentColor";
         private const string PREF_INTERFACE = "Novella_InterfaceColor";
+        private const string PREF_TEXT = "Novella_TextColor";
         private const string PREF_GUIDE_MODE = "Novella_SettingsGuideMode";
 
         // Событие — стреляет когда юзер меняет внешний вид. Hub/UI Forge/etc.
         // подписываются и применяют новые значения.
         public static event System.Action OnAppearanceChanged;
 
-        // Кэш значений — чтобы не дёргать EditorPrefs на каждом фрейме при Repaint.
-        // Без кэша ColorField лагал, потому что каждое движение мыши делало
-        // EditorPrefs.GetString + парсинг hex.
         private static Color? _cachedAccent;
         private static Color? _cachedInterface;
+        private static Color? _cachedText;
         private static bool _showGuide;
         private static bool _guideLoaded;
 
-        // Дефолтный (исходный) тёмный цвет интерфейса. Используется как fallback
-        // и для кнопки "Сброс".
+        // Дефолты — соответствуют исходному тёмному стилю инструмента.
         public static readonly Color C_INTERFACE_DEFAULT = new Color(0.075f, 0.078f, 0.106f);
+        public static readonly Color C_TEXT_DEFAULT      = new Color(0.93f,  0.93f,  0.96f);
 
-        // ─── Цвета ──────────────────────────────────────────────────────────────
-        // Dynamic — берётся из настроек (см. GetInterfaceColor)
+        // ─── Цвета (все динамические — из настроек) ─────────────────────────────
         private static Color C_BG_PRIMARY => GetInterfaceColor();
-        private static readonly Color C_BG_SIDE    = new Color(0.102f, 0.106f, 0.149f);
-        private static readonly Color C_BG_RAISED  = new Color(0.13f,  0.14f,  0.18f);
-        private static readonly Color C_BORDER     = new Color(0.165f, 0.176f, 0.243f);
-        private static readonly Color C_TEXT_1     = new Color(0.93f,  0.93f,  0.96f);
-        private static readonly Color C_TEXT_2     = new Color(0.78f,  0.80f,  0.86f);
-        private static readonly Color C_TEXT_3     = new Color(0.62f,  0.63f,  0.69f);
-        private static readonly Color C_TEXT_4     = new Color(0.42f,  0.43f,  0.49f);
+        private static Color C_BG_SIDE    => GetBgSideColor();
+        private static Color C_BG_RAISED  => GetBgRaisedColor();
+        private static Color C_BORDER     => GetBorderColor();
+        private static Color C_TEXT_1     => GetTextColor();
+        private static Color C_TEXT_2     => GetTextSecondary();
+        private static Color C_TEXT_3     => GetTextMuted();
+        private static Color C_TEXT_4     => GetTextDisabled();
         private static readonly Color C_ACCENT_DEFAULT = new Color(0.36f, 0.75f, 0.92f);
         private static readonly Color C_DANGER     = new Color(0.85f,  0.32f,  0.32f);
 
@@ -85,8 +83,7 @@ namespace NovellaEngine.Editor
             OnAppearanceChanged?.Invoke();
         }
 
-        // Цвет тёмного интерфейса (фон панелей, инспектор, sidebar).
-        // По умолчанию — стандартный slate. Юзер может поменять на любой.
+        // Цвет основного фона панелей. Дефолт — тёмно-сине-серый.
         public static Color GetInterfaceColor()
         {
             if (_cachedInterface.HasValue) return _cachedInterface.Value;
@@ -104,6 +101,53 @@ namespace NovellaEngine.Editor
             EditorPrefs.SetString(PREF_INTERFACE, ColorUtility.ToHtmlStringRGB(c));
             OnAppearanceChanged?.Invoke();
         }
+
+        // Цвет основного текста (заголовки и т.п.). Все производные оттенки
+        // (вторичный, серый, выключенный) получаются миксом с фоном.
+        public static Color GetTextColor()
+        {
+            if (_cachedText.HasValue) return _cachedText.Value;
+            string s = EditorPrefs.GetString(PREF_TEXT, "");
+            if (!string.IsNullOrEmpty(s) && ColorUtility.TryParseHtmlString("#" + s, out var c))
+                _cachedText = c;
+            else
+                _cachedText = C_TEXT_DEFAULT;
+            return _cachedText.Value;
+        }
+
+        public static void SetTextColor(Color c)
+        {
+            _cachedText = c;
+            EditorPrefs.SetString(PREF_TEXT, ColorUtility.ToHtmlStringRGB(c));
+            OnAppearanceChanged?.Invoke();
+        }
+
+        // ─── Производные оттенки ───────────────────────────────────────────────
+        //
+        // Идея: чтобы пользователь не выбирал 7-8 цветов вручную, основные —
+        // только Interface и Text. Остальные оттенки (sidebar, raised, border,
+        // вторичный текст) автоматически рассчитываются:
+        //   • для тёмной темы (V<0.5) — поднимаем V (становится светлее)
+        //   • для светлой темы (V>=0.5) — опускаем V (становится темнее)
+        // Так логика "поверхность + 1 уровень" работает для любого цвета.
+
+        private static Color Shade(Color c, float amount)
+        {
+            Color.RGBToHSV(c, out float h, out float s, out float v);
+            v = (v < 0.5f) ? Mathf.Min(1f, v + amount) : Mathf.Max(0f, v - amount);
+            var r = Color.HSVToRGB(h, s, v);
+            r.a = c.a;
+            return r;
+        }
+
+        public static Color GetBgSideColor()   => Shade(GetInterfaceColor(), 0.04f);
+        public static Color GetBgRaisedColor() => Shade(GetInterfaceColor(), 0.07f);
+        public static Color GetBorderColor()   => Shade(GetInterfaceColor(), 0.13f);
+
+        // Вторичные градации текста — линейный микс между основным текстом и фоном.
+        public static Color GetTextSecondary() => Color.Lerp(GetTextColor(), GetInterfaceColor(), 0.18f);
+        public static Color GetTextMuted()     => Color.Lerp(GetTextColor(), GetInterfaceColor(), 0.40f);
+        public static Color GetTextDisabled()  => Color.Lerp(GetTextColor(), GetInterfaceColor(), 0.62f);
 
         public static bool ShowGuide
         {
@@ -124,8 +168,10 @@ namespace NovellaEngine.Editor
         {
             EditorPrefs.DeleteKey(PREF_ACCENT);
             EditorPrefs.DeleteKey(PREF_INTERFACE);
+            EditorPrefs.DeleteKey(PREF_TEXT);
             _cachedAccent = null;
             _cachedInterface = null;
+            _cachedText = null;
             OnAppearanceChanged?.Invoke();
         }
 
@@ -269,12 +315,58 @@ namespace NovellaEngine.Editor
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
+                GUILayout.Space(14);
+
+                // Text color
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(ToolLang.Get("Text color", "Цвет текста"), lbl, GUILayout.Width(180));
+
+                Color txt = GetTextColor();
+                EditorGUI.BeginChangeCheck();
+                Color newTxt = EditorGUILayout.ColorField(GUIContent.none, txt, true, false, false, GUILayout.Width(80), GUILayout.Height(22));
+                if (EditorGUI.EndChangeCheck() && newTxt != txt)
+                {
+                    SetTextColor(newTxt);
+                    _window?.Repaint();
+                }
+
+                GUILayout.Space(10);
+                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                {
+                    SetTextColor(C_TEXT_DEFAULT);
+                    _window?.Repaint();
+                }
+
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+
                 var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
                 hint.normal.textColor = C_TEXT_4;
                 GUILayout.Label(ToolLang.Get(
-                    "Sidebar, panels, inspector backgrounds. Pick a comfortable shade — light tones also work.",
-                    "Сайдбар, панели, фон инспектора. Выбери комфортный оттенок — светлые тоже работают."), hint);
+                    "Affects headings and labels. Secondary/muted/disabled tones are derived automatically by mixing with the interface color.",
+                    "Влияет на заголовки и подписи. Вторичный/серый/выключенный текст рассчитываются автоматически — миксом с цветом интерфейса."), hint);
+
+                GUILayout.Space(10);
+
+                // Live preview palette
+                Rect pal = GUILayoutUtility.GetRect(0, 60, GUILayout.ExpandWidth(true));
+                EditorGUI.DrawRect(pal, GetInterfaceColor());
+                DrawRectBorder(pal, GetBorderColor());
+                float colW = pal.width / 4f;
+                DrawSwatch(new Rect(pal.x,            pal.y, colW, pal.height), GetInterfaceColor(),    GetTextColor(),     "Aa  H1");
+                DrawSwatch(new Rect(pal.x + colW,     pal.y, colW, pal.height), GetBgSideColor(),       GetTextSecondary(), "Aa  H2");
+                DrawSwatch(new Rect(pal.x + colW * 2, pal.y, colW, pal.height), GetBgRaisedColor(),     GetTextMuted(),     "Aa  hint");
+                DrawSwatch(new Rect(pal.x + colW * 3, pal.y, colW, pal.height), GetBgRaisedColor(),     GetTextDisabled(),  "Aa  off");
             });
+        }
+
+        private static void DrawSwatch(Rect r, Color bg, Color textColor, string label)
+        {
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(new Rect(r.x, r.y, 1, r.height), GetBorderColor());
+            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+            st.normal.textColor = textColor;
+            GUI.Label(r, label, st);
         }
 
         // ─── Section: Language ──────────────────────────────────────────────────
