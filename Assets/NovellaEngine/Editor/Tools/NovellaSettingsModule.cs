@@ -28,8 +28,7 @@ namespace NovellaEngine.Editor
 
         // EditorPrefs keys
         private const string PREF_ACCENT = "Novella_AccentColor";
-        private const string PREF_BG_IMAGE = "Novella_BackgroundImagePath";
-        private const string PREF_BG_OPACITY = "Novella_BackgroundOpacity";
+        private const string PREF_INTERFACE = "Novella_InterfaceColor";
         private const string PREF_GUIDE_MODE = "Novella_SettingsGuideMode";
 
         // Событие — стреляет когда юзер меняет внешний вид. Hub/UI Forge/etc.
@@ -40,14 +39,17 @@ namespace NovellaEngine.Editor
         // Без кэша ColorField лагал, потому что каждое движение мыши делало
         // EditorPrefs.GetString + парсинг hex.
         private static Color? _cachedAccent;
-        private static Texture2D _cachedBg;
-        private static string _cachedBgPath;
-        private static float _cachedBgOpacity = -1f;
+        private static Color? _cachedInterface;
         private static bool _showGuide;
         private static bool _guideLoaded;
 
+        // Дефолтный (исходный) тёмный цвет интерфейса. Используется как fallback
+        // и для кнопки "Сброс".
+        public static readonly Color C_INTERFACE_DEFAULT = new Color(0.075f, 0.078f, 0.106f);
+
         // ─── Цвета ──────────────────────────────────────────────────────────────
-        private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);
+        // Dynamic — берётся из настроек (см. GetInterfaceColor)
+        private static Color C_BG_PRIMARY => GetInterfaceColor();
         private static readonly Color C_BG_SIDE    = new Color(0.102f, 0.106f, 0.149f);
         private static readonly Color C_BG_RAISED  = new Color(0.13f,  0.14f,  0.18f);
         private static readonly Color C_BORDER     = new Color(0.165f, 0.176f, 0.243f);
@@ -83,35 +85,23 @@ namespace NovellaEngine.Editor
             OnAppearanceChanged?.Invoke();
         }
 
-        public static Texture2D GetBackgroundImage()
+        // Цвет тёмного интерфейса (фон панелей, инспектор, sidebar).
+        // По умолчанию — стандартный slate. Юзер может поменять на любой.
+        public static Color GetInterfaceColor()
         {
-            string p = EditorPrefs.GetString(PREF_BG_IMAGE, "");
-            if (p == _cachedBgPath && _cachedBg != null) return _cachedBg;
-            _cachedBgPath = p;
-            if (string.IsNullOrEmpty(p)) { _cachedBg = null; return null; }
-            _cachedBg = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
-            return _cachedBg;
+            if (_cachedInterface.HasValue) return _cachedInterface.Value;
+            string s = EditorPrefs.GetString(PREF_INTERFACE, "");
+            if (!string.IsNullOrEmpty(s) && ColorUtility.TryParseHtmlString("#" + s, out var c))
+                _cachedInterface = c;
+            else
+                _cachedInterface = C_INTERFACE_DEFAULT;
+            return _cachedInterface.Value;
         }
 
-        public static void SetBackgroundImage(string path)
+        public static void SetInterfaceColor(Color c)
         {
-            if (string.IsNullOrEmpty(path)) EditorPrefs.DeleteKey(PREF_BG_IMAGE);
-            else EditorPrefs.SetString(PREF_BG_IMAGE, path);
-            _cachedBg = null;
-            _cachedBgPath = null;
-            OnAppearanceChanged?.Invoke();
-        }
-
-        public static float GetBackgroundOpacity()
-        {
-            if (_cachedBgOpacity < 0) _cachedBgOpacity = Mathf.Clamp01(EditorPrefs.GetFloat(PREF_BG_OPACITY, 0.15f));
-            return _cachedBgOpacity;
-        }
-
-        public static void SetBackgroundOpacity(float v)
-        {
-            _cachedBgOpacity = Mathf.Clamp01(v);
-            EditorPrefs.SetFloat(PREF_BG_OPACITY, _cachedBgOpacity);
+            _cachedInterface = c;
+            EditorPrefs.SetString(PREF_INTERFACE, ColorUtility.ToHtmlStringRGB(c));
             OnAppearanceChanged?.Invoke();
         }
 
@@ -133,12 +123,9 @@ namespace NovellaEngine.Editor
         public static void ResetAppearance()
         {
             EditorPrefs.DeleteKey(PREF_ACCENT);
-            EditorPrefs.DeleteKey(PREF_BG_IMAGE);
-            EditorPrefs.DeleteKey(PREF_BG_OPACITY);
+            EditorPrefs.DeleteKey(PREF_INTERFACE);
             _cachedAccent = null;
-            _cachedBg = null;
-            _cachedBgPath = null;
-            _cachedBgOpacity = -1f;
+            _cachedInterface = null;
             OnAppearanceChanged?.Invoke();
         }
 
@@ -228,8 +215,8 @@ namespace NovellaEngine.Editor
             DrawSectionCard("🎨 " + ToolLang.Get("Appearance", "Внешний вид"), () =>
             {
                 DrawGuideTip(ToolLang.Get(
-                    "These settings affect the look of the WHOLE toolkit — accent color is used for selections, buttons and highlights across modules; the background image shows behind everything.",
-                    "Эти настройки влияют на ВЕСЬ инструмент: акцентный цвет используется для выделений, кнопок и подсветок во всех модулях; фоновая картинка отображается за всем содержимым."));
+                    "Two colors:\n• Accent — used for hints, highlights and primary buttons.\n• Interface — the main dark background of all panels and inspectors.",
+                    "Два цвета:\n• Акцентный — используется для подсветок, подсказок и основных кнопок.\n• Интерфейса — основной тёмный фон всех панелей и инспекторов."));
 
                 var lbl = new GUIStyle(EditorStyles.label) { fontSize = 12 };
                 lbl.normal.textColor = C_TEXT_2;
@@ -259,53 +246,34 @@ namespace NovellaEngine.Editor
 
                 GUILayout.Space(14);
 
-                // Background image
+                // Interface color (dark panel bg)
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(ToolLang.Get("Background image", "Фоновая картинка"), lbl, GUILayout.Width(180));
+                GUILayout.Label(ToolLang.Get("Interface color", "Цвет интерфейса"), lbl, GUILayout.Width(180));
 
-                var bg = GetBackgroundImage();
-                string bgName = bg != null ? bg.name : ToolLang.Get("(none — pick from gallery)", "(нет — выбрать из галереи)");
-                if (GUILayout.Button(bgName, EditorStyles.popup, GUILayout.Height(22)))
+                Color ifc = GetInterfaceColor();
+                EditorGUI.BeginChangeCheck();
+                Color newIfc = EditorGUILayout.ColorField(GUIContent.none, ifc, true, false, false, GUILayout.Width(80), GUILayout.Height(22));
+                if (EditorGUI.EndChangeCheck() && newIfc != ifc)
                 {
-                    NovellaGalleryWindow.ShowWindow((obj) =>
-                    {
-                        string path = null;
-                        if (obj is Texture2D tex) path = AssetDatabase.GetAssetPath(tex);
-                        else if (obj is Sprite sp) path = AssetDatabase.GetAssetPath(sp);
-                        if (!string.IsNullOrEmpty(path))
-                        {
-                            SetBackgroundImage(path);
-                            _window?.Repaint();
-                        }
-                    }, NovellaGalleryWindow.EGalleryFilter.Image, "");
-                }
-                if (bg != null && GUILayout.Button("✕", GUILayout.Width(26), GUILayout.Height(22)))
-                {
-                    SetBackgroundImage(null);
+                    SetInterfaceColor(newIfc);
                     _window?.Repaint();
                 }
-                GUILayout.EndHorizontal();
 
-                GUILayout.Space(6);
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(ToolLang.Get("Background opacity", "Прозрачность фона"), lbl, GUILayout.Width(180));
-                EditorGUI.BeginChangeCheck();
-                float op = GUILayout.HorizontalSlider(GetBackgroundOpacity(), 0f, 1f, GUILayout.Width(180));
-                if (EditorGUI.EndChangeCheck()) SetBackgroundOpacity(op);
                 GUILayout.Space(10);
-                GUILayout.Label((GetBackgroundOpacity() * 100f).ToString("F0") + "%", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
+                if (GUILayout.Button(ToolLang.Get("Reset", "Сброс"), GUILayout.Width(80), GUILayout.Height(22)))
+                {
+                    SetInterfaceColor(C_INTERFACE_DEFAULT);
+                    _window?.Repaint();
+                }
+
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
-                if (bg != null)
-                {
-                    GUILayout.Space(8);
-                    Rect prevRect = GUILayoutUtility.GetRect(0, 100, GUILayout.ExpandWidth(true));
-                    EditorGUI.DrawRect(prevRect, C_BG_RAISED);
-                    DrawRectBorder(prevRect, C_BORDER);
-                    GUI.DrawTexture(prevRect, bg, ScaleMode.ScaleAndCrop);
-                }
+                var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+                hint.normal.textColor = C_TEXT_4;
+                GUILayout.Label(ToolLang.Get(
+                    "Sidebar, panels, inspector backgrounds. Pick a comfortable shade — light tones also work.",
+                    "Сайдбар, панели, фон инспектора. Выбери комфортный оттенок — светлые тоже работают."), hint);
             });
         }
 

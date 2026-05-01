@@ -20,7 +20,7 @@ namespace NovellaEngine.Editor
         private const string TABLE_FOLDER = "Assets/NovellaEngine/Runtime/Resources";
         private const string TABLE_PATH = TABLE_FOLDER + "/UILocalizationTable.asset";
 
-        private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);
+        private static Color C_BG_PRIMARY => NovellaSettingsModule.GetInterfaceColor();
         private static readonly Color C_BG_SIDE    = new Color(0.102f, 0.106f, 0.149f);
         private static readonly Color C_BG_RAISED  = new Color(0.13f,  0.14f,  0.18f);
         private static readonly Color C_BORDER     = new Color(0.165f, 0.176f, 0.243f);

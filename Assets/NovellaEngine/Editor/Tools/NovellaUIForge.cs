@@ -34,7 +34,8 @@ namespace NovellaEngine.Editor
             if (targetPrefab != null) Debug.Log($"[Novella] OpenWithCustomPrefab: префаб '{targetPrefab.name}' будет поддерживаться в следующей версии.");
         }
 
-        private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);
+        // Dynamic — из Settings
+        private static Color C_BG_PRIMARY => NovellaSettingsModule.GetInterfaceColor();
         private static readonly Color C_BG_SIDE = new Color(0.102f, 0.106f, 0.149f);
         private static readonly Color C_BG_RAISED = new Color(0.13f, 0.14f, 0.18f);
         private static readonly Color C_BORDER = new Color(0.165f, 0.176f, 0.243f);
@@ -448,9 +449,16 @@ namespace NovellaEngine.Editor
         private void RefreshRectsCache()
         {
             _allRects.Clear();
-            if (_canvas == null) return;
-            var rt = _canvas.GetComponent<RectTransform>();
-            if (rt != null) CollectRectsRecursive(rt, _allRects, 0);
+            // Раньше: брали ТОЛЬКО _canvas. Если в сцене дубликат канваса
+            // (например после Duplicate), его дочерние элементы не отображались
+            // в дереве, хотя камера их рендерила. Теперь собираем все root-канвасы.
+            var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in allCanvases)
+            {
+                if (c == null || !c.isRootCanvas) continue;
+                var rt = c.GetComponent<RectTransform>();
+                if (rt != null) CollectRectsRecursive(rt, _allRects, 0);
+            }
         }
 
         private static void CollectRectsRecursive(RectTransform rt, List<RectTransform> list, int depth)
@@ -710,16 +718,19 @@ namespace NovellaEngine.Editor
 
         private int ComputeDepth(RectTransform rt)
         {
-            if (rt == null || _canvas == null) return 0;
+            if (rt == null) return 0;
+            // Глубина = количество родителей до root-canvas элемента (любого).
             int d = 0;
             var t = rt.parent;
-            while (t != null && t != _canvas.transform.parent)
+            while (t != null)
             {
+                var c = t.GetComponent<Canvas>();
+                if (c != null && c.isRootCanvas) break;
                 d++;
                 if (d > 16) break;
                 t = t.parent;
             }
-            return Mathf.Max(0, d - 1);
+            return d;
         }
 
         private void DrawTreeRow(RectTransform rt, string name, string icon, int depth, int index)
