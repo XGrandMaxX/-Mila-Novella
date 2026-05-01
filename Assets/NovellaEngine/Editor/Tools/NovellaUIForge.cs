@@ -42,7 +42,9 @@ namespace NovellaEngine.Editor
         private static readonly Color C_TEXT_2 = new Color(0.78f, 0.80f, 0.86f);
         private static readonly Color C_TEXT_3 = new Color(0.62f, 0.63f, 0.69f);
         private static readonly Color C_TEXT_4 = new Color(0.42f, 0.43f, 0.49f);
-        private static readonly Color C_ACCENT = new Color(0.36f, 0.75f, 0.92f);
+        // Акцентный цвет — динамический, из Settings-модуля Hub'а.
+        // Кэшируется внутри Settings, поэтому чтение дешёвое.
+        private static Color C_ACCENT => NovellaSettingsModule.GetAccentColor();
         private static readonly Color C_DANGER = new Color(0.85f, 0.32f, 0.32f);
         private static readonly Color C_SUCCESS = new Color(0.40f, 0.78f, 0.45f);
 

@@ -30,6 +30,21 @@ namespace NovellaEngine.Editor
         private const string PREF_ACCENT = "Novella_AccentColor";
         private const string PREF_BG_IMAGE = "Novella_BackgroundImagePath";
         private const string PREF_BG_OPACITY = "Novella_BackgroundOpacity";
+        private const string PREF_GUIDE_MODE = "Novella_SettingsGuideMode";
+
+        // Событие — стреляет когда юзер меняет внешний вид. Hub/UI Forge/etc.
+        // подписываются и применяют новые значения.
+        public static event System.Action OnAppearanceChanged;
+
+        // Кэш значений — чтобы не дёргать EditorPrefs на каждом фрейме при Repaint.
+        // Без кэша ColorField лагал, потому что каждое движение мыши делало
+        // EditorPrefs.GetString + парсинг hex.
+        private static Color? _cachedAccent;
+        private static Texture2D _cachedBg;
+        private static string _cachedBgPath;
+        private static float _cachedBgOpacity = -1f;
+        private static bool _showGuide;
+        private static bool _guideLoaded;
 
         // ─── Цвета ──────────────────────────────────────────────────────────────
         private static readonly Color C_BG_PRIMARY = new Color(0.075f, 0.078f, 0.106f);
@@ -52,26 +67,79 @@ namespace NovellaEngine.Editor
 
         public static Color GetAccentColor()
         {
+            if (_cachedAccent.HasValue) return _cachedAccent.Value;
             string s = EditorPrefs.GetString(PREF_ACCENT, "");
-            if (!string.IsNullOrEmpty(s) && ColorUtility.TryParseHtmlString("#" + s, out var c)) return c;
-            return C_ACCENT_DEFAULT;
+            if (!string.IsNullOrEmpty(s) && ColorUtility.TryParseHtmlString("#" + s, out var c))
+                _cachedAccent = c;
+            else
+                _cachedAccent = C_ACCENT_DEFAULT;
+            return _cachedAccent.Value;
         }
 
         public static void SetAccentColor(Color c)
         {
+            _cachedAccent = c;
             EditorPrefs.SetString(PREF_ACCENT, ColorUtility.ToHtmlStringRGB(c));
+            OnAppearanceChanged?.Invoke();
         }
 
         public static Texture2D GetBackgroundImage()
         {
             string p = EditorPrefs.GetString(PREF_BG_IMAGE, "");
-            if (string.IsNullOrEmpty(p)) return null;
-            return AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            if (p == _cachedBgPath && _cachedBg != null) return _cachedBg;
+            _cachedBgPath = p;
+            if (string.IsNullOrEmpty(p)) { _cachedBg = null; return null; }
+            _cachedBg = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+            return _cachedBg;
+        }
+
+        public static void SetBackgroundImage(string path)
+        {
+            if (string.IsNullOrEmpty(path)) EditorPrefs.DeleteKey(PREF_BG_IMAGE);
+            else EditorPrefs.SetString(PREF_BG_IMAGE, path);
+            _cachedBg = null;
+            _cachedBgPath = null;
+            OnAppearanceChanged?.Invoke();
         }
 
         public static float GetBackgroundOpacity()
         {
-            return Mathf.Clamp01(EditorPrefs.GetFloat(PREF_BG_OPACITY, 0.15f));
+            if (_cachedBgOpacity < 0) _cachedBgOpacity = Mathf.Clamp01(EditorPrefs.GetFloat(PREF_BG_OPACITY, 0.15f));
+            return _cachedBgOpacity;
+        }
+
+        public static void SetBackgroundOpacity(float v)
+        {
+            _cachedBgOpacity = Mathf.Clamp01(v);
+            EditorPrefs.SetFloat(PREF_BG_OPACITY, _cachedBgOpacity);
+            OnAppearanceChanged?.Invoke();
+        }
+
+        public static bool ShowGuide
+        {
+            get
+            {
+                if (!_guideLoaded) { _showGuide = EditorPrefs.GetBool(PREF_GUIDE_MODE, true); _guideLoaded = true; }
+                return _showGuide;
+            }
+            set
+            {
+                _showGuide = value;
+                _guideLoaded = true;
+                EditorPrefs.SetBool(PREF_GUIDE_MODE, value);
+            }
+        }
+
+        public static void ResetAppearance()
+        {
+            EditorPrefs.DeleteKey(PREF_ACCENT);
+            EditorPrefs.DeleteKey(PREF_BG_IMAGE);
+            EditorPrefs.DeleteKey(PREF_BG_OPACITY);
+            _cachedAccent = null;
+            _cachedBg = null;
+            _cachedBgPath = null;
+            _cachedBgOpacity = -1f;
+            OnAppearanceChanged?.Invoke();
         }
 
         // ─── Главный draw ───────────────────────────────────────────────────────
@@ -79,7 +147,8 @@ namespace NovellaEngine.Editor
         public void DrawGUI(Rect position)
         {
             EditorGUI.DrawRect(position, C_BG_PRIMARY);
-            DrawBackgroundOverlay(position);
+            // Фоновую картинку рисует Hub под всем — здесь повторно НЕ рисуем,
+            // чтобы не было двойного слоя.
 
             GUILayout.BeginArea(position);
             _scroll = GUILayout.BeginScrollView(_scroll);
@@ -109,22 +178,26 @@ namespace NovellaEngine.Editor
             GUILayout.EndArea();
         }
 
-        private void DrawBackgroundOverlay(Rect rect)
-        {
-            var bg = GetBackgroundImage();
-            if (bg == null) return;
-            float o = GetBackgroundOpacity();
-            Color prev = GUI.color;
-            GUI.color = new Color(1, 1, 1, o);
-            GUI.DrawTexture(rect, bg, ScaleMode.ScaleAndCrop);
-            GUI.color = prev;
-        }
-
         private void DrawHeader()
         {
+            GUILayout.BeginHorizontal();
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 22 };
             titleSt.normal.textColor = C_TEXT_1;
             GUILayout.Label("⚙  " + ToolLang.Get("Settings", "Настройки"), titleSt);
+            GUILayout.FlexibleSpace();
+
+            // Toggle подсказок — единая кнопка, как во всех модулях.
+            bool guide = ShowGuide;
+            GUI.backgroundColor = guide ? GetAccentColor() : Color.white;
+            string lbl = (guide ? "💡  " : "💡  ") + ToolLang.Get(guide ? "Hints: ON" : "Hints: OFF",
+                                                                  guide ? "Подсказки: вкл" : "Подсказки: выкл");
+            if (GUILayout.Button(lbl, GUILayout.Width(170), GUILayout.Height(28)))
+            {
+                ShowGuide = !guide;
+                _window?.Repaint();
+            }
+            GUI.backgroundColor = Color.white;
+            GUILayout.EndHorizontal();
 
             var subSt = new GUIStyle(EditorStyles.label) { fontSize = 12, wordWrap = true };
             subSt.normal.textColor = C_TEXT_3;
@@ -133,22 +206,42 @@ namespace NovellaEngine.Editor
                 "Настрой внешний вид инструмента и локализацию проекта."), subSt);
         }
 
+        // Подсказка: серая плашка под заголовком секции (если ShowGuide включён).
+        private static void DrawGuideTip(string text)
+        {
+            if (!ShowGuide) return;
+            var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
+            st.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), st);
+            Color acc = GetAccentColor();
+            EditorGUI.DrawRect(r, new Color(acc.r, acc.g, acc.b, 0.10f));
+            DrawRectBorder(r, new Color(acc.r, acc.g, acc.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), acc);
+            GUI.Label(r, "💡 " + text, st);
+            GUILayout.Space(8);
+        }
+
         // ─── Section: Appearance ────────────────────────────────────────────────
 
         private void DrawAppearanceSection()
         {
             DrawSectionCard("🎨 " + ToolLang.Get("Appearance", "Внешний вид"), () =>
             {
-                // Accent color
-                GUILayout.BeginHorizontal();
+                DrawGuideTip(ToolLang.Get(
+                    "These settings affect the look of the WHOLE toolkit — accent color is used for selections, buttons and highlights across modules; the background image shows behind everything.",
+                    "Эти настройки влияют на ВЕСЬ инструмент: акцентный цвет используется для выделений, кнопок и подсветок во всех модулях; фоновая картинка отображается за всем содержимым."));
+
                 var lbl = new GUIStyle(EditorStyles.label) { fontSize = 12 };
                 lbl.normal.textColor = C_TEXT_2;
+
+                // Accent color
+                GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Accent color", "Акцентный цвет"), lbl, GUILayout.Width(180));
 
                 Color acc = GetAccentColor();
                 EditorGUI.BeginChangeCheck();
                 Color newAcc = EditorGUILayout.ColorField(GUIContent.none, acc, true, false, false, GUILayout.Width(80), GUILayout.Height(22));
-                if (EditorGUI.EndChangeCheck())
+                if (EditorGUI.EndChangeCheck() && newAcc != acc)
                 {
                     SetAccentColor(newAcc);
                     _window?.Repaint();
@@ -164,12 +257,6 @@ namespace NovellaEngine.Editor
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
-                var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
-                hint.normal.textColor = C_TEXT_4;
-                GUILayout.Label(ToolLang.Get(
-                    "Used for highlights, selections and primary buttons across all modules.",
-                    "Используется для подсветок, выделений и основных кнопок во всех модулях."), hint);
-
                 GUILayout.Space(14);
 
                 // Background image
@@ -177,28 +264,24 @@ namespace NovellaEngine.Editor
                 GUILayout.Label(ToolLang.Get("Background image", "Фоновая картинка"), lbl, GUILayout.Width(180));
 
                 var bg = GetBackgroundImage();
-                string bgName = bg != null ? bg.name : ToolLang.Get("(none)", "(нет)");
+                string bgName = bg != null ? bg.name : ToolLang.Get("(none — pick from gallery)", "(нет — выбрать из галереи)");
                 if (GUILayout.Button(bgName, EditorStyles.popup, GUILayout.Height(22)))
                 {
                     NovellaGalleryWindow.ShowWindow((obj) =>
                     {
-                        if (obj is Texture2D tex)
+                        string path = null;
+                        if (obj is Texture2D tex) path = AssetDatabase.GetAssetPath(tex);
+                        else if (obj is Sprite sp) path = AssetDatabase.GetAssetPath(sp);
+                        if (!string.IsNullOrEmpty(path))
                         {
-                            string path = AssetDatabase.GetAssetPath(tex);
-                            EditorPrefs.SetString(PREF_BG_IMAGE, path);
-                            _window?.Repaint();
-                        }
-                        else if (obj is Sprite sp)
-                        {
-                            string path = AssetDatabase.GetAssetPath(sp);
-                            EditorPrefs.SetString(PREF_BG_IMAGE, path);
+                            SetBackgroundImage(path);
                             _window?.Repaint();
                         }
                     }, NovellaGalleryWindow.EGalleryFilter.Image, "");
                 }
                 if (bg != null && GUILayout.Button("✕", GUILayout.Width(26), GUILayout.Height(22)))
                 {
-                    EditorPrefs.DeleteKey(PREF_BG_IMAGE);
+                    SetBackgroundImage(null);
                     _window?.Repaint();
                 }
                 GUILayout.EndHorizontal();
@@ -209,11 +292,7 @@ namespace NovellaEngine.Editor
                 GUILayout.Label(ToolLang.Get("Background opacity", "Прозрачность фона"), lbl, GUILayout.Width(180));
                 EditorGUI.BeginChangeCheck();
                 float op = GUILayout.HorizontalSlider(GetBackgroundOpacity(), 0f, 1f, GUILayout.Width(180));
-                if (EditorGUI.EndChangeCheck())
-                {
-                    EditorPrefs.SetFloat(PREF_BG_OPACITY, op);
-                    _window?.Repaint();
-                }
+                if (EditorGUI.EndChangeCheck()) SetBackgroundOpacity(op);
                 GUILayout.Space(10);
                 GUILayout.Label((GetBackgroundOpacity() * 100f).ToString("F0") + "%", new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = C_TEXT_3 } }, GUILayout.Width(40));
                 GUILayout.FlexibleSpace();
@@ -232,10 +311,16 @@ namespace NovellaEngine.Editor
 
         // ─── Section: Language ──────────────────────────────────────────────────
 
+        private NovellaUILocalizationTable _activeTable;
+
         private void DrawLanguageSection()
         {
             DrawSectionCard("🌐 " + ToolLang.Get("Language", "Язык"), () =>
             {
+                DrawGuideTip(ToolLang.Get(
+                    "Two separate things here: 'Toolkit language' = the editor itself in RU/EN. 'Project UI localization' = translations for YOUR game's UI (button labels, screens, etc.) which players see at runtime.",
+                    "Здесь две разные вещи: «Язык инструмента» — сам редактор на RU/EN. «Локализация интерфейса проекта» — переводы UI ТВОЕЙ игры (надписи кнопок, экраны), которые увидит игрок в рантайме."));
+
                 var lbl = new GUIStyle(EditorStyles.label) { fontSize = 12 };
                 lbl.normal.textColor = C_TEXT_2;
 
@@ -243,7 +328,6 @@ namespace NovellaEngine.Editor
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Toolkit language", "Язык инструмента"), lbl, GUILayout.Width(180));
                 bool isRU = ToolLang.IsRU;
-
                 GUI.backgroundColor = !isRU ? GetAccentColor() : Color.white;
                 if (GUILayout.Button("EN  English", EditorStyles.miniButtonLeft, GUILayout.Width(110), GUILayout.Height(22)))
                 {
@@ -260,34 +344,33 @@ namespace NovellaEngine.Editor
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
-                var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
-                hint.normal.textColor = C_TEXT_4;
-                GUILayout.Label(ToolLang.Get(
-                    "Language of the editor UI itself (menus, labels, hints).",
-                    "Язык интерфейса самого инструмента (меню, надписи, подсказки)."), hint);
-
                 GUILayout.Space(14);
                 EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), C_BORDER);
                 GUILayout.Space(14);
 
-                // Project localization table
                 var subTtl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
                 subTtl.normal.textColor = C_TEXT_1;
                 GUILayout.Label(ToolLang.Get("Project UI localization", "Локализация интерфейса проекта"), subTtl);
-                GUILayout.Space(4);
-
-                GUILayout.Label(ToolLang.Get(
-                    "Stores translations for UI elements (button labels, panel titles…) keyed by short ID. Edit in the dedicated window.",
-                    "Хранит переводы UI-элементов (надписи кнопок, заголовки панелей…) по коротким ID-ключам. Редактируется в отдельном окне."), hint);
-
                 GUILayout.Space(8);
 
-                var table = NovellaUILocalizationEditor.GetOrCreateTable();
+                if (_activeTable == null) _activeTable = NovellaUILocalizationEditor.GetOrCreateTable();
                 var settings = NovellaLocalizationSettings.GetOrCreateSettings();
 
+                // Кастомный picker таблицы (через GenericMenu, без unity-проводника)
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(ToolLang.Get("Table", "Таблица"), lbl, GUILayout.Width(180));
-                EditorGUILayout.ObjectField(table, typeof(NovellaUILocalizationTable), false, GUILayout.Height(20));
+                string tName = _activeTable != null ? _activeTable.name : ToolLang.Get("(none)", "(нет)");
+                if (GUILayout.Button(tName, EditorStyles.popup, GUILayout.Height(22)))
+                {
+                    ShowTablePickerMenu();
+                }
+                if (_activeTable != null)
+                {
+                    if (GUILayout.Button("👁", GUILayout.Width(28), GUILayout.Height(22)))
+                    {
+                        EditorGUIUtility.PingObject(_activeTable);
+                    }
+                }
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(6);
@@ -320,9 +403,9 @@ namespace NovellaEngine.Editor
                     if (!string.IsNullOrEmpty(p))
                     {
                         string txt = File.ReadAllText(p);
-                        if (table.ImportJson(txt))
+                        if (_activeTable.ImportJson(txt))
                         {
-                            EditorUtility.SetDirty(table);
+                            EditorUtility.SetDirty(_activeTable);
                             AssetDatabase.SaveAssets();
                             EditorUtility.DisplayDialog(ToolLang.Get("Done", "Готово"), ToolLang.Get("Localization imported.", "Локализация импортирована."), "OK");
                         }
@@ -337,7 +420,7 @@ namespace NovellaEngine.Editor
                     string p = EditorUtility.SaveFilePanel(ToolLang.Get("Export JSON", "Экспорт JSON"), "", "novella_ui_loc", "json");
                     if (!string.IsNullOrEmpty(p))
                     {
-                        File.WriteAllText(p, table.ExportJson());
+                        File.WriteAllText(p, _activeTable.ExportJson());
                         EditorUtility.RevealInFinder(p);
                     }
                 }
@@ -346,19 +429,59 @@ namespace NovellaEngine.Editor
             });
         }
 
+        private void ShowTablePickerMenu()
+        {
+            var menu = new GenericMenu();
+            var guids = AssetDatabase.FindAssets("t:NovellaUILocalizationTable");
+            if (guids.Length == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get("No tables found", "Таблицы не найдены")));
+            }
+            else
+            {
+                foreach (var g in guids)
+                {
+                    string p = AssetDatabase.GUIDToAssetPath(g);
+                    var t = AssetDatabase.LoadAssetAtPath<NovellaUILocalizationTable>(p);
+                    if (t == null) continue;
+                    bool isActive = _activeTable == t;
+                    menu.AddItem(new GUIContent($"{t.name}    ({p.Replace("Assets/", "")})"), isActive, () =>
+                    {
+                        _activeTable = t;
+                        NovellaLocalizationManager.RegisterTable(t);
+                    });
+                }
+            }
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("➕ " + ToolLang.Get("Create new table…", "Создать новую таблицу…")), false, () =>
+            {
+                string p = EditorUtility.SaveFilePanelInProject(
+                    ToolLang.Get("Create UI Localization Table", "Создать UI Localization Table"),
+                    "UILocalizationTable", "asset",
+                    ToolLang.Get("Choose where to save the new table", "Выбери куда сохранить новую таблицу"),
+                    "Assets/NovellaEngine/Runtime/Resources");
+                if (!string.IsNullOrEmpty(p))
+                {
+                    var nt = ScriptableObject.CreateInstance<NovellaUILocalizationTable>();
+                    AssetDatabase.CreateAsset(nt, p);
+                    AssetDatabase.SaveAssets();
+                    _activeTable = nt;
+                    NovellaLocalizationManager.RegisterTable(nt);
+                }
+            });
+            menu.ShowAsContext();
+        }
+
         // ─── Section: Misc ──────────────────────────────────────────────────────
 
         private void DrawMiscSection()
         {
             DrawSectionCard("🛠 " + ToolLang.Get("Other", "Прочее"), () =>
             {
-                var lbl = new GUIStyle(EditorStyles.miniLabel) { fontSize = 11, wordWrap = true };
-                lbl.normal.textColor = C_TEXT_3;
-                GUILayout.Label(ToolLang.Get(
-                    "Reset toolkit appearance preferences to defaults.",
-                    "Вернуть внешний вид инструмента к значениям по умолчанию."), lbl);
+                DrawGuideTip(ToolLang.Get(
+                    "Reset clears your accent color, background image and opacity. Settings are stored in EditorPrefs (per-machine), so this won't affect anyone else on the team.",
+                    "Сброс удалит акцентный цвет, фоновую картинку и прозрачность. Настройки хранятся в EditorPrefs (на твоей машине), на других участников команды это не повлияет."));
 
-                GUILayout.Space(8);
                 GUI.backgroundColor = C_DANGER;
                 if (GUILayout.Button(ToolLang.Get("Reset all appearance settings", "Сбросить все настройки внешнего вида"), GUILayout.Height(28), GUILayout.MaxWidth(360)))
                 {
@@ -368,9 +491,7 @@ namespace NovellaEngine.Editor
                         ToolLang.Get("Reset", "Сбросить"),
                         ToolLang.Get("Cancel", "Отмена")))
                     {
-                        EditorPrefs.DeleteKey(PREF_ACCENT);
-                        EditorPrefs.DeleteKey(PREF_BG_IMAGE);
-                        EditorPrefs.DeleteKey(PREF_BG_OPACITY);
+                        ResetAppearance();
                         _window?.Repaint();
                     }
                 }

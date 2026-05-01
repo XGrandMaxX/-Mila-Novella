@@ -18,7 +18,7 @@ namespace NovellaEngine.Editor
     /// </summary>
     public static class NovellaHubIcons
     {
-        public enum Icon { Home, Characters, Scenes, UIEditor, Variables, Graph, Dialogues, Gallery, Search, Menu, Story, Plus, Lightbulb }
+        public enum Icon { Home, Characters, Scenes, UIEditor, Variables, Graph, Dialogues, Gallery, Search, Menu, Story, Plus, Lightbulb, Settings }
 
         public const Icon Home = Icon.Home;
         public const Icon Characters = Icon.Characters;
@@ -33,6 +33,7 @@ namespace NovellaEngine.Editor
         public const Icon Story = Icon.Story;
         public const Icon Plus = Icon.Plus;
         public const Icon Lightbulb = Icon.Lightbulb;
+        public const Icon Settings = Icon.Settings;
 
         private const int SIZE = 32;
         private const int STROKE = 2;
@@ -156,6 +157,22 @@ namespace NovellaEngine.Editor
                     DrawLine(tex, 13, 26, 19, 26);
                     DrawLine(tex, 13, 16, 13, 22);
                     DrawLine(tex, 19, 16, 19, 22);
+                    break;
+                case Icon.Settings:
+                    // Шестерёнка: внешний контур + внутренний кружок + 8 зубцов.
+                    // Делаем зубцы линиями (короткими радиальными штрихами).
+                    DrawCircle(tex, 16, 16, 9);
+                    DrawCircle(tex, 16, 16, 3);
+                    // Cardinal teeth (длиннее)
+                    DrawLine(tex, 16, 3,  16, 6);
+                    DrawLine(tex, 16, 26, 16, 29);
+                    DrawLine(tex, 3,  16, 6,  16);
+                    DrawLine(tex, 26, 16, 29, 16);
+                    // Diagonal teeth (короче)
+                    DrawLine(tex, 7,  7,  9,  9);
+                    DrawLine(tex, 23, 23, 25, 25);
+                    DrawLine(tex, 7,  25, 9,  23);
+                    DrawLine(tex, 23, 9,  25, 7);
                     break;
             }
         }

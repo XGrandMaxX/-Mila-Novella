@@ -47,6 +47,9 @@ namespace NovellaEngine.Editor
             var win = GetWindow<NovellaUILocalizationEditor>(false,
                 ToolLang.Get("UI Localization", "Локализация UI"), true);
             win.minSize = new Vector2(820, 480);
+            // Заменяем стандартный house-icon Unity-окна на наш «🌐» (через emoji-text title).
+            win.titleContent = new GUIContent("  " + ToolLang.Get("UI Localization", "Локализация UI"),
+                EditorGUIUtility.IconContent("d_BuildSettings.Web.Small").image);
             win.Show();
         }
 
@@ -109,7 +112,7 @@ namespace NovellaEngine.Editor
 
             var ttl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
             ttl.normal.textColor = C_TEXT_1;
-            GUILayout.Label("🌐 " + ToolLang.Get("UI Localization", "Локализация UI"), ttl, GUILayout.Height(28));
+            GUILayout.Label("🌐  " + ToolLang.Get("UI Localization", "Локализация UI"), ttl, GUILayout.Height(28));
 
             GUILayout.FlexibleSpace();
 
@@ -138,9 +141,36 @@ namespace NovellaEngine.Editor
                 ExportJson();
             }
 
+            GUILayout.Space(8);
+
+            // Toggle подсказок (общий с Settings-модулем — общий EditorPref)
+            bool guide = NovellaSettingsModule.ShowGuide;
+            GUI.backgroundColor = guide ? C_ACCENT : Color.white;
+            if (GUILayout.Button("💡  " + (guide ? ToolLang.Get("Hints: ON", "Подск.: вкл") : ToolLang.Get("Hints: OFF", "Подск.: выкл")),
+                GUILayout.Height(22), GUILayout.Width(120)))
+            {
+                NovellaSettingsModule.ShowGuide = !guide;
+                Repaint();
+            }
+            GUI.backgroundColor = Color.white;
+
             GUILayout.Space(14);
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
+        }
+
+        private void DrawGuideTip(string text)
+        {
+            if (!NovellaSettingsModule.ShowGuide) return;
+            var sty = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
+            sty.normal.textColor = new Color(0.85f, 0.87f, 0.93f);
+            Rect rec = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), sty);
+            Color a = C_ACCENT;
+            EditorGUI.DrawRect(rec, new Color(a.r, a.g, a.b, 0.10f));
+            DrawRectBorder(rec, new Color(a.r, a.g, a.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(rec.x, rec.y, 3, rec.height), a);
+            GUI.Label(rec, "💡 " + text, sty);
+            GUILayout.Space(8);
         }
 
         // ─── Keys list (left) ───────────────────────────────────────────────────
@@ -299,7 +329,11 @@ namespace NovellaEngine.Editor
 
             if (string.IsNullOrEmpty(_selectedKey) || _table.FindEntry(_selectedKey) == null)
             {
-                GUILayout.Space(40);
+                GUILayout.Space(20);
+                DrawGuideTip(ToolLang.Get(
+                    "Localization keys are short ID strings (e.g. 'btn_play', 'title_main') that your UI elements reference. Each key has translations for every language. Press '+' on the left to add a new key.",
+                    "Ключи локализации — короткие ID-строки (например, 'btn_play', 'title_main'), на которые ссылаются UI-элементы. У каждого ключа есть перевод на каждом языке. Нажми «+» слева, чтобы добавить новый ключ."));
+                GUILayout.Space(20);
                 var emptySt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter, wordWrap = true };
                 emptySt.normal.textColor = C_TEXT_3;
                 GUILayout.Label(ToolLang.Get(
@@ -341,6 +375,10 @@ namespace NovellaEngine.Editor
             GUILayout.Space(12);
             EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), C_BORDER);
             GUILayout.Space(12);
+
+            DrawGuideTip(ToolLang.Get(
+                "Fill in a translation for each language. The default-language field (marked ⭐) is the fallback when other languages are empty. The ✕ button next to a language removes it from the project entirely.",
+                "Заполни перевод для каждого языка. Поле языка по умолчанию (⭐) используется как fallback, если другие языки пусты. Кнопка ✕ рядом с языком полностью удаляет его из проекта."));
 
             // Translations per language
             _editScroll = GUILayout.BeginScrollView(_editScroll);

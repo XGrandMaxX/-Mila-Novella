@@ -219,6 +219,7 @@ namespace NovellaEngine.Editor
 
         // UI Toolkit references
         private VisualElement _root;
+        private VisualElement _bgImageEl;          // фоновая картинка из Settings — лежит под всем
         private VisualElement _sideEl;
         private List<VisualElement> _modButtons;
         private Label _crumbCurrent;
@@ -286,6 +287,8 @@ namespace NovellaEngine.Editor
             SwitchToModule(_currentModuleIndex);
 
             EditorApplication.projectChanged += OnProjectChanged;
+            NovellaSettingsModule.OnAppearanceChanged += ApplyAppearance;
+            ApplyAppearance();
 
             if (_shouldAnimateOpen)
             {
@@ -328,6 +331,7 @@ namespace NovellaEngine.Editor
         private void OnDisable()
         {
             EditorApplication.projectChanged -= OnProjectChanged;
+            NovellaSettingsModule.OnAppearanceChanged -= ApplyAppearance;
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
             _tutorialPoll?.Pause();
             _tutorialPoll = null;
@@ -347,6 +351,26 @@ namespace NovellaEngine.Editor
                 }
             }
             RefreshActiveStoryLabel();
+        }
+
+        // Стреляет когда пользователь меняет настройки в Settings-модуле.
+        // Применяет фоновую картинку (через VE-подложку); акцентный цвет
+        // подтягивается модулями через NovellaSettingsModule.GetAccentColor().
+        private void ApplyAppearance()
+        {
+            if (_bgImageEl == null) return;
+            var bg = NovellaSettingsModule.GetBackgroundImage();
+            if (bg != null)
+            {
+                _bgImageEl.style.backgroundImage = new StyleBackground(bg);
+                _bgImageEl.style.opacity = NovellaSettingsModule.GetBackgroundOpacity();
+            }
+            else
+            {
+                _bgImageEl.style.backgroundImage = StyleKeyword.None;
+                _bgImageEl.style.opacity = 0f;
+            }
+            Repaint();
         }
 
         // Когда юзер возвращается в Hub из Graph-окна, Dashboard должен перечитать времена правки
@@ -394,6 +418,19 @@ namespace NovellaEngine.Editor
             _root.style.flexDirection = FlexDirection.Row;
             _root.style.flexGrow = 1;
             _root.style.backgroundColor = new Color(0.075f, 0.078f, 0.106f);
+
+            // ═══════════════════ BACKGROUND IMAGE LAYER ═══════════════════
+            // Лежит абсолютно под всем содержимым, не ловит клики.
+            // Картинка и прозрачность подтягиваются из Settings через ApplyAppearance.
+            _bgImageEl = new VisualElement();
+            _bgImageEl.style.position = Position.Absolute;
+            _bgImageEl.style.left = 0;
+            _bgImageEl.style.top = 0;
+            _bgImageEl.style.right = 0;
+            _bgImageEl.style.bottom = 0;
+            _bgImageEl.pickingMode = PickingMode.Ignore;
+            _bgImageEl.style.unityBackgroundScaleMode = ScaleMode.ScaleAndCrop;
+            _root.Add(_bgImageEl);
 
             // ═══════════════════ SIDEBAR ═══════════════════
             _sideEl = new VisualElement();
@@ -691,6 +728,7 @@ namespace NovellaEngine.Editor
                     2 => NovellaHubIcons.Scenes,
                     3 => NovellaHubIcons.UIEditor,
                     4 => NovellaHubIcons.Variables,
+                    5 => NovellaHubIcons.Settings,
                     _ => NovellaHubIcons.Home,
                 };
                 var label = GetModuleLabelLocalized(i);
