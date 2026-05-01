@@ -337,7 +337,7 @@ namespace NovellaEngine.Editor
 
         private void DrawSettingsPanel(Rect rect)
         {
-            EditorGUI.DrawRect(rect, new Color(0.087f, 0.090f, 0.129f));
+            EditorGUI.DrawRect(rect, C_BG_PRIMARY);
             GUILayout.BeginArea(rect);
 
             GUILayout.Space(14);
@@ -819,8 +819,8 @@ namespace NovellaEngine.Editor
 
         private void DrawStageBackground(Rect r)
         {
-            EditorGUI.DrawRect(r, new Color(0.10f, 0.106f, 0.149f));
-            Color grid = new Color(0.165f, 0.176f, 0.243f, 0.4f);
+            EditorGUI.DrawRect(r, C_BG_SIDE);
+            Color grid = new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.4f);
             int step = 40;
             for (int gx = 0; gx < r.width; gx += step) EditorGUI.DrawRect(new Rect(r.x + gx, r.y, 1, r.height), grid);
             for (int gy = 0; gy < r.height; gy += step) EditorGUI.DrawRect(new Rect(r.x, r.y + gy, r.width, 1), grid);

@@ -364,18 +364,27 @@ namespace NovellaEngine.Editor
         // NovellaSettingsModule на следующем Repaint.
         private void ApplyAppearance()
         {
+            Color iface  = NovellaSettingsModule.GetInterfaceColor();
+            Color side   = NovellaSettingsModule.GetBgSideColor();
+            Color border = NovellaSettingsModule.GetBorderColor();
+
+            if (_root != null)   _root.style.backgroundColor = iface;
+            if (_sideEl != null) { _sideEl.style.backgroundColor = side; _sideEl.style.borderRightColor = border; }
+            if (_mainEl != null) _mainEl.style.backgroundColor = iface;
+
+            // USS-тема задаёт хардкод-фон у .ns-top / .ns-content / .ns-side__brand
+            // (поверх _mainEl). Без inline-перекрытия пользовательский Interface
+            // color не доходит до топбара и зоны контента.
             if (_root != null)
             {
-                _root.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
-            }
-            if (_sideEl != null)
-            {
-                _sideEl.style.backgroundColor = NovellaSettingsModule.GetBgSideColor();
-                _sideEl.style.borderRightColor = NovellaSettingsModule.GetBorderColor();
-            }
-            if (_mainEl != null)
-            {
-                _mainEl.style.backgroundColor = NovellaSettingsModule.GetInterfaceColor();
+                foreach (var e in _root.Query<VisualElement>(className: "ns-top").ToList())
+                {
+                    e.style.backgroundColor = iface;
+                    e.style.borderBottomColor = border;
+                }
+                foreach (var e in _root.Query<VisualElement>(className: "ns-content").ToList())          e.style.backgroundColor = iface;
+                foreach (var e in _root.Query<VisualElement>(className: "ns-side__brand").ToList())      e.style.borderBottomColor = border;
+                foreach (var e in _root.Query<VisualElement>(className: "ns-top__collapse").ToList())    e.style.borderRightColor = border;
             }
 
             // Текст в sidebar/topbar изначально окрашен через USS (статичные #ECECF4
