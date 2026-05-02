@@ -31,6 +31,11 @@ namespace NovellaEngine.Editor
 
         private string _reportText;
         private int _errorCount;
+        // Inline-статус последнего действия (вместо DisplayDialog-тостов
+        // которые перебивали фокус и закрывали окно). Обнуляется не нужно —
+        // юзер сам закрывает окно по кнопке Close.
+        private string _statusMessage;
+        private double _statusSetAt;
 
         // Контактные ссылки автора. Дублируются с константами в ConsoleModule
         // намеренно — модуль и диалог должны жить независимо. Если поменяешь
@@ -109,7 +114,9 @@ namespace NovellaEngine.Editor
                 {
                     EditorGUIUtility.systemCopyBuffer = _reportText;
                     Application.OpenURL("https://t.me/" + AUTHOR_TELEGRAM_USERNAME);
-                    ShowSentToast("Telegram");
+                    SetStatus(ToolLang.Get(
+                        "✓ Telegram opened — paste the report (Ctrl+V) into the chat. Thanks ❤",
+                        "✓ Telegram открыт — вставь отчёт (Ctrl+V) в чат. Спасибо ❤"));
                 });
 
             GUILayout.Space(16);
@@ -126,7 +133,9 @@ namespace NovellaEngine.Editor
                 {
                     EditorGUIUtility.systemCopyBuffer = _reportText;
                     Application.OpenURL("https://discord.com/users/" + AUTHOR_DISCORD_USER_ID);
-                    ShowSentToast("Discord");
+                    SetStatus(ToolLang.Get(
+                        "✓ Discord profile opened — click «Send Message», then Ctrl+V. Thanks ❤",
+                        "✓ Профиль Discord открыт — жми «Send Message», потом Ctrl+V. Спасибо ❤"));
                 });
 
             GUILayout.Space(24);
@@ -157,12 +166,9 @@ namespace NovellaEngine.Editor
                 () =>
                 {
                     EditorGUIUtility.systemCopyBuffer = _reportText;
-                    EditorUtility.DisplayDialog(
-                        ToolLang.Get("Copied", "Скопировано"),
-                        ToolLang.Get("Report is in the clipboard. Press Ctrl+V to paste.",
-                                     "Отчёт в буфере обмена. Нажми Ctrl+V чтобы вставить."),
-                        "OK");
-                    Close();
+                    SetStatus(ToolLang.Get(
+                        "✓ Report copied to clipboard. Press Ctrl+V where you need it.",
+                        "✓ Отчёт скопирован в буфер обмена. Нажми Ctrl+V где нужно."));
                 });
 
             GUILayout.Space(8);
@@ -174,7 +180,10 @@ namespace NovellaEngine.Editor
                     "Сохранить отчёт как текстовый файл на диск."),
                 () =>
                 {
-                    string defaultName = "novella-error-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
+                    // Имя файла — «официальное», с подчёркиваниями и
+                    // удобной для сортировки датой ISO-формата.
+                    string defaultName = "Novella_Studio_Error_Report_" +
+                        DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".txt";
                     string path = EditorUtility.SaveFilePanel(
                         ToolLang.Get("Save error report", "Сохранить отчёт об ошибках"),
                         "", defaultName, "txt");
@@ -184,13 +193,13 @@ namespace NovellaEngine.Editor
                         {
                             System.IO.File.WriteAllText(path, _reportText);
                             EditorUtility.RevealInFinder(path);
-                            Close();
+                            SetStatus(string.Format(ToolLang.Get(
+                                "✓ Saved to {0}",
+                                "✓ Сохранено: {0}"), System.IO.Path.GetFileName(path)));
                         }
                         catch (Exception ex)
                         {
-                            EditorUtility.DisplayDialog(
-                                ToolLang.Get("Save failed", "Не удалось сохранить"),
-                                ex.Message, "OK");
+                            SetStatus(ToolLang.Get("✗ Save failed: ", "✗ Не удалось сохранить: ") + ex.Message);
                         }
                     }
                 });
@@ -198,8 +207,24 @@ namespace NovellaEngine.Editor
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
 
-            // ─── Кнопка закрыть внизу ───────────────────────────────────
+            // ─── Inline-статус ───────────────────────────────────────────
+            // Показывает результат последнего действия — без всплывающих
+            // диалогов, которые перетягивали фокус и закрывали окно.
             GUILayout.FlexibleSpace();
+            if (!string.IsNullOrEmpty(_statusMessage))
+            {
+                bool isError = _statusMessage.StartsWith("✗");
+                var bannerCol = isError ? new Color(0.92f, 0.36f, 0.36f, 0.16f)
+                                        : new Color(C_SUCCESS.r, C_SUCCESS.g, C_SUCCESS.b, 0.16f);
+                Rect bannerRect = GUILayoutUtility.GetRect(0, 30, GUILayout.ExpandWidth(true));
+                EditorGUI.DrawRect(bannerRect, bannerCol);
+
+                var bannerSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, wordWrap = false };
+                bannerSt.normal.textColor = isError ? new Color(0.92f, 0.36f, 0.36f) : C_SUCCESS;
+                GUI.Label(new Rect(bannerRect.x + 24, bannerRect.y, bannerRect.width - 48, bannerRect.height), _statusMessage, bannerSt);
+            }
+
+            // ─── Кнопка закрыть внизу ───────────────────────────────────
             EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), C_BORDER);
             GUILayout.Space(10);
             GUILayout.BeginHorizontal();
@@ -284,16 +309,14 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private void ShowSentToast(string channelName)
+        // Inline-статус — показывается узкой полосой над кнопкой Закрыть.
+        // Не трогает фокус окна (в отличие от EditorUtility.DisplayDialog,
+        // который отбирал фокус и при закрытии автоматически закрывал и нас).
+        private void SetStatus(string text)
         {
-            EditorUtility.DisplayDialog(
-                ToolLang.Get("Report copied", "Отчёт скопирован"),
-                string.Format(ToolLang.Get(
-                    "Report is in your clipboard and {0} should open shortly. Press Ctrl+V in the chat.\n\nThank you for the feedback ❤",
-                    "Отчёт в буфере обмена и {0} должен скоро открыться. Жми Ctrl+V в чате.\n\nСпасибо за фидбек ❤"),
-                    channelName),
-                "OK");
-            Close();
+            _statusMessage = text;
+            _statusSetAt = EditorApplication.timeSinceStartup;
+            Repaint();
         }
 
         private static void DrawBorder(Rect r, Color c)

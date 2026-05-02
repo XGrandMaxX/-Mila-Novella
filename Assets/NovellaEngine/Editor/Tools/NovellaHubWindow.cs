@@ -349,6 +349,7 @@ namespace NovellaEngine.Editor
             _consolePulseTimer?.Pause();
             _consolePulseTimer = null;
             _consoleBadgeLog = _consoleBadgeWarn = _consoleBadgeErr = null;
+            _consoleBadgesBox = null;
             _consoleButton = null;
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
             _tutorialPoll?.Pause();
@@ -871,13 +872,17 @@ namespace NovellaEngine.Editor
         // ─── Бейджи консоли в сайдбаре ─────────────────────────────────
         // Три цветных пилюли «N ⓘ», «N ⚠», «N ✖» справа от названия.
         // Каждый показывается только если соответствующий счётчик > 0.
+        private VisualElement _consoleBadgesBox;
+
         private void AttachConsoleBadges(VisualElement btn)
         {
             _consoleButton = btn;
 
             var box = new VisualElement();
+            box.AddToClassList("ns-console-badges");
             box.style.flexDirection = FlexDirection.Row;
             box.style.alignItems = Align.Center;
+            _consoleBadgesBox = box;
 
             _consoleBadgeLog  = MakeConsoleBadge(new Color(0.62f, 0.70f, 0.78f));
             _consoleBadgeWarn = MakeConsoleBadge(new Color(0.95f, 0.78f, 0.30f));
@@ -1333,6 +1338,10 @@ namespace NovellaEngine.Editor
                 if (lbl != null) lbl.style.display = DisplayStyle.None;
                 var icon = btn.Q<VisualElement>(className: "ns-mod__icon");
                 if (icon != null) icon.style.marginRight = 0;
+                // Бейджи консоли тоже прячем — они с числами «99+» торчат
+                // за свёрнутый сайдбар и выглядят неаккуратно.
+                var badges = btn.Q<VisualElement>(className: "ns-console-badges");
+                if (badges != null) badges.style.display = DisplayStyle.None;
             }
             else
             {
@@ -1343,6 +1352,8 @@ namespace NovellaEngine.Editor
                 if (lbl != null) lbl.style.display = DisplayStyle.Flex;
                 var icon = btn.Q<VisualElement>(className: "ns-mod__icon");
                 if (icon != null) icon.style.marginRight = 10;
+                var badges = btn.Q<VisualElement>(className: "ns-console-badges");
+                if (badges != null) badges.style.display = DisplayStyle.Flex;
             }
         }
 
