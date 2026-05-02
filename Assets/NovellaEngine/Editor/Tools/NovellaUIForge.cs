@@ -3406,6 +3406,47 @@ namespace NovellaEngine.Editor
             GUILayout.Space(12);
             GUILayout.BeginVertical();
 
+            // Содержимое текста — пишется прямо в TMP_Text.text. Если на binding'е
+            // у этого элемента стоит LocalizationKey, эта строка будет переписана
+            // при старте сцены / смене языка. Предупреждение показываем явно.
+            var binding = FirstSelected.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>();
+            bool hasLocKey = binding != null && !string.IsNullOrEmpty(binding.LocalizationKey);
+
+            GUILayout.Label(ToolLang.Get("Text", "Текст"), EditorStyles.miniBoldLabel);
+            if (!hasLocKey)
+            {
+                DrawFieldHint(ToolLang.Get(
+                    "What's actually written in the text element. Multi-line is allowed (Shift+Enter for new line). Use this for static texts that don't need translation. For dialogues / multilingual UI use the localization key in 'LINK TO STORY' below.",
+                    "Сам текст элемента. Поддерживает несколько строк (Shift+Enter для перевода строки). Используй для статичных текстов которые не нужно переводить. Для диалогов и мультиязычного UI — ключ локализации в «СВЯЗАТЬ С ИСТОРИЕЙ» ниже."));
+            }
+            else
+            {
+                var warnSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true, padding = new RectOffset(6, 6, 4, 4) };
+                warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
+                Rect r = GUILayoutUtility.GetRect(new GUIContent("⚠ " + ToolLang.Get(
+                    "Localization key is set on this element — this text will be overwritten by the localization table at runtime / on language switch. The text below is just a preview.",
+                    "На этом элементе стоит ключ локализации — этот текст будет перезаписан таблицей локализации при старте / смене языка. Текст ниже только для превью.")), warnSt);
+                EditorGUI.DrawRect(r, new Color(0.95f, 0.66f, 0.30f, 0.10f));
+                EditorGUI.DrawRect(new Rect(r.x, r.y, 2, r.height), new Color(0.95f, 0.66f, 0.30f, 0.85f));
+                GUI.Label(r, "⚠ " + ToolLang.Get(
+                    "Localization key is set on this element — this text will be overwritten by the localization table at runtime / on language switch. The text below is just a preview.",
+                    "На этом элементе стоит ключ локализации — этот текст будет перезаписан таблицей локализации при старте / смене языка. Текст ниже только для превью."), warnSt);
+                GUILayout.Space(2);
+            }
+
+            EditorGUI.BeginChangeCheck();
+            string newText = EditorGUILayout.TextArea(firstTxt.text ?? "", GUILayout.MinHeight(48));
+            if (EditorGUI.EndChangeCheck())
+            {
+                foreach (var rt in _selectedList)
+                {
+                    var txt = rt.GetComponent<TMP_Text>();
+                    if (txt != null) { Undo.RecordObject(txt, "Edit Text"); txt.text = newText; EditorUtility.SetDirty(txt); }
+                }
+            }
+
+            GUILayout.Space(8);
+
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Font", "Шрифт"), GUILayout.Width(72));
 
@@ -3667,7 +3708,7 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Highlight", "Hover"), GUILayout.Width(80));
+            GUILayout.Label(ToolLang.Get("Highlight", "Наведена"), GUILayout.Width(80));
             EditorGUI.BeginChangeCheck();
             var hc = EditorGUILayout.ColorField(c.highlightedColor);
             if (EditorGUI.EndChangeCheck())
@@ -3867,8 +3908,8 @@ namespace NovellaEngine.Editor
                         "Здесь настраивается только ВНЕШНИЙ ВИД: шрифт, размер, цвет, выравнивание, стиль (Жирный / Курсив / Подчёркивание / Rich-теги).\n\nСам ТЕКСТ берётся из одного из двух мест:\n  • Ключа локализации (см. «СВЯЗАТЬ С ИСТОРИЕЙ» ниже) — текст переводится сам при смене языка.\n  • Или из ноды графа — например реплика диалога пишется в этот текстовый элемент если ты указал его в «UI цель для текста» в редакторе диалогов.\n\nКнопки стиля (B / I / U / ‹›):\n  • B — Жирный\n  • I — Курсив\n  • U — Подчёркнутый\n  • ‹› — Rich-теги (разрешает разметку <b><color><size> внутри текста).");
                 case "button":
                     return ToolLang.Get(
-                        "A clickable element with three colors:\n• Normal — resting state\n• Highlight — mouse hovers over\n• Pressed — being clicked",
-                        "Кликабельный элемент реагирующий на действия цветом:\n• Обычная — состояние покоя\n• Hover — мышь находится над кнопкой\n• Нажата — в момент клика мышкой");
+                        "A clickable element with four colors:\n• Normal — resting state\n• Highlight — when the mouse hovers over\n• Pressed — at the moment of click\n• Disabled — when the button is set to non-interactable\n\nUntick «Interactable» to make the button non-clickable (it'll be visually shown using the Disabled color).",
+                        "Кликабельный элемент с четырьмя состояниями:\n• Обычная — состояние покоя\n• Наведена — когда мышь над кнопкой\n• Нажата — в момент клика мышкой\n• Неактивна — когда кнопка отключена («Активна» снята)\n\nСними галочку «Активна» чтобы кнопка стала неактивной (она будет показана цветом «Неактивна»).");
                 case "raycast":
                     return ToolLang.Get(
                         "Decides whether THIS element catches mouse/touch events. Decorative images and panels typically should have it OFF — otherwise they steal clicks meant for buttons placed underneath them.\n\nIf you ever wonder \"why is my button not clickable?\" — likely there's another Graphic on top of it with Raycast Target ON, blocking the input.",
