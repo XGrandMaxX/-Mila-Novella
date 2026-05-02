@@ -76,6 +76,10 @@ namespace NovellaEngine.Editor
         private float _previewZoom = 1f;
         private bool _showSafeArea;
         private bool _showGrid = true;
+        private bool _smartGuides = true;
+        // Линии-индикаторы snap'а в координатах canvas. Очищаются на MouseUp.
+        private List<float> _snapLinesX = new List<float>();
+        private List<float> _snapLinesY = new List<float>();
         private bool _showGuideMode = false;
         private float _gridStep = 20f;
 
@@ -1031,6 +1035,7 @@ namespace NovellaEngine.Editor
                 if (_isMobileMode && _showSafeArea) DrawSafeAreaOverlay(drawRectLocal);
 
                 DrawSelectionOverlay(drawRectLocal, targetW, targetH);
+                DrawSnapGuides(drawRectLocal, targetW, targetH);
 
                 HandleCanvasInput(drawRectLocal, targetW, targetH);
             }
@@ -1126,6 +1131,10 @@ namespace NovellaEngine.Editor
             DrawIconToggle(new Rect(bx, by, gridW, bh), "▦", ToolLang.Get("Grid", "Сетка"), ref _showGrid);
             bx += gridW + 4;
 
+            float snapW = 66f;
+            DrawIconToggle(new Rect(bx, by, snapW, bh), "✦", ToolLang.Get("Snap", "Магнит"), ref _smartGuides);
+            bx += snapW + 4;
+
             float guideW = 126f;
             string guideText = _showGuideMode ? ToolLang.Get("Hints: On", "Подсказки: Вкл") : ToolLang.Get("Hints: Off", "Подсказки: Выкл");
             DrawIconToggle(new Rect(bx, by, guideW, bh), "💡", guideText, ref _showGuideMode);
@@ -1214,6 +1223,34 @@ namespace NovellaEngine.Editor
                 _previewTexture.Release();
                 UnityEngine.Object.DestroyImmediate(_previewTexture);
                 _previewTexture = null;
+            }
+        }
+
+        // Линии-индикаторы snap'а во время drag'а. Координаты в canvas-юнитах,
+        // мапим к drawRect через PreviewDeltaToCanvasDelta-обратное соотношение.
+        private void DrawSnapGuides(Rect drawRect, int targetW, int targetH)
+        {
+            if (_snapLinesX.Count == 0 && _snapLinesY.Count == 0) return;
+            if (_canvas == null) return;
+            var canvasRT = _canvas.GetComponent<RectTransform>();
+            if (canvasRT == null) return;
+
+            float pxPerUnitX = drawRect.width  / canvasRT.rect.width;
+            float pxPerUnitY = drawRect.height / canvasRT.rect.height;
+
+            Color c = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.85f);
+
+            // Vertical guides — x-line проходит вертикально через всё превью.
+            foreach (float x in _snapLinesX)
+            {
+                float px = drawRect.x + (x - canvasRT.rect.xMin) * pxPerUnitX;
+                EditorGUI.DrawRect(new Rect(px - 0.5f, drawRect.y, 1f, drawRect.height), c);
+            }
+            // Horizontal guides — y инвертирован (canvas y вверх, GUI вниз).
+            foreach (float y in _snapLinesY)
+            {
+                float py = drawRect.y + (canvasRT.rect.yMax - y) * pxPerUnitY;
+                EditorGUI.DrawRect(new Rect(drawRect.x, py - 0.5f, drawRect.width, 1f), c);
             }
         }
 
@@ -1320,6 +1357,8 @@ namespace NovellaEngine.Editor
                 {
                     _dragging = false;
                     _resizeHandle = -1;
+                    _snapLinesX.Clear();
+                    _snapLinesY.Clear();
                     e.Use();
                     return;
                 }
@@ -1498,13 +1537,24 @@ namespace NovellaEngine.Editor
             Vector2 deltaPreview = e.mousePosition - _dragMouseStart;
             Vector2 deltaCanvas = PreviewDeltaToCanvasDelta(deltaPreview, drawRect);
 
+            // Smart-guides — корректируем deltaCanvas если можно прилипнуть к
+            // соседям/центрам/краям canvas. Делаем только для одиночного перетаскивания
+            // (для multi-select snap считать сложно и обычно нежеланно).
+            _snapLinesX.Clear(); _snapLinesY.Clear();
+            if (_smartGuides && _selectedList.Count == 1)
+            {
+                deltaCanvas = ApplySmartSnap(_selectedList[0], deltaCanvas, drawRect);
+            }
+
             foreach (var rt in _selectedList)
             {
                 if (!_dragAnchorStarts.TryGetValue(rt, out Vector2 startPos)) continue;
 
                 Vector2 newAnchor = startPos + deltaCanvas;
-                if (_showGrid && _gridStep > 0.5f)
+                if (_showGrid && _gridStep > 0.5f && _snapLinesX.Count == 0 && _snapLinesY.Count == 0)
                 {
+                    // Сетка перекрывается guide-snap'ом: если уже прилипли к
+                    // соседу — не довинчиваем по сетке.
                     newAnchor.x = Mathf.Round(newAnchor.x / _gridStep) * _gridStep;
                     newAnchor.y = Mathf.Round(newAnchor.y / _gridStep) * _gridStep;
                 }
@@ -1512,6 +1562,98 @@ namespace NovellaEngine.Editor
                 rt.anchoredPosition = newAnchor;
                 EditorUtility.SetDirty(rt);
             }
+        }
+
+        // Магнитное прилипание к соседним элементам и краям/центру canvas.
+        // Возвращает скорректированную дельту в canvas-юнитах.
+        private Vector2 ApplySmartSnap(RectTransform rt, Vector2 deltaCanvas, Rect drawRect)
+        {
+            if (rt == null || rt.parent == null || _canvas == null) return deltaCanvas;
+            var canvasRT = _canvas.GetComponent<RectTransform>();
+            if (canvasRT == null) return deltaCanvas;
+
+            // Порог snap'а в canvas-единицах (~6 пикселей превью).
+            float pxPerUnit = drawRect.width > 0 ? drawRect.width / canvasRT.rect.width : 1f;
+            float threshold = 6f / Mathf.Max(0.001f, pxPerUnit);
+
+            // Текущие planned-границы dragged-элемента в локальных координатах
+            // его родителя (после применения deltaCanvas).
+            Rect dragged = ComputeLocalRectAfterDrag(rt, deltaCanvas);
+
+            // Кандидаты — siblings (не в выделении) + сам canvas (его центр + края).
+            float bestDx = 0, bestDy = 0;
+            float bestX = float.MaxValue, bestY = float.MaxValue;
+            float? snapLineX = null, snapLineY = null;
+
+            // Sibling-цели.
+            foreach (Transform sib in rt.parent)
+            {
+                if (sib == rt.transform) continue;
+                if (!(sib is RectTransform sibRT)) continue;
+                Rect r = ComputeLocalRect(sibRT);
+
+                // X-оси: left, center, right.
+                TrySnapAxis(dragged.xMin, r.xMin, threshold, ref bestX, ref bestDx, ref snapLineX, r.xMin);
+                TrySnapAxis(dragged.center.x, r.center.x, threshold, ref bestX, ref bestDx, ref snapLineX, r.center.x);
+                TrySnapAxis(dragged.xMax, r.xMax, threshold, ref bestX, ref bestDx, ref snapLineX, r.xMax);
+
+                TrySnapAxis(dragged.yMin, r.yMin, threshold, ref bestY, ref bestDy, ref snapLineY, r.yMin);
+                TrySnapAxis(dragged.center.y, r.center.y, threshold, ref bestY, ref bestDy, ref snapLineY, r.center.y);
+                TrySnapAxis(dragged.yMax, r.yMax, threshold, ref bestY, ref bestDy, ref snapLineY, r.yMax);
+            }
+
+            // Цели от parent'а — края и центр родителя (для canvas это центр canvas).
+            if (rt.parent is RectTransform parentRT)
+            {
+                Rect pr = parentRT.rect;
+                TrySnapAxis(dragged.center.x, pr.center.x, threshold, ref bestX, ref bestDx, ref snapLineX, pr.center.x);
+                TrySnapAxis(dragged.center.y, pr.center.y, threshold, ref bestY, ref bestDy, ref snapLineY, pr.center.y);
+                TrySnapAxis(dragged.xMin, pr.xMin, threshold, ref bestX, ref bestDx, ref snapLineX, pr.xMin);
+                TrySnapAxis(dragged.xMax, pr.xMax, threshold, ref bestX, ref bestDx, ref snapLineX, pr.xMax);
+                TrySnapAxis(dragged.yMin, pr.yMin, threshold, ref bestY, ref bestDy, ref snapLineY, pr.yMin);
+                TrySnapAxis(dragged.yMax, pr.yMax, threshold, ref bestY, ref bestDy, ref snapLineY, pr.yMax);
+            }
+
+            if (bestX != float.MaxValue) { deltaCanvas.x += bestDx; if (snapLineX.HasValue) _snapLinesX.Add(snapLineX.Value); }
+            if (bestY != float.MaxValue) { deltaCanvas.y += bestDy; if (snapLineY.HasValue) _snapLinesY.Add(snapLineY.Value); }
+
+            return deltaCanvas;
+        }
+
+        private static void TrySnapAxis(float draggedAxis, float targetAxis, float threshold, ref float bestDist, ref float bestDelta, ref float? snapLine, float lineAt)
+        {
+            float d = targetAxis - draggedAxis;
+            float ad = Mathf.Abs(d);
+            if (ad < threshold && ad < bestDist)
+            {
+                bestDist = ad;
+                bestDelta = d;
+                snapLine = lineAt;
+            }
+        }
+
+        // Локальный rect элемента в системе координат его родителя.
+        private static Rect ComputeLocalRect(RectTransform rt)
+        {
+            // anchoredPosition + sizeDelta дают bounds относительно anchor'a.
+            // Для элементов с растяжением (anchorMin != anchorMax) используем
+            // упрощённую модель: bounds = anchorMin..anchorMax в parentRect + sizeDelta padding.
+            Rect parentRect = ((RectTransform)rt.parent).rect;
+            Vector2 minRel = new Vector2(rt.anchorMin.x * parentRect.width, rt.anchorMin.y * parentRect.height) + parentRect.position;
+            Vector2 maxRel = new Vector2(rt.anchorMax.x * parentRect.width, rt.anchorMax.y * parentRect.height) + parentRect.position;
+            // anchoredPosition смещает центр rect'а; sizeDelta задаёт +/- от anchor-зоны.
+            Vector2 center = (minRel + maxRel) * 0.5f + rt.anchoredPosition;
+            Vector2 size = (maxRel - minRel) + rt.sizeDelta;
+            return new Rect(center.x - size.x * 0.5f, center.y - size.y * 0.5f, size.x, size.y);
+        }
+
+        // То же что ComputeLocalRect, но с применённой deltaCanvas (план drag'а).
+        private static Rect ComputeLocalRectAfterDrag(RectTransform rt, Vector2 deltaCanvas)
+        {
+            Rect r = ComputeLocalRect(rt);
+            r.x += deltaCanvas.x;
+            r.y += deltaCanvas.y;
+            return r;
         }
 
         private Vector2 PreviewDeltaToCanvasDelta(Vector2 deltaPreview, Rect drawRect)
