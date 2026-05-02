@@ -259,6 +259,49 @@ namespace NovellaEngine.Editor
             DrawElementsTree(treeRect);
             DrawCenterCanvas(canvasRect);
             DrawInspector(inspRect);
+
+            SyncSelectionToUnityIfNeeded();
+        }
+
+        // Прокидываем _selectedList в Unity Selection — чтобы:
+        //   • в стандартной Hierarchy выделение и раскрытие предков совпадали
+        //     с тем что выделено в Forge,
+        //   • стандартный инспектор показывал реальный компонент (для тех кому
+        //     нужны сырые поля Unity).
+        // Сравниваем с прошлой синкой по состоянию (а не каждый кадр пишем
+        // Selection.objects), иначе Unity не сможет ловить клики в Hierarchy
+        // как «пользовательские» — мы постоянно бы их перезатирали.
+        private RectTransform[] _lastSyncedSelection;
+        private void SyncSelectionToUnityIfNeeded()
+        {
+            bool changed = _lastSyncedSelection == null
+                        || _lastSyncedSelection.Length != _selectedList.Count;
+            if (!changed)
+            {
+                for (int i = 0; i < _selectedList.Count; i++)
+                {
+                    if (_lastSyncedSelection[i] != _selectedList[i]) { changed = true; break; }
+                }
+            }
+            if (!changed) return;
+
+            var objs = new List<UnityEngine.Object>(_selectedList.Count);
+            foreach (var rt in _selectedList)
+            {
+                if (rt == null) continue;
+                objs.Add(rt.gameObject);
+            }
+            Selection.objects = objs.ToArray();
+
+            // Раскрываем родителей в Hierarchy — ping подсвечивает строку и
+            // автоматически разворачивает свёрнутые предки. Делаем только при
+            // выделении одного объекта, иначе Unity «прыгает» по списку.
+            if (_selectedList.Count == 1 && _selectedList[0] != null)
+            {
+                EditorGUIUtility.PingObject(_selectedList[0].gameObject);
+            }
+
+            _lastSyncedSelection = _selectedList.ToArray();
         }
 
         private void DrawNoCanvasState(Rect position)
@@ -542,7 +585,9 @@ namespace NovellaEngine.Editor
             if (go.GetComponent<Image>() != null) return "🖼";
             if (go.GetComponent<Canvas>() != null) return "🖥";
             if (fieldName.Contains("Container") || fieldName.Contains("Panel")) return "▣";
-            return "▣";
+            // RectTransform-контейнер без графики — теперь «папка», метафора
+            // понятнее чем абстрактный «пустой квадрат».
+            return "📁";
         }
 
         private void RefreshRectsCache()
@@ -669,7 +714,9 @@ namespace NovellaEngine.Editor
             if (go.GetComponent<UnityEngine.UI.RawImage>() != null)
                 return ToolLang.Get("Raw image", "Сырая картинка");
             // Без графики — пустышка-контейнер.
-            return ToolLang.Get("Empty group", "Пустая группа");
+            // Без графики — это просто контейнер-«папка» без визуала.
+            // Метафора «папка» более понятна новичкам, чем «пустая группа».
+            return ToolLang.Get("Folder", "Папка");
         }
 
         // Возвращает текст предупреждения для элемента дерева (или null если ОК).
@@ -1032,9 +1079,9 @@ namespace NovellaEngine.Editor
         // Юзер может потом сжать вручную если нужен «локальный» контейнер.
         private void CreateEmpty()
         {
-            string locName = ToolLang.Get("Group", "Группа");
+            string locName = ToolLang.Get("Folder", "Папка");
             var go = new GameObject(locName);
-            var rt = PlaceUnderParent(go, new Vector2(200, 200), "Create Group");
+            var rt = PlaceUnderParent(go, new Vector2(200, 200), "Create Folder");
             if (rt != null)
             {
                 // Перекрываем якоря на full-stretch и обнуляем offsets.
@@ -1464,7 +1511,7 @@ namespace NovellaEngine.Editor
             // «Пустая группа» — особый кейс: это контейнер-слой (HUD_Top, Character_Layer и т.п.),
             // им юзер обычно структурирует сцену ДО того как добавляет контент.
             // Поэтому ставим её первой и отделяем от обычных UI-элементов.
-            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateEmpty(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("📁 Folder", "📁 Папка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateEmpty(); });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateText(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateButton(); });
@@ -1502,7 +1549,7 @@ namespace NovellaEngine.Editor
             menu.AddSeparator("");
             // «Пустая группа» — наверху и через сепаратор: это контейнер-слой,
             // им структурируют сцену до контента.
-            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateEmpty(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("📁 Folder", "📁 Папка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateEmpty(); });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateText(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateButton(); });
@@ -4088,15 +4135,71 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Font Size", "Размер"), GUILayout.Width(72));
             EditorGUI.BeginChangeCheck();
-            float fs = EditorGUILayout.FloatField(firstTxt.fontSize);
+            // Если включён Auto-Resize, фиксированный размер игнорируется TMP'ом —
+            // делаем поле disabled чтобы юзер не путался.
+            using (new EditorGUI.DisabledScope(firstTxt.enableAutoSizing))
+            {
+                float fs = EditorGUILayout.FloatField(firstTxt.fontSize);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    foreach (var rt in _selectedList)
+                    {
+                        var txt = rt.GetComponent<TMP_Text>();
+                        if (txt != null) { Undo.RecordObject(txt, "Font Size"); txt.fontSize = fs; EditorUtility.SetDirty(txt); }
+                    }
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            // Auto-Resize — TMP сам подбирает размер шрифта в диапазоне [min..max]
+            // чтобы текст влез в RectTransform. Удобно для динамических подписей
+            // (имя персонажа, локализация, переменные {var}).
+            DrawFieldHint(ToolLang.Get(
+                "Auto-Resize: TMP picks font size automatically between Min and Max so the text fits the box. Useful for dynamic content (character names, translations, {var}-substitutions). When ON, the «Font Size» field is ignored.",
+                "Авто-размер: TMP сам подбирает размер шрифта в диапазоне Мин..Макс, чтобы текст помещался в рамку. Удобно для динамики (имя персонажа, переводы, {var}-подстановки). Когда ВКЛ, поле «Размер» игнорируется."));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Auto-resize", "Авто-размер"), GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            bool autoResize = EditorGUILayout.Toggle(firstTxt.enableAutoSizing, GUILayout.Width(20));
             if (EditorGUI.EndChangeCheck())
             {
                 foreach (var rt in _selectedList)
                 {
                     var txt = rt.GetComponent<TMP_Text>();
-                    if (txt != null) { Undo.RecordObject(txt, "Font Size"); txt.fontSize = fs; EditorUtility.SetDirty(txt); }
+                    if (txt != null) { Undo.RecordObject(txt, "Auto-Resize"); txt.enableAutoSizing = autoResize; EditorUtility.SetDirty(txt); }
                 }
             }
+            // При включённом auto-resize рисуем компактные поля Min/Max справа.
+            if (firstTxt.enableAutoSizing)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label(ToolLang.Get("Min", "Мин"), GUILayout.Width(28));
+                EditorGUI.BeginChangeCheck();
+                float minFs = EditorGUILayout.FloatField(firstTxt.fontSizeMin, GUILayout.Width(46));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    if (minFs < 1f) minFs = 1f;
+                    foreach (var rt in _selectedList)
+                    {
+                        var txt = rt.GetComponent<TMP_Text>();
+                        if (txt != null) { Undo.RecordObject(txt, "Auto-Resize Min"); txt.fontSizeMin = minFs; EditorUtility.SetDirty(txt); }
+                    }
+                }
+                GUILayout.Space(4);
+                GUILayout.Label(ToolLang.Get("Max", "Макс"), GUILayout.Width(32));
+                EditorGUI.BeginChangeCheck();
+                float maxFs = EditorGUILayout.FloatField(firstTxt.fontSizeMax, GUILayout.Width(46));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    if (maxFs < firstTxt.fontSizeMin) maxFs = firstTxt.fontSizeMin;
+                    foreach (var rt in _selectedList)
+                    {
+                        var txt = rt.GetComponent<TMP_Text>();
+                        if (txt != null) { Undo.RecordObject(txt, "Auto-Resize Max"); txt.fontSizeMax = maxFs; EditorUtility.SetDirty(txt); }
+                    }
+                }
+            }
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
