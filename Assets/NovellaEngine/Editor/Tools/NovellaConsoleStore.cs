@@ -27,8 +27,11 @@ namespace NovellaEngine.Editor
 
         // Кольцевой буфер с capacity. Запись с конца, при переполнении сбрасываем
         // самые старые. Не используем Queue, потому что хочется индексный доступ.
-        private static readonly List<LogEntry> _entries = new List<LogEntry>(1024);
-        private const int CAPACITY = 2000;
+        // 10000 ёмкости — даёт держать стресс-тест 3000+ сообщений без среза
+        // самих свежих (раньше было 2000 и burst 1000 каждого типа выдавал
+        // только последние ~667 каждого, потому что первые 1000 уже срезались).
+        private static readonly List<LogEntry> _entries = new List<LogEntry>(2048);
+        private const int CAPACITY = 10000;
 
         public static IReadOnlyList<LogEntry> Entries => _entries;
         public static event Action OnChanged;

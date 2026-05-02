@@ -40,12 +40,21 @@ namespace NovellaEngine.Editor
 
         public static void Show(string reportText, int errorCount)
         {
-            var win = GetWindow<NovellaReportDialog>(true,
-                ToolLang.Get("Send a report", "Отправить отчёт"), true);
-            win._reportText = reportText;
-            win._errorCount = errorCount;
-            win.minSize = new Vector2(520, 460);
-            win.maxSize = new Vector2(520, 460);
+            var win = CreateInstance<NovellaReportDialog>();
+            win.titleContent = new GUIContent(ToolLang.Get("Send a report", "Отправить отчёт"));
+            win._reportText  = reportText;
+            win._errorCount  = errorCount;
+
+            // Центруем относительно главного окна Unity. CreateInstance +
+            // ручная позиция надёжнее чем GetWindow (который мог поставить
+            // окно «куда захочет», часто далеко от центра).
+            var size = new Vector2(520, 460);
+            var main = EditorGUIUtility.GetMainWindowPosition();
+            float x = main.x + (main.width  - size.x) * 0.5f;
+            float y = main.y + (main.height - size.y) * 0.5f;
+            win.position = new Rect(x, y, size.x, size.y);
+            win.minSize  = size;
+            win.maxSize  = size;
             win.ShowUtility();
         }
 
@@ -89,7 +98,7 @@ namespace NovellaEngine.Editor
             GUILayout.Space(24);
 
             DrawChannelCard(
-                "✈",
+                NovellaSocialIcons.Telegram,
                 "Telegram",
                 "@" + AUTHOR_TELEGRAM_USERNAME,
                 C_TELEGRAM,
@@ -106,7 +115,7 @@ namespace NovellaEngine.Editor
             GUILayout.Space(16);
 
             DrawChannelCard(
-                "💬",
+                NovellaSocialIcons.Discord,
                 "Discord",
                 ToolLang.Get("DM the author", "Личка автора"),
                 C_DISCORD,
@@ -206,9 +215,10 @@ namespace NovellaEngine.Editor
             GUILayout.Space(14);
         }
 
-        // Большая «карточка-кнопка» канала. Цветной фон бренда + крупная
-        // иконка-эмодзи + название + сабтайтл + всё это кликабельно.
-        private void DrawChannelCard(string icon, string title, string subtitle, Color brandColor, string tooltip, Action onClick)
+        // Большая «карточка-кнопка» канала. Цветной фон бренда + настоящий
+        // логотип (Texture2D, нарисован программно) + название + сабтайтл +
+        // вся карточка кликабельна.
+        private void DrawChannelCard(Texture2D icon, string title, string subtitle, Color brandColor, string tooltip, System.Action onClick)
         {
             const float cardW = 220f, cardH = 130f;
             Rect r = GUILayoutUtility.GetRect(cardW, cardH, GUILayout.Width(cardW), GUILayout.Height(cardH));
@@ -225,25 +235,30 @@ namespace NovellaEngine.Editor
             // Цветная полоса слева — акцент.
             EditorGUI.DrawRect(new Rect(r.x, r.y, 4, r.height), brandColor);
 
-            // Иконка.
-            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 36, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = brandColor;
-            GUI.Label(new Rect(r.x + 12, r.y + 16, 56, 48), new GUIContent(icon, tooltip), iconSt);
+            // Логотип-иконка — настоящий бренд-знак, не эмодзи.
+            // ScaleToFit чтобы 64×64-текстура аккуратно села в 56×56 ячейку.
+            if (icon != null)
+            {
+                Rect iconRect = new Rect(r.x + 14, r.y + 18, 56, 56);
+                GUI.DrawTexture(iconRect, icon, ScaleMode.ScaleToFit, true);
+                // Невидимый GUI.Label для tooltip — текст не виден, только hover.
+                GUI.Label(iconRect, new GUIContent("", tooltip));
+            }
 
             // Title.
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
             titleSt.normal.textColor = C_TEXT_1;
-            GUI.Label(new Rect(r.x + 76, r.y + 24, r.width - 84, 22), new GUIContent(title, tooltip), titleSt);
+            GUI.Label(new Rect(r.x + 80, r.y + 24, r.width - 88, 22), new GUIContent(title, tooltip), titleSt);
 
             // Subtitle.
             var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
             subSt.normal.textColor = C_TEXT_3;
-            GUI.Label(new Rect(r.x + 76, r.y + 46, r.width - 84, 16), new GUIContent(subtitle, tooltip), subSt);
+            GUI.Label(new Rect(r.x + 80, r.y + 46, r.width - 88, 16), new GUIContent(subtitle, tooltip), subSt);
 
             // Tooltip-подпись внизу карточки.
             var tipSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
             tipSt.normal.textColor = C_TEXT_4;
-            GUI.Label(new Rect(r.x + 12, r.y + 78, r.width - 24, 44), tooltip, tipSt);
+            GUI.Label(new Rect(r.x + 14, r.y + 82, r.width - 28, 40), tooltip, tipSt);
 
             if (Event.current.type == EventType.MouseDown && hover)
             {
