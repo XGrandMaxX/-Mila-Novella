@@ -1948,6 +1948,16 @@ namespace NovellaEngine.Editor
                 iconSt.normal.textColor = C_ACCENT;
                 GUILayout.Label(icon, iconSt, GUILayout.Width(22));
 
+                // Raycast Target — компактный тоггл в заголовке инспектора.
+                // Виден сразу при выделении, не ныряет в подвал. Показываем только
+                // для элементов с Graphic-компонентом.
+                var graphic = single.GetComponent<UnityEngine.UI.Graphic>();
+                if (graphic != null)
+                {
+                    DrawHeaderRTToggle(graphic);
+                    GUILayout.Space(4);
+                }
+
                 var tfStyle = new GUIStyle(EditorStyles.textField) { fontSize = 14, fontStyle = FontStyle.Bold };
                 tfStyle.normal.background = null; tfStyle.focused.background = null;
                 tfStyle.normal.textColor = C_TEXT_1; tfStyle.focused.textColor = Color.white;
@@ -2457,38 +2467,45 @@ namespace NovellaEngine.Editor
             var firstBtn = FirstSelected.GetComponent<Button>();
             if (firstBtn != null) DrawButtonSection(firstBtn);
 
-            // Маленькая секция «ловит ли клики» — общая для любого Graphic-элемента
-            // (Image / TMP_Text / RawImage). Универсальная — не дублируется per-type.
-            var firstGraphic = FirstSelected.GetComponent<UnityEngine.UI.Graphic>();
-            if (firstGraphic != null) DrawClicksSection(firstGraphic);
+            // RT-тоггл вынесен в заголовок инспектора (см. DrawInspectorHeader)
+            // — не дублируем здесь.
 
             // Bindings — связь UI-элемента с графом/локализацией/переменными.
             DrawBindingSection();
         }
 
-        // Универсальный «ловит ли клики» — RaycastTarget. Один тоггл-кнопка с
-        // объясняющей подсказкой. По умолчанию ON у всех Graphic, но юзер часто
-        // забывает выключить у декоративных панелей и потом удивляется почему
-        // кнопка под ними не нажимается.
-        private void DrawClicksSection(UnityEngine.UI.Graphic graphic)
+        // Маленький RT-тоггл в шапке инспектора. 22×20 кнопка — еле занимает
+        // место, но всегда на виду. Tooltip объясняет назначение.
+        private void DrawHeaderRTToggle(UnityEngine.UI.Graphic graphic)
         {
-            DrawSectionLabel(ToolLang.Get("CLICKS", "ЛОВИТ ЛИ КЛИКИ"), "raycast");
-
-            DrawFieldHint(ToolLang.Get(
-                "If ON — this element receives mouse/touch events (and intercepts them from elements behind it). " +
-                "Turn OFF for decorative panels/images placed over buttons, otherwise the panel will eat the click and the button won't fire.",
-                "Если ВКЛ — элемент ловит клики мышью/тачем (и забирает их у того что за ним). " +
-                "Выключай для декоративных панелей/картинок поверх кнопок: иначе панель «съест» клик и кнопка не сработает."));
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(12);
-
-            const float cell = 30f;
+            const float w = 26f, h = 20f;
+            Rect r = GUILayoutUtility.GetRect(w, h, GUILayout.Width(w), GUILayout.Height(h));
+            bool hover = r.Contains(Event.current.mousePosition);
             bool active = graphic.raycastTarget;
-            bool clicked = DrawTextStyleCell(cell, "RT", active, true,
-                ToolLang.Get("Raycast Target — receive clicks/touches",
-                             "Raycast Target — ловить клики/тачи"));
-            if (clicked)
+
+            string tooltip = active
+                ? ToolLang.Get("Raycast Target ON — element receives clicks. Click to disable (decorative panels above buttons should be OFF).",
+                               "Raycast Target ВКЛ — элемент ловит клики. Кликни чтобы выключить (декоративные панели над кнопками должны быть ВЫКЛ — иначе они «съедят» клик).")
+                : ToolLang.Get("Raycast Target OFF — clicks pass through this element. Click to enable.",
+                               "Raycast Target ВЫКЛ — клики проходят сквозь элемент. Кликни чтобы включить.");
+
+            Color bg = active ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, hover ? 0.45f : 0.30f)
+                              : hover ? new Color(0.95f, 0.66f, 0.30f, 0.20f) : new Color(0.95f, 0.66f, 0.30f, 0.10f);
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(r, active ? C_ACCENT : new Color(0.95f, 0.66f, 0.30f, 0.55f));
+
+            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
+            st.normal.textColor = active ? C_ACCENT : new Color(0.95f, 0.66f, 0.30f);
+            GUI.Label(r, new GUIContent("RT", tooltip), st);
+
+            // Перечёркивание у выключенного — мгновенный «отключено» вижуал.
+            if (!active)
+            {
+                Color line = new Color(0.95f, 0.66f, 0.30f);
+                EditorGUI.DrawRect(new Rect(r.x + 4, r.y + r.height * 0.5f - 0.5f, r.width - 8, 1.5f), line);
+            }
+
+            if (Event.current.type == EventType.MouseDown && hover)
             {
                 foreach (var rt in _selectedList)
                 {
@@ -2498,19 +2515,8 @@ namespace NovellaEngine.Editor
                     g.raycastTarget = !active;
                     EditorUtility.SetDirty(g);
                 }
+                Event.current.Use();
             }
-
-            // Состояние словами рядом с кнопкой — для самоочевидности.
-            var stateSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            stateSt.normal.textColor = active ? C_TEXT_2 : new Color(0.95f, 0.66f, 0.30f);
-            GUILayout.Space(8);
-            GUILayout.Label(active
-                ? ToolLang.Get("ON — element receives clicks", "ВКЛ — элемент ловит клики")
-                : ToolLang.Get("OFF — clicks pass through", "ВЫКЛ — клики проходят сквозь"), stateSt);
-
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            GUILayout.Space(8);
         }
 
         // ─── BINDINGS section ───────────────────────────────────────────────────
@@ -2744,30 +2750,35 @@ namespace NovellaEngine.Editor
             // но теперь читаются/пишутся в step.X.
             DrawStepParameters(b, step);
 
-            // Delay — внизу шага, с явным объяснением «когда» и какой эффект.
-            // Для первого шага говорит «после клика», для последующих — «после прошлого шага».
-            // Вижуально мягче — отдельная мини-плашка чтобы не сбивать с параметров.
+            // Задержка — мини-плашка внизу шага с коротким лейблом и числовым полем.
+            // Текст один-в-строку, без переносов, чтобы у двух соседних шагов
+            // оставался одинаковый размер и ничего не съезжало за рамку.
             if (step.Action != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
             {
                 GUILayout.Space(4);
-                Rect delayRect = GUILayoutUtility.GetRect(0, 32, GUILayout.ExpandWidth(true));
+                Rect delayRect = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
                 EditorGUI.DrawRect(delayRect, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.06f));
 
-                var lblSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-                lblSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
                 string when = idx == 0
-                    ? ToolLang.Get("⏱  Wait this many seconds AFTER click before running this step.",
-                                   "⏱  Подождать столько секунд ПОСЛЕ клика перед выполнением этого шага.")
-                    : ToolLang.Get("⏱  Wait this many seconds AFTER previous step before running this step.",
-                                   "⏱  Подождать столько секунд ПОСЛЕ прошлого шага перед выполнением этого шага.");
-                GUI.Label(new Rect(delayRect.x + 8, delayRect.y + 2, delayRect.width - 90, 14), when, lblSt);
+                    ? ToolLang.Get("⏱ Wait before start",        "⏱ Подождать перед запуском")
+                    : ToolLang.Get("⏱ Wait after previous step", "⏱ Подождать после прошлого шага");
+                string tooltip = idx == 0
+                    ? ToolLang.Get("How many seconds to wait AFTER the click, before running this step.",
+                                   "Сколько секунд ждать ПОСЛЕ клика, прежде чем выполнить этот шаг.")
+                    : ToolLang.Get("How many seconds to wait AFTER the previous step finishes, before running this step.",
+                                   "Сколько секунд ждать ПОСЛЕ окончания предыдущего шага, прежде чем выполнить этот шаг.");
 
-                Rect numRect = new Rect(delayRect.xMax - 80, delayRect.y + 6, 50, 20);
+                var lblSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = false, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+                lblSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
+                GUI.Label(new Rect(delayRect.x + 8, delayRect.y, delayRect.width - 96, delayRect.height),
+                          new GUIContent(when, tooltip), lblSt);
+
+                Rect numRect = new Rect(delayRect.xMax - 86, delayRect.y + 4, 50, 20);
                 float newDelay = EditorGUI.FloatField(numRect, step.DelayBefore);
                 if (Mathf.Abs(newDelay - step.DelayBefore) > 0.0001f) { step.DelayBefore = Mathf.Max(0f, newDelay); EditorUtility.SetDirty(b); }
-                var sSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
+                var sSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft };
                 sSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                GUI.Label(new Rect(delayRect.xMax - 28, delayRect.y + 8, 24, 16), "сек", sSt);
+                GUI.Label(new Rect(delayRect.xMax - 32, delayRect.y, 30, delayRect.height), "сек", sSt);
             }
 
             GUILayout.EndVertical();

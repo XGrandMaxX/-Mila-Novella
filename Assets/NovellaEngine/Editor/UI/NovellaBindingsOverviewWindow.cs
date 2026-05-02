@@ -270,15 +270,14 @@ namespace NovellaEngine.Editor.UIBindings
         private static float[] ColumnWidths(float total)
         {
             // Name | Kind | Loc | Var | OnClick | Uses
-            // Kind вмещает '🔘 Button', 'Использован' — иконку/число — фиксы;
-            // остальное растягивается пропорционально.
+            // OnClick получает больше места — там часто несколько чипов-действий.
             float kindW = 110, usesW = 110;
             float remaining = total - kindW - usesW - 16;
-            if (remaining < 240) remaining = 240;
-            float nameW = remaining * 0.30f;
-            float locW  = remaining * 0.24f;
-            float varW  = remaining * 0.22f;
-            float clkW  = remaining * 0.24f;
+            if (remaining < 280) remaining = 280;
+            float nameW = remaining * 0.22f;
+            float locW  = remaining * 0.18f;
+            float varW  = remaining * 0.18f;
+            float clkW  = remaining * 0.42f; // дано больше всех — для чипов
             return new[] { nameW, kindW, locW, varW, clkW, usesW };
         }
 
@@ -328,7 +327,7 @@ namespace NovellaEngine.Editor.UIBindings
                 DrawCell(new Rect(x, rowRect.y, colsW[1], rowRect.height), row.Kind, C_TEXT_2, false); x += colsW[1];
                 DrawCell(new Rect(x, rowRect.y, colsW[2], rowRect.height), Or(row.Binding.LocalizationKey), C_TEXT_3, true); x += colsW[2];
                 DrawCell(new Rect(x, rowRect.y, colsW[3], rowRect.height), Or(row.Binding.BoundVariable), C_TEXT_3, true); x += colsW[3];
-                DrawCell(new Rect(x, rowRect.y, colsW[4], rowRect.height), Or(ActionLabel(row.Binding)), C_TEXT_3, true); x += colsW[4];
+                DrawClickChips(new Rect(x, rowRect.y, colsW[4], rowRect.height), row.Binding); x += colsW[4];
                 bool unused = IsUnused(row);
                 DrawCell(new Rect(x, rowRect.y, colsW[5], rowRect.height),
                     unused ? "⚠ 0" : row.Uses.ToString(),
@@ -360,10 +359,107 @@ namespace NovellaEngine.Editor.UIBindings
 
         private static string Or(string s) => string.IsNullOrEmpty(s) ? "—" : s;
 
-        // Текст для колонки OnClick→. Если на binding'е ОДИН шаг — показываем
-        // его иконку + параметр; если несколько — сокращённо «🎯 ▶ 🎵 +2 шага»
-        // чтобы пользователь видел и порядок и количество. Multi-step совершенно
-        // нормальный кейс для меню-кнопок.
+        // Рендерит шаги binding'а как чипы: иконка + краткое имя + tooltip
+        // на hover с полным описанием. Если шагов больше чем влезает —
+        // показываем «+N» хвост. Hover-tooltip даёт возможность не плодить scroll.
+        private static void DrawClickChips(Rect cell, NovellaUIBinding b)
+        {
+            if (b == null || b.ClickSequence == null || b.ClickSequence.Count == 0)
+            {
+                var dashSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+                dashSt.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+                GUI.Label(new Rect(cell.x + 4, cell.y, cell.width - 8, cell.height), "—", dashSt);
+                return;
+            }
+
+            const float chipH = 20f;
+            const float chipPad = 4f;
+            float y = cell.y + (cell.height - chipH) * 0.5f;
+            float x = cell.x + 4;
+            float maxX = cell.x + cell.width - 4;
+
+            for (int i = 0; i < b.ClickSequence.Count; i++)
+            {
+                var step = b.ClickSequence[i];
+                if (step == null) continue;
+
+                string icon = StepIcon(step.Action);
+                string shortName = StepShortName(step);
+                string fullText = StepShortLabel(step);
+                if (!string.IsNullOrEmpty(step.OnClickGotoNodeId) || step.StoryToStart != null || !string.IsNullOrEmpty(step.TargetBindingId)
+                    || !string.IsNullOrEmpty(step.LanguageCode) || !string.IsNullOrEmpty(step.URL) || !string.IsNullOrEmpty(step.VariableName)
+                    || !string.IsNullOrEmpty(step.EventName) || step.SfxClip != null || !string.IsNullOrEmpty(step.AchievementId))
+                {
+                    fullText = $"#{i + 1}: {fullText}";
+                }
+                if (step.DelayBefore > 0.0001f) fullText += $"  (delay {step.DelayBefore:0.##}s)";
+
+                // Считаем ширину чипа от длины строки.
+                var chipSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+                string label = icon + "  " + shortName;
+                float textW = chipSt.CalcSize(new GUIContent(label)).x + 12;
+                float chipW = Mathf.Min(textW, 130);
+
+                // Не влезает — рендерим «+N» в оставшемся месте и стоп.
+                if (x + chipW > maxX)
+                {
+                    int remaining = b.ClickSequence.Count - i;
+                    var moreSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft };
+                    moreSt.normal.textColor = new Color(0.95f, 0.96f, 0.98f);
+                    string moreLabel = "+" + remaining;
+                    Rect moreRect = new Rect(x, y, maxX - x, chipH);
+                    EditorGUI.DrawRect(moreRect, new Color(0.36f, 0.75f, 0.92f, 0.20f));
+                    GUI.Label(moreRect, new GUIContent("  " + moreLabel, "ещё " + remaining + " действие(й)"), moreSt);
+                    break;
+                }
+
+                Rect chipRect = new Rect(x, y, chipW, chipH);
+                EditorGUI.DrawRect(chipRect, new Color(0.36f, 0.75f, 0.92f, 0.18f));
+                DrawBorder(chipRect, new Color(0.36f, 0.75f, 0.92f, 0.45f));
+
+                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+                st.normal.textColor = new Color(0.92f, 0.93f, 0.96f);
+                GUI.Label(new Rect(chipRect.x + 6, chipRect.y, chipRect.width - 10, chipRect.height),
+                          new GUIContent(label, fullText), st);
+
+                x += chipW + chipPad;
+            }
+        }
+
+        // Короткое имя для отображения в чипе (3-12 символов).
+        private static string StepShortName(NovellaUIBinding.ClickActionStep step)
+        {
+            switch (step.Action)
+            {
+                case NovellaUIBinding.BindingAction.GoToNode:
+                {
+                    string nm = NodeLabel(step.OnClickGotoNodeId);
+                    return Truncate(nm, 12);
+                }
+                case NovellaUIBinding.BindingAction.StartNewGame:      return Truncate(step.StoryToStart != null ? step.StoryToStart.name : "?", 10);
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return "Load";
+                case NovellaUIBinding.BindingAction.RestartChapter:    return "Restart";
+                case NovellaUIBinding.BindingAction.QuitGame:          return "Quit";
+                case NovellaUIBinding.BindingAction.ShowPanel:         return "Show " + Truncate(TargetLabel(step.TargetBindingId), 8);
+                case NovellaUIBinding.BindingAction.HidePanel:         return "Hide " + Truncate(TargetLabel(step.TargetBindingId), 8);
+                case NovellaUIBinding.BindingAction.TogglePanel:       return "Toggle " + Truncate(TargetLabel(step.TargetBindingId), 6);
+                case NovellaUIBinding.BindingAction.SetVariable:       return Truncate(step.VariableName ?? "?", 10);
+                case NovellaUIBinding.BindingAction.TriggerEvent:      return Truncate(step.EventName ?? "?", 10);
+                case NovellaUIBinding.BindingAction.UnlockAchievement: return Truncate(step.AchievementId ?? "?", 10);
+                case NovellaUIBinding.BindingAction.PlaySFX:           return step.SfxClip != null ? Truncate(step.SfxClip.name, 10) : "SFX";
+                case NovellaUIBinding.BindingAction.ChangeLanguage:    return step.LanguageCode ?? "?";
+                case NovellaUIBinding.BindingAction.OpenURL:           return "URL";
+                default: return "—";
+            }
+        }
+
+        private static string Truncate(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Length > max ? s.Substring(0, max - 1) + "…" : s;
+        }
+
+        // Текст для колонки OnClick→ (legacy одноразовый — оставлен на случай).
         private static string ActionLabel(NovellaUIBinding b)
         {
             if (b == null || b.ClickSequence == null || b.ClickSequence.Count == 0) return "";
