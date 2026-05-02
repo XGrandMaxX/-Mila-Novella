@@ -160,13 +160,14 @@ namespace NovellaEngine.Editor
                 var prevBg = GUI.backgroundColor;
                 GUI.backgroundColor = new Color(0.92f, 0.36f, 0.36f, 0.22f);
                 if (GUILayout.Button(new GUIContent(
-                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})") + "  ▾", counts.error),
+                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})"), counts.error),
                         ToolLang.Get(
                             "Send the error report to the toolkit author. Pick channel: Discord, Telegram, or save as a .txt file.",
                             "Отправить отчёт об ошибках автору инструмента. Выбери канал: Discord, Telegram или сохранить .txt.")),
                     rptSt))
                 {
-                    ShowReportMenu();
+                    var report = BuildReportText();
+                    NovellaReportDialog.Show(report, counts.error);
                 }
                 GUI.backgroundColor = prevBg;
                 GUILayout.Space(6);
@@ -234,93 +235,31 @@ namespace NovellaEngine.Editor
                 Debug.LogWarning("[Novella Test] Burst warning");
                 Debug.LogError("[Novella Test] Burst error");
             });
+            menu.AddItem(new GUIContent(ToolLang.Get("Burst: 1000 of each (stress test)",
+                                                    "Серия: 1000 каждого (стресс-тест)")), false, () =>
+            {
+                bool ok = EditorUtility.DisplayDialog(
+                    ToolLang.Get("Stress test", "Стресс-тест"),
+                    ToolLang.Get(
+                        "Spawn 3000 messages (1000 logs + 1000 warnings + 1000 errors) into the console. Useful to verify scrolling and pulse smoothness, but Unity's own console might briefly freeze.",
+                        "Кинуть 3000 сообщений (1000 логов + 1000 предупреждений + 1000 ошибок). Полезно проверить плавность скролла и pulse-анимацию, но стандартная Unity-консоль может ненадолго залагать."),
+                    ToolLang.Get("Run", "Запустить"),
+                    ToolLang.Get("Cancel", "Отмена"));
+                if (!ok) return;
+
+                for (int i = 0; i < 1000; i++)
+                {
+                    Debug.Log     ("[Novella Test] Burst log #" + i);
+                    Debug.LogWarning("[Novella Test] Burst warning #" + i);
+                    Debug.LogError("[Novella Test] Burst error #" + i);
+                }
+            });
             menu.ShowAsContext();
         }
 
         // ─── Жалоба автору ─────────────────────────────────────────────────
-        // Контактные ссылки автора инструментария — захардкожены сознательно.
-        // Это публичные адреса (как email на сайте), не секреты. Меняются
-        // правкой кода (и это правильно: юзеру не надо лезть в настройки).
-        // Discord User ID можно получить так: Settings → Advanced → Developer
-        // Mode → ПКМ по своему имени в чате → Copy User ID.
-        private const string AUTHOR_TELEGRAM_USERNAME = "PBGJ241";
-        private const string AUTHOR_DISCORD_USER_ID  = "384220331188944896";
-
-        private void ShowReportMenu()
-        {
-            // Перед открытием любого канала всегда копируем отчёт в буфер
-            // обмена — юзеру останется только нажать Ctrl+V в открывшемся чате.
-            var menu = new GenericMenu();
-
-            menu.AddItem(new GUIContent(ToolLang.Get(
-                    "📋  Copy report to clipboard",
-                    "📋  Скопировать отчёт в буфер")),
-                false, () => { CopyReportToClipboard(); ShowReportToast(); });
-
-            menu.AddSeparator("");
-
-            menu.AddItem(new GUIContent(ToolLang.Get(
-                    "✈  Open Telegram chat (@" + AUTHOR_TELEGRAM_USERNAME + ")",
-                    "✈  Открыть Telegram (@" + AUTHOR_TELEGRAM_USERNAME + ")")),
-                false, () =>
-                {
-                    CopyReportToClipboard();
-                    Application.OpenURL("https://t.me/" + AUTHOR_TELEGRAM_USERNAME);
-                    ShowReportToast();
-                });
-
-            if (!string.IsNullOrEmpty(AUTHOR_DISCORD_USER_ID))
-            {
-                menu.AddItem(new GUIContent(ToolLang.Get(
-                        "💬  Open Discord profile",
-                        "💬  Открыть профиль в Discord")),
-                    false, () =>
-                    {
-                        CopyReportToClipboard();
-                        // discord:// открывает приложение если оно установлено;
-                        // если нет — браузер сам откроет https-ссылку при ошибке.
-                        Application.OpenURL("https://discord.com/users/" + AUTHOR_DISCORD_USER_ID);
-                        ShowReportToast();
-                    });
-            }
-            else
-            {
-                menu.AddDisabledItem(new GUIContent(ToolLang.Get(
-                    "💬  Discord (link not set yet)",
-                    "💬  Discord (ссылка ещё не установлена)")));
-            }
-
-            menu.AddSeparator("");
-            menu.AddItem(new GUIContent(ToolLang.Get(
-                    "💾  Save as .txt file…",
-                    "💾  Сохранить .txt…")),
-                false, () => ExportErrorReport());
-
-            menu.ShowAsContext();
-        }
-
-        // Кладёт отчёт в системный буфер обмена. Полный отчёт (со стеком и
-        // sysinfo) — тот же что у ExportErrorReport.
-        private void CopyReportToClipboard()
-        {
-            EditorGUIUtility.systemCopyBuffer = BuildReportText();
-        }
-
-        // Уведомление «отчёт в буфере» — короткий dialog. Для пользователей
-        // которые не знают что копирование уже произошло.
-        private void ShowReportToast()
-        {
-            EditorUtility.DisplayDialog(
-                ToolLang.Get("Report copied", "Отчёт скопирован"),
-                ToolLang.Get(
-                    "Error report has been copied to the clipboard. Paste it (Ctrl+V) into the opened chat.",
-                    "Отчёт скопирован в буфер обмена. Вставь его (Ctrl+V) в открывшийся чат."),
-                "OK");
-        }
-
-        // Сборщик текста отчёта вынесен в отдельный метод чтобы не дублировать
-        // логику между ExportErrorReport (сохранение в файл) и
-        // CopyReportToClipboard (вставка в чат).
+        // Сборщик текста отчёта. Вызывается из NovellaReportDialog когда
+        // юзер выбирает канал отправки — Telegram/Discord/Save/Copy.
         private string BuildReportText()
         {
             var snap = NovellaConsoleStore.Snapshot();
@@ -353,38 +292,8 @@ namespace NovellaEngine.Editor
         }
 
         // Собирает текстовый отчёт со всеми ошибками + системной инфой,
-        // предлагает юзеру сохранить .txt и попутно кладёт в буфер обмена.
-        // Прямая отправка в Discord/etc сознательно не делается: webhook URL
-        // хардкодить нельзя (он попал бы в публичный репозиторий), а гонять
-        // данные пользователя через сторонний сервер без явного аутентифицированного
-        // действия — плохая практика. Текстовый экспорт безопаснее: юзер сам
-        // решает куда и кому скинуть отчёт.
-        private void ExportErrorReport()
-        {
-            string report = BuildReportText();
-            EditorGUIUtility.systemCopyBuffer = report;
-
-            string defaultName = "novella-error-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
-            string path = EditorUtility.SaveFilePanel(
-                ToolLang.Get("Save error report", "Сохранить отчёт об ошибках"),
-                "", defaultName, "txt");
-            if (!string.IsNullOrEmpty(path))
-            {
-                try
-                {
-                    System.IO.File.WriteAllText(path, report);
-                    EditorUtility.RevealInFinder(path);
-                }
-                catch (Exception ex)
-                {
-                    EditorUtility.DisplayDialog(
-                        ToolLang.Get("Save failed", "Не удалось сохранить"),
-                        ex.Message, "OK");
-                }
-            }
-
-            ShowReportToast();
-        }
+        // (Сохранение в .txt и копирование в буфер теперь живут в
+        // NovellaReportDialog — там же выбор канала отправки.)
 
         private void DrawFilterToggle(string icon, int count, ref bool value, string prefKey, Color tint, string tooltip)
         {
