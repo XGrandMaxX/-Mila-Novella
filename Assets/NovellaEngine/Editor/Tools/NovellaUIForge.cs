@@ -102,6 +102,14 @@ namespace NovellaEngine.Editor
         private bool _dragging;
         private Vector2 _dragMouseStart;
         private Dictionary<RectTransform, Vector2> _dragAnchorStarts = new Dictionary<RectTransform, Vector2>();
+        // Стартовый world-rect элемента в момент BeginDrag — используется
+        // smart-guides'ом как «база» при расчёте planned-позиции, чтобы каждый
+        // фрейм не наслаивал предыдущие snap-коррекции.
+        private Dictionary<RectTransform, Rect> _dragWorldStarts = new Dictionary<RectTransform, Rect>();
+        // Зацепка магнитом по осям для hysteresis: если ось уже снаплена в эту
+        // world-координату, держимся за неё с расширенным порогом.
+        private float? _stickyWorldX;
+        private float? _stickyWorldY;
 
         private int _resizeHandle = -1;
         private Vector2 _resizeMouseStart;
@@ -120,9 +128,14 @@ namespace NovellaEngine.Editor
         private Vector2 _treeScroll;
         private Vector2 _inspectorScroll;
 
+        // Активный экземпляр модуля — нужен внешним вызовам (Bindings overview
+        // делает PingBinding и должен достучаться до текущего Forge).
+        public static NovellaUIForge Instance { get; private set; }
+
         public void OnEnable(EditorWindow w)
         {
             _window = w;
+            Instance = this;
             EditorApplication.hierarchyChanged += OnHierarchyChange;
             EditorApplication.update += OnEditorUpdate;
             EditorApplication.delayCall += () =>
@@ -134,6 +147,7 @@ namespace NovellaEngine.Editor
 
         public void OnDisable()
         {
+            if (Instance == this) Instance = null;
             EditorApplication.hierarchyChanged -= OnHierarchyChange;
             EditorApplication.update -= OnEditorUpdate;
             if (_previewTexture != null)
@@ -1329,8 +1343,55 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(safe.xMax - 1, safe.y, 1, safe.height), c);
         }
 
+        // Ping: внешний триггер чтобы Forge выделил конкретный элемент и
+        // нарисовал вокруг него пульсирующую рамку — используется например
+        // окном «Связи» при клике по строке.
+        private static RectTransform _pingTarget;
+        private static double _pingStartTime;
+        private const float PING_DURATION = 1.4f;
+
+        public static void PingBinding(NovellaEngine.Runtime.UI.NovellaUIBinding b)
+        {
+            if (b == null) return;
+            ShowWindow();
+            if (Instance == null) return;
+            var rt = b.GetComponent<RectTransform>();
+            if (rt == null) return;
+            Instance._selectedList.Clear();
+            Instance._selectedList.Add(rt);
+            _pingTarget = rt;
+            _pingStartTime = EditorApplication.timeSinceStartup;
+            Instance._window?.Repaint();
+        }
+
+        private void DrawPingOverlay(Rect drawRectLocal, int targetW, int targetH)
+        {
+            if (_pingTarget == null) return;
+            double elapsed = EditorApplication.timeSinceStartup - _pingStartTime;
+            if (elapsed > PING_DURATION) { _pingTarget = null; return; }
+
+            Rect selRect = ComputeRectScreenForRT(_pingTarget, drawRectLocal, targetW, targetH);
+            if (selRect.width < 1f && selRect.height < 1f) return;
+
+            // Пульс: 0..1..0 за 0.5s, повторяется ~3 раза.
+            float t = (float)elapsed / PING_DURATION;
+            float pulse = Mathf.Abs(Mathf.Sin(t * Mathf.PI * 3f));
+            float thickness = 2f + pulse * 6f;
+            float fade = 1f - t;
+
+            Color c = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, fade);
+            EditorGUI.DrawRect(new Rect(selRect.x - thickness, selRect.y - thickness, selRect.width + 2 * thickness, thickness), c);
+            EditorGUI.DrawRect(new Rect(selRect.x - thickness, selRect.yMax,          selRect.width + 2 * thickness, thickness), c);
+            EditorGUI.DrawRect(new Rect(selRect.x - thickness, selRect.y - thickness, thickness, selRect.height + 2 * thickness), c);
+            EditorGUI.DrawRect(new Rect(selRect.xMax,           selRect.y - thickness, thickness, selRect.height + 2 * thickness), c);
+
+            _window?.Repaint();
+        }
+
         private void DrawSelectionOverlay(Rect drawRectLocal, int targetW, int targetH)
         {
+            DrawPingOverlay(drawRectLocal, targetW, targetH);
+
             if (_selectedList.Count == 0) return;
 
             Color c = C_ACCENT;
@@ -1407,6 +1468,9 @@ namespace NovellaEngine.Editor
                     _resizeHandle = -1;
                     _snapLinesX.Clear();
                     _snapLinesY.Clear();
+                    _stickyWorldX = null;
+                    _stickyWorldY = null;
+                    _dragWorldStarts.Clear();
                     e.Use();
                     return;
                 }
@@ -1570,12 +1634,16 @@ namespace NovellaEngine.Editor
             _dragging = true;
             _dragMouseStart = mousePos;
             _dragAnchorStarts.Clear();
+            _dragWorldStarts.Clear();
+            _stickyWorldX = null;
+            _stickyWorldY = null;
 
             RecordUndoAll("Move UI Element");
 
             foreach (var rt in _selectedList)
             {
                 _dragAnchorStarts[rt] = rt.anchoredPosition;
+                _dragWorldStarts[rt] = GetWorldRect(rt);
             }
         }
 
@@ -1641,13 +1709,23 @@ namespace NovellaEngine.Editor
             float pxPerWorld = drawRect.width / canvasWorld.width;
             float threshold = 12f / Mathf.Max(0.001f, pxPerWorld);
 
-            // Запланированные world-bounds dragged-элемента.
-            Rect rtWorld = GetWorldRect(rt);
-            Rect planned = new Rect(rtWorld.x + deltaWorld.x, rtWorld.y + deltaWorld.y, rtWorld.width, rtWorld.height);
+            // Запланированные world-bounds — берём СТАРТОВЫЙ rect элемента
+            // (зафиксированный в BeginDrag) + текущая world-дельта от старта.
+            // Это критично: использовать GetWorldRect(rt) каждый кадр нельзя,
+            // так как rt уже сдвинут предыдущими фреймами snap-коррекции и
+            // получится двойной учёт.
+            if (!_dragWorldStarts.TryGetValue(rt, out Rect rtStartWorld))
+                rtStartWorld = GetWorldRect(rt);
+            Rect planned = new Rect(rtStartWorld.x + deltaWorld.x, rtStartWorld.y + deltaWorld.y, rtStartWorld.width, rtStartWorld.height);
 
             float bestX = float.MaxValue, bestY = float.MaxValue;
             float bestDx = 0f, bestDy = 0f;
             float? snapX = null, snapY = null;
+
+            // Hysteresis: ось уже примагниченная к чему-то держится с 1.6× порогом —
+            // даёт ощущение «прилипло, и теперь надо приложить усилие чтобы оторвать».
+            float xThreshold = _stickyWorldX.HasValue ? threshold * 1.6f : threshold;
+            float yThreshold = _stickyWorldY.HasValue ? threshold * 1.6f : threshold;
 
             // Цель 1: сиблинги под тем же родителем (исключая сам dragged).
             foreach (Transform sib in pRT)
@@ -1658,35 +1736,40 @@ namespace NovellaEngine.Editor
                 Rect sw = GetWorldRect(sibRT);
                 if (sw.width <= 0.0001f || sw.height <= 0.0001f) continue;
 
-                TrySnapAxis(planned.xMin,    sw.xMin,    threshold, ref bestX, ref bestDx, ref snapX, sw.xMin);
-                TrySnapAxis(planned.center.x, sw.center.x, threshold, ref bestX, ref bestDx, ref snapX, sw.center.x);
-                TrySnapAxis(planned.xMax,    sw.xMax,    threshold, ref bestX, ref bestDx, ref snapX, sw.xMax);
-                TrySnapAxis(planned.yMin,    sw.yMin,    threshold, ref bestY, ref bestDy, ref snapY, sw.yMin);
-                TrySnapAxis(planned.center.y, sw.center.y, threshold, ref bestY, ref bestDy, ref snapY, sw.center.y);
-                TrySnapAxis(planned.yMax,    sw.yMax,    threshold, ref bestY, ref bestDy, ref snapY, sw.yMax);
+                TrySnapAxis(planned.xMin,    sw.xMin,    xThreshold, ref bestX, ref bestDx, ref snapX, sw.xMin);
+                TrySnapAxis(planned.center.x, sw.center.x, xThreshold, ref bestX, ref bestDx, ref snapX, sw.center.x);
+                TrySnapAxis(planned.xMax,    sw.xMax,    xThreshold, ref bestX, ref bestDx, ref snapX, sw.xMax);
+                TrySnapAxis(planned.yMin,    sw.yMin,    yThreshold, ref bestY, ref bestDy, ref snapY, sw.yMin);
+                TrySnapAxis(planned.center.y, sw.center.y, yThreshold, ref bestY, ref bestDy, ref snapY, sw.center.y);
+                TrySnapAxis(planned.yMax,    sw.yMax,    yThreshold, ref bestY, ref bestDy, ref snapY, sw.yMax);
             }
 
             // Цель 2: границы и центр родителя (часто это canvas).
             Rect pW = GetWorldRect(pRT);
-            TrySnapAxis(planned.xMin,    pW.xMin,    threshold, ref bestX, ref bestDx, ref snapX, pW.xMin);
-            TrySnapAxis(planned.center.x, pW.center.x, threshold, ref bestX, ref bestDx, ref snapX, pW.center.x);
-            TrySnapAxis(planned.xMax,    pW.xMax,    threshold, ref bestX, ref bestDx, ref snapX, pW.xMax);
-            TrySnapAxis(planned.yMin,    pW.yMin,    threshold, ref bestY, ref bestDy, ref snapY, pW.yMin);
-            TrySnapAxis(planned.center.y, pW.center.y, threshold, ref bestY, ref bestDy, ref snapY, pW.center.y);
-            TrySnapAxis(planned.yMax,    pW.yMax,    threshold, ref bestY, ref bestDy, ref snapY, pW.yMax);
+            TrySnapAxis(planned.xMin,    pW.xMin,    xThreshold, ref bestX, ref bestDx, ref snapX, pW.xMin);
+            TrySnapAxis(planned.center.x, pW.center.x, xThreshold, ref bestX, ref bestDx, ref snapX, pW.center.x);
+            TrySnapAxis(planned.xMax,    pW.xMax,    xThreshold, ref bestX, ref bestDx, ref snapX, pW.xMax);
+            TrySnapAxis(planned.yMin,    pW.yMin,    yThreshold, ref bestY, ref bestDy, ref snapY, pW.yMin);
+            TrySnapAxis(planned.center.y, pW.center.y, yThreshold, ref bestY, ref bestDy, ref snapY, pW.center.y);
+            TrySnapAxis(planned.yMax,    pW.yMax,    yThreshold, ref bestY, ref bestDy, ref snapY, pW.yMax);
 
             if (bestX != float.MaxValue)
             {
                 deltaCanvas.x += bestDx / pLossy.x;
                 snappedX = true;
+                _stickyWorldX = snapX;
                 if (snapX.HasValue) _snapLinesX.Add(snapX.Value);
             }
+            else _stickyWorldX = null;
+
             if (bestY != float.MaxValue)
             {
                 deltaCanvas.y += bestDy / pLossy.y;
                 snappedY = true;
+                _stickyWorldY = snapY;
                 if (snapY.HasValue) _snapLinesY.Add(snapY.Value);
             }
+            else _stickyWorldY = null;
 
             return deltaCanvas;
         }

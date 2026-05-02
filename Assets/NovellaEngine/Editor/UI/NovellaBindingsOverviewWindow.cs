@@ -189,7 +189,8 @@ namespace NovellaEngine.Editor.UIBindings
                 "💡  Здесь видны все UI-элементы сцены, которые ты «привязал» в Кузнице UI " +
                 "(значит ноды графа могут писать в них текст / ставить переходы по клику / показывать-скрывать). " +
                 "Колонка «Использован» считает сколько нод сослалось на этот элемент: 0 = мёртвая привязка, " +
-                "которую можно убрать кнопкой «🗑 Удалить неиспользуемые». Клик по строке — пингует элемент в иерархии Unity.";
+                "которую можно убрать кнопкой «🗑 Удалить неиспользуемые». " +
+                "Клик по строке — открывает Кузницу UI и пульсирует рамкой вокруг элемента, чтобы сразу было видно где он на холсте.";
             GUI.Label(r, text, st);
         }
 
@@ -332,13 +333,13 @@ namespace NovellaEngine.Editor.UIBindings
                     row.Uses == 0 ? "⚠ 0" : row.Uses.ToString(),
                     row.Uses == 0 ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_2, false);
 
-                // Click — pings GO; double-click — selects + pings.
+                // Клик — открывает Кузницу UI на этом элементе и подсвечивает его
+                // пульсирующей рамкой (как при выделении в графе/сценах).
                 if (Event.current.type == EventType.MouseDown && rowRect.Contains(Event.current.mousePosition))
                 {
                     if (row.Binding != null && row.Binding.gameObject != null)
                     {
-                        Selection.activeGameObject = row.Binding.gameObject;
-                        EditorGUIUtility.PingObject(row.Binding.gameObject);
+                        NovellaEngine.Editor.NovellaUIForge.PingBinding(row.Binding);
                     }
                     Event.current.Use();
                 }
