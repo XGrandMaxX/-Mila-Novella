@@ -33,6 +33,14 @@ namespace NovellaEngine.Editor
         public static IReadOnlyList<LogEntry> Entries => _entries;
         public static event Action OnChanged;
 
+        // Дешёвый счётчик без копирования. UI вызывает его каждый кадр чтобы
+        // понять — менять ли свой кэш. Полная Snapshot() поднимается только
+        // когда счётчик отличается от прошлого.
+        public static int Count
+        {
+            get { lock (_lock) { return _entries.Count; } }
+        }
+
         // Подписка делается один раз при загрузке домена. Используем
         // logMessageReceivedThreaded чтобы захватывать в т.ч. логи из не-главного
         // потока (NovellaPlayer, корутины и т.п.). Потокобезопасность через lock.

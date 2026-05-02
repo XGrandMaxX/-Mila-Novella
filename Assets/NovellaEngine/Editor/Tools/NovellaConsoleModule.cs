@@ -145,9 +145,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
-            // Кнопка экспорта отчёта (видна только если есть хоть одна ошибка).
-            // Дополнительно дублируется в буфер обмена — юзеру удобно сразу
-            // вставить в Discord/issue без лишних шагов.
+            // Кнопка-меню «Жалоба» — видна только если есть хоть одна ошибка.
             if (counts.error > 0)
             {
                 var rptSt = new GUIStyle(EditorStyles.miniButton)
@@ -162,13 +160,13 @@ namespace NovellaEngine.Editor
                 var prevBg = GUI.backgroundColor;
                 GUI.backgroundColor = new Color(0.92f, 0.36f, 0.36f, 0.22f);
                 if (GUILayout.Button(new GUIContent(
-                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})"), counts.error),
+                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})") + "  ▾", counts.error),
                         ToolLang.Get(
-                            "Save a report file with all errors (Unity / OS info included). The same content is also copied to the clipboard so you can paste it into Discord/issue tracker.",
-                            "Сохранить файл отчёта со всеми ошибками (плюс инфа о Unity/ОС). Тот же текст копируется в буфер обмена — можно сразу вставить в Discord/issue tracker.")),
+                            "Send the error report to the toolkit author. Pick channel: Discord, Telegram, or save as a .txt file.",
+                            "Отправить отчёт об ошибках автору инструмента. Выбери канал: Discord, Telegram или сохранить .txt.")),
                     rptSt))
                 {
-                    ExportErrorReport();
+                    ShowReportMenu();
                 }
                 GUI.backgroundColor = prevBg;
                 GUILayout.Space(6);
@@ -196,14 +194,91 @@ namespace NovellaEngine.Editor
             GUILayout.EndArea();
         }
 
-        // Собирает текстовый отчёт со всеми ошибками + системной инфой,
-        // предлагает юзеру сохранить .txt и попутно кладёт в буфер обмена.
-        // Прямая отправка в Discord/etc сознательно не делается: webhook URL
-        // хардкодить нельзя (он попал бы в публичный репозиторий), а гонять
-        // данные пользователя через сторонний сервер без явного аутентифицированного
-        // действия — плохая практика. Текстовый экспорт безопаснее: юзер сам
-        // решает куда и кому скинуть отчёт.
-        private void ExportErrorReport()
+        // ─── Жалоба автору ─────────────────────────────────────────────────
+        // Контактные ссылки автора инструментария — захардкожены сознательно.
+        // Это публичные адреса (как email на сайте), не секреты. Меняются
+        // правкой кода (и это правильно: юзеру не надо лезть в настройки).
+        // Discord User ID можно получить так: Settings → Advanced → Developer
+        // Mode → ПКМ по своему имени в чате → Copy User ID.
+        private const string AUTHOR_TELEGRAM_USERNAME = "PBGJ241";
+        private const string AUTHOR_DISCORD_USER_ID  = ""; // TODO: вставить свой Discord User ID
+
+        private void ShowReportMenu()
+        {
+            // Перед открытием любого канала всегда копируем отчёт в буфер
+            // обмена — юзеру останется только нажать Ctrl+V в открывшемся чате.
+            var menu = new GenericMenu();
+
+            menu.AddItem(new GUIContent(ToolLang.Get(
+                    "📋  Copy report to clipboard",
+                    "📋  Скопировать отчёт в буфер")),
+                false, () => { CopyReportToClipboard(); ShowReportToast(); });
+
+            menu.AddSeparator("");
+
+            menu.AddItem(new GUIContent(ToolLang.Get(
+                    "✈  Open Telegram chat (@" + AUTHOR_TELEGRAM_USERNAME + ")",
+                    "✈  Открыть Telegram (@" + AUTHOR_TELEGRAM_USERNAME + ")")),
+                false, () =>
+                {
+                    CopyReportToClipboard();
+                    Application.OpenURL("https://t.me/" + AUTHOR_TELEGRAM_USERNAME);
+                    ShowReportToast();
+                });
+
+            if (!string.IsNullOrEmpty(AUTHOR_DISCORD_USER_ID))
+            {
+                menu.AddItem(new GUIContent(ToolLang.Get(
+                        "💬  Open Discord profile",
+                        "💬  Открыть профиль в Discord")),
+                    false, () =>
+                    {
+                        CopyReportToClipboard();
+                        // discord:// открывает приложение если оно установлено;
+                        // если нет — браузер сам откроет https-ссылку при ошибке.
+                        Application.OpenURL("https://discord.com/users/" + AUTHOR_DISCORD_USER_ID);
+                        ShowReportToast();
+                    });
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get(
+                    "💬  Discord (link not set yet)",
+                    "💬  Discord (ссылка ещё не установлена)")));
+            }
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get(
+                    "💾  Save as .txt file…",
+                    "💾  Сохранить .txt…")),
+                false, () => ExportErrorReport());
+
+            menu.ShowAsContext();
+        }
+
+        // Кладёт отчёт в системный буфер обмена. Полный отчёт (со стеком и
+        // sysinfo) — тот же что у ExportErrorReport.
+        private void CopyReportToClipboard()
+        {
+            EditorGUIUtility.systemCopyBuffer = BuildReportText();
+        }
+
+        // Уведомление «отчёт в буфере» — короткий dialog. Для пользователей
+        // которые не знают что копирование уже произошло.
+        private void ShowReportToast()
+        {
+            EditorUtility.DisplayDialog(
+                ToolLang.Get("Report copied", "Отчёт скопирован"),
+                ToolLang.Get(
+                    "Error report has been copied to the clipboard. Paste it (Ctrl+V) into the opened chat.",
+                    "Отчёт скопирован в буфер обмена. Вставь его (Ctrl+V) в открывшийся чат."),
+                "OK");
+        }
+
+        // Сборщик текста отчёта вынесен в отдельный метод чтобы не дублировать
+        // логику между ExportErrorReport (сохранение в файл) и
+        // CopyReportToClipboard (вставка в чат).
+        private string BuildReportText()
         {
             var snap = NovellaConsoleStore.Snapshot();
             var sb = new System.Text.StringBuilder();
@@ -231,8 +306,19 @@ namespace NovellaEngine.Editor
                 }
                 sb.AppendLine();
             }
+            return sb.ToString();
+        }
 
-            string report = sb.ToString();
+        // Собирает текстовый отчёт со всеми ошибками + системной инфой,
+        // предлагает юзеру сохранить .txt и попутно кладёт в буфер обмена.
+        // Прямая отправка в Discord/etc сознательно не делается: webhook URL
+        // хардкодить нельзя (он попал бы в публичный репозиторий), а гонять
+        // данные пользователя через сторонний сервер без явного аутентифицированного
+        // действия — плохая практика. Текстовый экспорт безопаснее: юзер сам
+        // решает куда и кому скинуть отчёт.
+        private void ExportErrorReport()
+        {
+            string report = BuildReportText();
             EditorGUIUtility.systemCopyBuffer = report;
 
             string defaultName = "novella-error-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
@@ -254,14 +340,7 @@ namespace NovellaEngine.Editor
                 }
             }
 
-            // Информируем юзера что отчёт уже в буфере — даже если он отменил
-            // диалог сохранения, можно сразу вставить в Discord/issue tracker.
-            EditorUtility.DisplayDialog(
-                ToolLang.Get("Report copied", "Отчёт скопирован"),
-                ToolLang.Get(
-                    "Error report has been copied to the clipboard. Paste it into Discord, an issue tracker, or anywhere else.",
-                    "Отчёт об ошибках скопирован в буфер обмена. Вставь в Discord, issue tracker, или куда нужно."),
-                "OK");
+            ShowReportToast();
         }
 
         private void DrawFilterToggle(string icon, int count, ref bool value, string prefKey, Color tint, string tooltip)
@@ -321,6 +400,28 @@ namespace NovellaEngine.Editor
 
         private List<VisibleEntry> _visibleCache = new List<VisibleEntry>();
         private int _lastSnapshotCount = -1;
+        // Сигнатура текущих фильтров — если она поменялась с прошлого ребилда,
+        // кэш надо пересобрать даже если счётчик не изменился.
+        private string _lastFilterSig = null;
+
+        // Кэш GUIStyle для строк списка. Раньше каждая строка создавала по
+        // 4-5 новых GUIStyle на каждый кадр — при тысяче логов это сотни
+        // мс на кадр. Создаём один раз лениво и переиспользуем.
+        private bool _listStylesReady;
+        private GUIStyle _styleIcon, _styleMsg, _styleMsgSel, _styleCtx, _styleCtxSel,
+                         _styleCounter, _styleTime;
+        private void EnsureListStyles()
+        {
+            if (_listStylesReady) return;
+            _styleIcon       = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+            _styleMsg        = new GUIStyle(EditorStyles.label)     { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip };
+            _styleMsgSel     = new GUIStyle(_styleMsg);
+            _styleCtx        = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
+            _styleCtxSel     = new GUIStyle(_styleCtx);
+            _styleCounter    = new GUIStyle(EditorStyles.boldLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
+            _styleTime       = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleRight };
+            _listStylesReady = true;
+        }
 
         private void RebuildVisible(List<NovellaConsoleStore.LogEntry> snapshot)
         {
@@ -367,15 +468,26 @@ namespace NovellaEngine.Editor
             return true;
         }
 
+        private const float ROW_HEIGHT = 44f;
+
         private void DrawList(Rect rect)
         {
-            // Перестраиваем кэш если изменилось количество логов или фильтры
-            // (фильтры переключаются редко, для простоты — пересобираем всегда).
-            var snap = NovellaConsoleStore.Snapshot();
-            if (snap.Count != _lastSnapshotCount || true)
+            EnsureListStyles();
+
+            // Пересобираем кэш ТОЛЬКО если поменялось количество логов или
+            // фильтры. Раньше тут стояло «|| true» — кэш строился каждый кадр,
+            // плюс Snapshot() копировал весь буфер под локом. На 2000 записях
+            // это давало ощутимые лаги. Сейчас сначала проверяем дешёвый Count,
+            // и только при изменении вызываем Snapshot.
+            int curCount = NovellaConsoleStore.Count;
+            string filterSig = (_showLog ? "L" : "") + (_showWarn ? "W" : "") + (_showErr ? "E" : "")
+                               + "|" + (_collapse ? "1" : "0") + "|" + (_searchQuery ?? "");
+            if (curCount != _lastSnapshotCount || filterSig != _lastFilterSig)
             {
+                var snap = NovellaConsoleStore.Snapshot();
                 RebuildVisible(snap);
-                _lastSnapshotCount = snap.Count;
+                _lastSnapshotCount = curCount;
+                _lastFilterSig = filterSig;
             }
 
             GUILayout.BeginArea(rect);
@@ -392,30 +504,35 @@ namespace NovellaEngine.Editor
                 return;
             }
 
-            // Авто-прокрутка вниз — перед BeginScrollView устанавливаем нужный y.
-            if (_autoScroll)
+            float totalH = _visibleCache.Count * ROW_HEIGHT;
+
+            // Авто-прокрутка к низу.
+            if (_autoScroll) _listScroll.y = Mathf.Max(0, totalH - rect.height);
+
+            // Ручной BeginScrollView с заранее известной общей высотой —
+            // позволяет рендерить только видимый диапазон строк (виртуализация).
+            // Без этого 2000 строк рисовались каждый кадр все.
+            Rect scrollArea  = new Rect(0, 0, rect.width, rect.height);
+            Rect contentArea = new Rect(0, 0, rect.width - 16, totalH);
+            _listScroll = GUI.BeginScrollView(scrollArea, _listScroll, contentArea);
+
+            int firstVisible = Mathf.Max(0, (int)(_listScroll.y / ROW_HEIGHT) - 2);
+            int lastVisible  = Mathf.Min(_visibleCache.Count - 1,
+                                         (int)((_listScroll.y + rect.height) / ROW_HEIGHT) + 2);
+
+            for (int i = firstVisible; i <= lastVisible; i++)
             {
-                _listScroll.y = float.MaxValue;
+                Rect rowRect = new Rect(0, i * ROW_HEIGHT, contentArea.width, ROW_HEIGHT);
+                DrawEntryRow(rowRect, _visibleCache[i], i);
             }
 
-            _listScroll = GUILayout.BeginScrollView(_listScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
-
-            for (int i = 0; i < _visibleCache.Count; i++)
-            {
-                DrawEntryRow(_visibleCache[i], i);
-            }
-
-            GUILayout.EndScrollView();
+            GUI.EndScrollView();
             GUILayout.EndArea();
         }
 
-        private void DrawEntryRow(VisibleEntry ve, int filteredIndex)
+        private void DrawEntryRow(Rect row, VisibleEntry ve, int filteredIndex)
         {
             bool isSel = (filteredIndex == _selectedFiltered);
-
-            GUILayout.BeginHorizontal();
-            Rect row = GUILayoutUtility.GetRect(0, 44, GUILayout.ExpandWidth(true));
-            GUILayout.EndHorizontal();
 
             // Тон фона: чередование + подсветка выделенного.
             Color bg = (filteredIndex % 2 == 0)
@@ -429,26 +546,26 @@ namespace NovellaEngine.Editor
             Color typeCol = ColorForType(ve.Entry.Type);
             EditorGUI.DrawRect(new Rect(row.x + 4, row.y + 6, 3, row.height - 12), typeCol);
 
-            // Иконка.
-            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = typeCol;
-            GUI.Label(new Rect(row.x + 12, row.y, 22, row.height), IconForType(ve.Entry.Type), iconSt);
+            // Иконка (стиль кэширован, цвет меняем).
+            _styleIcon.normal.textColor = typeCol;
+            GUI.Label(new Rect(row.x + 12, row.y, 22, row.height), IconForType(ve.Entry.Type), _styleIcon);
 
-            // Сообщение — первая строка кратко (одна линия).
+            // Сообщение — первая строка кратко.
             string firstLine = ExtractFirstLine(ve.Entry.Message);
-            var msgSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip };
+            var msgSt = isSel ? _styleMsgSel : _styleMsg;
             msgSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
+
             float textX = row.x + 38;
             float counterW = ve.Count > 1 ? 38 : 0;
             float timeW = 60;
             float textW = row.width - (textX - row.x) - timeW - counterW - 12;
             GUI.Label(new Rect(textX, row.y + 2, textW, 20), firstLine, msgSt);
 
-            // Краткий контекст (первые ~100 символов второй строки или stack trace).
+            // Краткий контекст (первая строка стека или вторая строка сообщения).
             string ctx = ExtractContext(ve.Entry.Message, ve.Entry.StackTrace);
             if (!string.IsNullOrEmpty(ctx))
             {
-                var ctxSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
+                var ctxSt = isSel ? _styleCtxSel : _styleCtx;
                 ctxSt.normal.textColor = isSel ? C_TEXT_3 : C_TEXT_4;
                 GUI.Label(new Rect(textX, row.y + 22, textW, 18), ctx, ctxSt);
             }
@@ -458,16 +575,14 @@ namespace NovellaEngine.Editor
             {
                 Rect cntRect = new Rect(row.xMax - timeW - counterW - 6, row.y + 12, counterW, 20);
                 EditorGUI.DrawRect(cntRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f));
-                var cntSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
-                cntSt.normal.textColor = C_ACCENT;
-                GUI.Label(cntRect, ve.Count.ToString(), cntSt);
+                _styleCounter.normal.textColor = C_ACCENT;
+                GUI.Label(cntRect, ve.Count.ToString(), _styleCounter);
             }
 
             // Время.
             Rect timeRect = new Rect(row.xMax - timeW - 6, row.y + 12, timeW, 20);
-            var timeSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleRight };
-            timeSt.normal.textColor = C_TEXT_4;
-            GUI.Label(timeRect, ve.Entry.Time.ToString("HH:mm:ss"), timeSt);
+            _styleTime.normal.textColor = C_TEXT_4;
+            GUI.Label(timeRect, ve.Entry.Time.ToString("HH:mm:ss"), _styleTime);
 
             // Разделитель снизу.
             EditorGUI.DrawRect(new Rect(row.x + 8, row.yMax - 1, row.width - 16, 1), new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.4f));
