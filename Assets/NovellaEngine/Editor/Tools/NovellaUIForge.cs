@@ -2366,6 +2366,13 @@ namespace NovellaEngine.Editor
                         }
                     }
 
+                    // Раскрываем путь до выделенного объекта в дереве слева
+                    // ВСЕГДА — даже если selection не изменился. Иначе если
+                    // юзер свернул Холст руками, повторные клики на этот же
+                    // объект уже не раскрывают (SyncSelectionToUnityIfNeeded
+                    // считает «не менялся» и пропускает).
+                    if (target != null) ExpandTreeToTarget(target);
+
                     if (FirstSelected != _canvas.GetComponent<RectTransform>()) BeginDrag(e.mousePosition);
                 }
                 else
