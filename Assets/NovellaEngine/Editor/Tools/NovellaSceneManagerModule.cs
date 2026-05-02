@@ -1779,7 +1779,146 @@ namespace NovellaEngine.Editor
             sl.MCConfirmButton  = mcPanel.Confirm;
             sl.MCNameInput      = mcPanel.NameInput;
 
+            // Авто-привязка истории и префаба кнопки. Без них список историй
+            // в StoriesPanel был бы пустым и при клике на «Новая игра»
+            // пользователь видел бы пустой экран.
+            var starterTree   = EnsureStarterTree();
+            var starterStory  = EnsureStarterStory(starterTree);
+            var storyBtnPref  = EnsureStoryButtonPrefab();
+            sl.StoryButtonPrefab = storyBtnPref;
+            if (sl.SpecificStories == null) sl.SpecificStories = new List<NovellaStory>();
+            if (!sl.SpecificStories.Contains(starterStory)) sl.SpecificStories.Add(starterStory);
+
             Selection.activeGameObject = marker;
+        }
+
+        // ─── Авто-привязка ассетов: NovellaTree / NovellaStory / StoryButtonPrefab ───
+        // Цель: чтобы пресет работал «прямо из коробки» — не пришлось ничего
+        // привязывать руками. Все три helper’а сначала ищут существующее в проекте
+        // через AssetDatabase, и только если не нашли — создают минимальный
+        // дефолт. Дубликаты не плодятся, повторный вызов вернёт тот же ассет.
+
+        private const string GENERATED_DIR = "Assets/NovellaEngine/Generated";
+        private const string GENERATED_TREE = "Assets/NovellaEngine/Generated/Starter_Chapter.asset";
+        private const string GENERATED_STORY_DIR = "Assets/NovellaEngine/Resources/Stories";
+        private const string GENERATED_STORY = "Assets/NovellaEngine/Resources/Stories/Starter_Story.asset";
+        private const string GENERATED_STORY_BTN = "Assets/NovellaEngine/Generated/Starter_StoryButton.prefab";
+
+        private static void EnsureFolder(string path)
+        {
+            // path в формате Assets/Foo/Bar — рекурсивно создаём недостающие папки.
+            if (string.IsNullOrEmpty(path) || AssetDatabase.IsValidFolder(path)) return;
+            var parts = path.Split('/');
+            string acc = parts[0];
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string next = acc + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next))
+                    AssetDatabase.CreateFolder(acc, parts[i]);
+                acc = next;
+            }
+        }
+
+        // Возвращает любой имеющийся NovellaTree в проекте (первый по AssetDatabase),
+        // или создаёт пустой Starter_Chapter.asset если в проекте нет ни одного.
+        private NovellaTree EnsureStarterTree()
+        {
+            var guids = AssetDatabase.FindAssets("t:NovellaTree");
+            if (guids != null && guids.Length > 0)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                var existing = AssetDatabase.LoadAssetAtPath<NovellaTree>(path);
+                if (existing != null) return existing;
+            }
+
+            EnsureFolder(GENERATED_DIR);
+            var tree = ScriptableObject.CreateInstance<NovellaTree>();
+            // Пустой tree без нодов — Player не упадёт, просто покажет лог
+            // «нет стартового узла», и юзер откроет граф чтобы добавить контент.
+            // Создавать здесь полноценный DialogueNode с фразой не стоит:
+            // это требует валидного NovellaCharacter и LocalizedString с RU/EN —
+            // юзер потом всё равно перепишет под свою историю.
+            AssetDatabase.CreateAsset(tree, GENERATED_TREE);
+            AssetDatabase.SaveAssets();
+            return tree;
+        }
+
+        // Возвращает первую NovellaStory в проекте, или создаёт Starter_Story
+        // в Resources/Stories со ссылкой на переданный chapter (стартовая глава).
+        private NovellaStory EnsureStarterStory(NovellaTree chapter)
+        {
+            var guids = AssetDatabase.FindAssets("t:NovellaStory");
+            if (guids != null && guids.Length > 0)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                var existing = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
+                if (existing != null)
+                {
+                    // Если у существующей истории не назначена стартовая глава,
+                    // пристёгиваем переданную — иначе StoryLauncher отфильтрует
+                    // её в LoadStoriesFromResources (там есть `if StartingChapter == null continue`).
+                    if (existing.StartingChapter == null && chapter != null)
+                    {
+                        existing.StartingChapter = chapter;
+                        EditorUtility.SetDirty(existing);
+                        AssetDatabase.SaveAssets();
+                    }
+                    return existing;
+                }
+            }
+
+            EnsureFolder(GENERATED_STORY_DIR);
+            var story = ScriptableObject.CreateInstance<NovellaStory>();
+            story.Title = "Starter Story";
+            story.Description = "Auto-generated stub story. Replace with your own.";
+            story.StartingChapter = chapter;
+            AssetDatabase.CreateAsset(story, GENERATED_STORY);
+            AssetDatabase.SaveAssets();
+            return story;
+        }
+
+        // Создаёт минимальный prefab кнопки выбора истории в Generated/.
+        // Один Button c Image-фоном и двумя TMP_Text-ами (Title + Description) —
+        // это формат, которого ждёт StoryLauncher.LoadStoriesFromResources.
+        private GameObject EnsureStoryButtonPrefab()
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(GENERATED_STORY_BTN);
+            if (existing != null) return existing;
+
+            EnsureFolder(GENERATED_DIR);
+
+            var go = new GameObject("StoryButton");
+            var rt = go.AddComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(800, 120);
+
+            var img = go.AddComponent<UnityEngine.UI.Image>();
+            img.color = new Color(0.14f, 0.16f, 0.20f, 0.95f);
+            go.AddComponent<UnityEngine.UI.Button>();
+
+            // Title
+            var titleGo = CreateUIText(go, "Title", "Story Title", 28, FontStyle.Bold);
+            var tRT = titleGo.GetComponent<RectTransform>();
+            tRT.anchorMin = new Vector2(0, 0.55f);
+            tRT.anchorMax = new Vector2(1, 1f);
+            tRT.offsetMin = new Vector2(20, 0);
+            tRT.offsetMax = new Vector2(-20, -8);
+            var tT = titleGo.GetComponent<TMPro.TextMeshProUGUI>();
+            tT.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
+
+            // Description
+            var descGo = CreateUIText(go, "Description", "Short description here…", 16, FontStyle.Normal);
+            var dRT = descGo.GetComponent<RectTransform>();
+            dRT.anchorMin = new Vector2(0, 0);
+            dRT.anchorMax = new Vector2(1, 0.55f);
+            dRT.offsetMin = new Vector2(20, 8);
+            dRT.offsetMax = new Vector2(-20, 0);
+            var dT = descGo.GetComponent<TMPro.TextMeshProUGUI>();
+            dT.alignment = TMPro.TextAlignmentOptions.TopLeft;
+            dT.color = new Color(0.78f, 0.80f, 0.86f);
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, GENERATED_STORY_BTN);
+            UnityEngine.Object.DestroyImmediate(go);
+            return prefab;
         }
 
         // Helper: вешает на GameObject (с Button-ом) NovellaUIBinding с одним
@@ -2000,6 +2139,10 @@ namespace NovellaEngine.Editor
             p.DialogueBodyText    = dialogueText.GetComponent<TMPro.TMP_Text>();
             p.ChoiceContainer     = choiceContainer.transform;
             p.CharactersContainer = charLayer.transform;
+            // Авто-привязка StoryTree: ищем существующий NovellaTree в проекте
+            // или создаём пустой Starter_Chapter. Без StoryTree NovellaPlayer
+            // не запускается вообще.
+            p.StoryTree           = EnsureStarterTree();
 
             // ─── Гардероб (MC Creation panel) — изначально скрыта ─────────
             // Юзер может показать её через NovellaUIBinding.ShowPanel из любой

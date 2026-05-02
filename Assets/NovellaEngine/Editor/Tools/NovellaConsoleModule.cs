@@ -145,6 +145,35 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
+            // Кнопка экспорта отчёта (видна только если есть хоть одна ошибка).
+            // Дополнительно дублируется в буфер обмена — юзеру удобно сразу
+            // вставить в Discord/issue без лишних шагов.
+            if (counts.error > 0)
+            {
+                var rptSt = new GUIStyle(EditorStyles.miniButton)
+                {
+                    fontSize = 11,
+                    fixedHeight = 22,
+                    padding = new RectOffset(10, 10, 2, 2),
+                    fontStyle = FontStyle.Bold,
+                };
+                rptSt.normal.textColor = new Color(0.92f, 0.36f, 0.36f);
+
+                var prevBg = GUI.backgroundColor;
+                GUI.backgroundColor = new Color(0.92f, 0.36f, 0.36f, 0.22f);
+                if (GUILayout.Button(new GUIContent(
+                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})"), counts.error),
+                        ToolLang.Get(
+                            "Save a report file with all errors (Unity / OS info included). The same content is also copied to the clipboard so you can paste it into Discord/issue tracker.",
+                            "Сохранить файл отчёта со всеми ошибками (плюс инфа о Unity/ОС). Тот же текст копируется в буфер обмена — можно сразу вставить в Discord/issue tracker.")),
+                    rptSt))
+                {
+                    ExportErrorReport();
+                }
+                GUI.backgroundColor = prevBg;
+                GUILayout.Space(6);
+            }
+
             // Кнопка очистки.
             var clrSt = new GUIStyle(EditorStyles.miniButton)
             {
@@ -165,6 +194,74 @@ namespace NovellaEngine.Editor
             GUILayout.Space(10);
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
+        }
+
+        // Собирает текстовый отчёт со всеми ошибками + системной инфой,
+        // предлагает юзеру сохранить .txt и попутно кладёт в буфер обмена.
+        // Прямая отправка в Discord/etc сознательно не делается: webhook URL
+        // хардкодить нельзя (он попал бы в публичный репозиторий), а гонять
+        // данные пользователя через сторонний сервер без явного аутентифицированного
+        // действия — плохая практика. Текстовый экспорт безопаснее: юзер сам
+        // решает куда и кому скинуть отчёт.
+        private void ExportErrorReport()
+        {
+            var snap = NovellaConsoleStore.Snapshot();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== Novella Studio — error report ===");
+            sb.Append("Generated: ").AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            sb.Append("Unity:     ").AppendLine(Application.unityVersion);
+            sb.Append("Platform:  ").AppendLine(Application.platform.ToString());
+            sb.Append("OS:        ").AppendLine(SystemInfo.operatingSystem);
+            sb.Append("Project:   ").AppendLine(Application.productName);
+            sb.AppendLine();
+
+            int errIdx = 0;
+            for (int i = 0; i < snap.Count; i++)
+            {
+                var e = snap[i];
+                bool isErr = e.Type == LogType.Error || e.Type == LogType.Exception || e.Type == LogType.Assert;
+                if (!isErr) continue;
+                errIdx++;
+                sb.Append("--- #").Append(errIdx).Append("  [").Append(e.Type).Append("]  ").AppendLine(e.Time.ToString("HH:mm:ss"));
+                sb.AppendLine(e.Message);
+                if (!string.IsNullOrEmpty(e.StackTrace))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(e.StackTrace);
+                }
+                sb.AppendLine();
+            }
+
+            string report = sb.ToString();
+            EditorGUIUtility.systemCopyBuffer = report;
+
+            string defaultName = "novella-error-report-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
+            string path = EditorUtility.SaveFilePanel(
+                ToolLang.Get("Save error report", "Сохранить отчёт об ошибках"),
+                "", defaultName, "txt");
+            if (!string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    System.IO.File.WriteAllText(path, report);
+                    EditorUtility.RevealInFinder(path);
+                }
+                catch (Exception ex)
+                {
+                    EditorUtility.DisplayDialog(
+                        ToolLang.Get("Save failed", "Не удалось сохранить"),
+                        ex.Message, "OK");
+                }
+            }
+
+            // Информируем юзера что отчёт уже в буфере — даже если он отменил
+            // диалог сохранения, можно сразу вставить в Discord/issue tracker.
+            EditorUtility.DisplayDialog(
+                ToolLang.Get("Report copied", "Отчёт скопирован"),
+                ToolLang.Get(
+                    "Error report has been copied to the clipboard. Paste it into Discord, an issue tracker, or anywhere else.",
+                    "Отчёт об ошибках скопирован в буфер обмена. Вставь в Discord, issue tracker, или куда нужно."),
+                "OK");
         }
 
         private void DrawFilterToggle(string icon, int count, ref bool value, string prefKey, Color tint, string tooltip)

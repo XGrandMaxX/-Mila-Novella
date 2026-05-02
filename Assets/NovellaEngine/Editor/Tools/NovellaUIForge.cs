@@ -770,8 +770,11 @@ namespace NovellaEngine.Editor
 
             // Подсказка над первым холстом про Alt+клик — чтобы юзер сам
             // догадался про массовое сворачивание/разворачивание поддерева.
-            // Видна только когда в дереве есть хоть один элемент с детьми и нет фильтра.
-            if (_allRects.Count > 0 && string.IsNullOrEmpty(_treeFilter))
+            // Видна только когда:
+            //   • глобальный тоггл подсказок включён (ShowGuide),
+            //   • в дереве есть элементы,
+            //   • поиск не активен (иначе занимает дефицитное место).
+            if (NovellaSettingsModule.ShowGuide && _allRects.Count > 0 && string.IsNullOrEmpty(_treeFilter))
             {
                 GUILayout.Space(4);
                 Rect hintRect = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
