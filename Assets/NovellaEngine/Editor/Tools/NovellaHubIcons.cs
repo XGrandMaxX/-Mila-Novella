@@ -169,20 +169,24 @@ namespace NovellaEngine.Editor
                     DrawLine(tex, 16, 19, 22, 19);
                     break;
                 case Icon.Settings:
-                    // Шестерёнка: внешний контур + внутренний кружок + 8 зубцов.
-                    // Делаем зубцы линиями (короткими радиальными штрихами).
-                    DrawCircle(tex, 16, 16, 9);
-                    DrawCircle(tex, 16, 16, 3);
-                    // Cardinal teeth (длиннее)
-                    DrawLine(tex, 16, 3,  16, 6);
-                    DrawLine(tex, 16, 26, 16, 29);
-                    DrawLine(tex, 3,  16, 6,  16);
-                    DrawLine(tex, 26, 16, 29, 16);
-                    // Diagonal teeth (короче)
-                    DrawLine(tex, 7,  7,  9,  9);
-                    DrawLine(tex, 23, 23, 25, 25);
-                    DrawLine(tex, 7,  25, 9,  23);
-                    DrawLine(tex, 23, 9,  25, 7);
+                    // Шестерёнка: тело-«ромашка» с 8 зубцами + центральная дырка.
+                    // Зубцы — толстые штрихи радиально из тела наружу. Чтобы
+                    // зубец читался как трапеция, рисуем его двумя параллельными
+                    // линиями. Длиннее → больше похоже на cog.
+                    DrawCircle(tex, 16, 16, 8);  // тело
+                    DrawCircle(tex, 16, 16, 3);  // дырка по центру
+
+                    // 4 кардинала — пары линий для эффекта «трапеции».
+                    DrawLine(tex, 14, 2,  14, 8);   DrawLine(tex, 18, 2,  18, 8);   // верх
+                    DrawLine(tex, 14, 24, 14, 30);  DrawLine(tex, 18, 24, 18, 30);  // низ
+                    DrawLine(tex, 2,  14, 8,  14);  DrawLine(tex, 2,  18, 8,  18);  // лево
+                    DrawLine(tex, 24, 14, 30, 14);  DrawLine(tex, 24, 18, 30, 18);  // право
+
+                    // 4 диагонали — также парами.
+                    DrawLine(tex, 5,  6,  10, 11);  DrawLine(tex, 6,  5,  11, 10);  // ↖
+                    DrawLine(tex, 22, 21, 27, 26);  DrawLine(tex, 21, 22, 26, 27);  // ↘
+                    DrawLine(tex, 5,  26, 10, 21);  DrawLine(tex, 6,  27, 11, 22);  // ↙
+                    DrawLine(tex, 22, 11, 27, 6);   DrawLine(tex, 21, 10, 26, 5);   // ↗
                     break;
             }
         }

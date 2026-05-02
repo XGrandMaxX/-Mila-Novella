@@ -1,4 +1,6 @@
 ﻿using NovellaEngine.Data;
+using NovellaEngine.Runtime;
+using NovellaEngine.Runtime.UI;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1665,6 +1667,13 @@ namespace NovellaEngine.Editor
             DestroyByName(MARKER_GAMEPLAY);
             DestroyByName("[Novella]_Canvas");
             DestroyByName("[Novella]_Camera");
+            // Дополнительно: новые объекты пресета (StoryLauncher / NovellaPlayer
+            // и сопутствующие panel-маркеры). Без этой строки Clear оставлял бы
+            // «осиротевшие» компоненты, которые потом ругаются null-ссылками.
+            DestroyByName("[Novella]_StoryLauncher");
+            DestroyByName("[Novella]_Player");
+            DestroyByName("StoriesPanel");
+            DestroyByName("MCCreationPanel");
 
             var canvas = Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
             foreach (var c in canvas)
@@ -1699,6 +1708,7 @@ namespace NovellaEngine.Editor
             EnsureEventSystem();
             var canvas = CreateCanvas("[Novella]_Canvas");
 
+            // ─── Main menu panel (root) ──────────────────────────────────────
             var marker = new GameObject(MARKER_MAINMENU);
             marker.transform.SetParent(canvas.transform, false);
             var markerRT = marker.AddComponent<RectTransform>();
@@ -1713,12 +1723,204 @@ namespace NovellaEngine.Editor
             titleRT.anchoredPosition = new Vector2(0, -120);
             titleRT.sizeDelta = new Vector2(800, 100);
 
-            var btnNew = CreateUIButton(marker, "Btn_NewGame", ToolLang.Get("New game", "Новая игра"), new Vector2(0, -80));
-            var btnContinue = CreateUIButton(marker, "Btn_Continue", ToolLang.Get("Continue", "Продолжить"), new Vector2(0, -160));
-            var btnSettings = CreateUIButton(marker, "Btn_Settings", ToolLang.Get("Settings", "Настройки"), new Vector2(0, -240));
-            var btnQuit = CreateUIButton(marker, "Btn_Quit", ToolLang.Get("Quit", "Выход"), new Vector2(0, -320));
+            // Имена кнопок жёстко зашиты под StoryLauncher.AutoWireButtons:
+            //   Btn_StartPlay → ShowPanel(StoriesPanel)
+            //   Btn_Settings  → OpenSettings
+            //   Btn_Exit      → ExitGame
+            // Btn_Continue не auto-wired (загрузка сейва живёт в NovellaPlayer);
+            // ему вешаем NovellaUIBinding с действием LoadLastSave.
+            var btnStart    = CreateUIButton(marker, "Btn_StartPlay", ToolLang.Get("New game",   "Новая игра"),  new Vector2(0, -80));
+            var btnContinue = CreateUIButton(marker, "Btn_Continue",  ToolLang.Get("Continue",   "Продолжить"),  new Vector2(0, -160));
+            var btnSettings = CreateUIButton(marker, "Btn_Settings",  ToolLang.Get("Settings",   "Настройки"),   new Vector2(0, -240));
+            var btnExit     = CreateUIButton(marker, "Btn_Exit",      ToolLang.Get("Quit",       "Выход"),       new Vector2(0, -320));
+
+            AddLoadLastSaveBinding(btnContinue);
+
+            // ─── Stories panel — список историй из Resources ─────────────────
+            // StoryLauncher.LoadStoriesFromResources() сам инстанцирует
+            // StoryButtonPrefab под каждый ассет в Resources/Stories.
+            var storiesPanel = new GameObject("StoriesPanel");
+            storiesPanel.transform.SetParent(canvas.transform, false);
+            var spRT = storiesPanel.AddComponent<RectTransform>();
+            spRT.anchorMin = Vector2.zero; spRT.anchorMax = Vector2.one;
+            spRT.offsetMin = Vector2.zero; spRT.offsetMax = Vector2.zero;
+
+            var storiesContainer = new GameObject("StoriesContainer");
+            storiesContainer.transform.SetParent(storiesPanel.transform, false);
+            var scRT = storiesContainer.AddComponent<RectTransform>();
+            scRT.anchorMin = new Vector2(0.5f, 0.5f);
+            scRT.anchorMax = new Vector2(0.5f, 0.5f);
+            scRT.pivot = new Vector2(0.5f, 0.5f);
+            scRT.sizeDelta = new Vector2(900, 600);
+            scRT.anchoredPosition = Vector2.zero;
+            var vlg = storiesContainer.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            vlg.padding = new RectOffset(20, 20, 20, 20);
+            vlg.spacing = 12;
+            vlg.childForceExpandHeight = false;
+            vlg.childAlignment = TextAnchor.UpperCenter;
+
+            storiesPanel.SetActive(false);
+
+            // ─── MC Creation panel — гардероб / редактор персонажа ───────────
+            var mcPanel = BuildMCCreationPanel(canvas, active: false);
+
+            // ─── StoryLauncher с привязанными ссылками ───────────────────────
+            // Без StoryLauncher кнопки в главном меню были бы декоративными —
+            // его наличие в сцене обязательно для пресета MainMenu.
+            var slGO = new GameObject("[Novella]_StoryLauncher");
+            var sl   = slGO.AddComponent<StoryLauncher>();
+            sl.MainMenuPanel    = marker;
+            sl.StoriesPanel     = storiesPanel;
+            sl.StoriesContainer = storiesContainer.transform;
+            sl.MCCreationPanel  = mcPanel.gameObject;
+            sl.MCAvatarPreview  = mcPanel.AvatarPreview;
+            sl.MCPrevLookButton = mcPanel.PrevLook;
+            sl.MCNextLookButton = mcPanel.NextLook;
+            sl.MCConfirmButton  = mcPanel.Confirm;
+            sl.MCNameInput      = mcPanel.NameInput;
 
             Selection.activeGameObject = marker;
+        }
+
+        // Helper: вешает на GameObject (с Button-ом) NovellaUIBinding с одним
+        // шагом LoadLastSave. Используется для Btn_Continue в Main Menu.
+        private static void AddLoadLastSaveBinding(GameObject btnGo)
+        {
+            if (btnGo == null) return;
+            var b = btnGo.GetComponent<NovellaUIBinding>();
+            if (b == null) b = btnGo.AddComponent<NovellaUIBinding>();
+            b.EnsureId();
+            b.Name = btnGo.name;
+            if (b.ClickSequence == null) b.ClickSequence = new List<NovellaUIBinding.ClickActionStep>();
+            b.ClickSequence.Clear();
+            b.ClickSequence.Add(new NovellaUIBinding.ClickActionStep
+            {
+                Action = NovellaUIBinding.BindingAction.LoadLastSave
+            });
+        }
+
+        // Контейнер ссылок на дочерние элементы MC Creation Panel — чтобы
+        // снаружи можно было одной строкой собрать всё необходимое.
+        private struct MCPanelRefs
+        {
+            public GameObject gameObject;
+            public UnityEngine.UI.Image  AvatarPreview;
+            public UnityEngine.UI.Button PrevLook;
+            public UnityEngine.UI.Button NextLook;
+            public UnityEngine.UI.Button Confirm;
+            public TMPro.TMP_InputField  NameInput;
+        }
+
+        // Собирает «гардероб»: AvatarPreview + кнопки переключения внешности +
+        // поле ввода имени + кнопка подтверждения. Имена строго совпадают с
+        // тем что StoryLauncher.AutoFindPanels() ищет рекурсивно.
+        private MCPanelRefs BuildMCCreationPanel(Canvas canvas, bool active)
+        {
+            var panel = new GameObject("MCCreationPanel");
+            panel.transform.SetParent(canvas.transform, false);
+            var rt = panel.AddComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+
+            // Полупрозрачный фон, чтобы был «модальный» вид.
+            var bgGo = CreateUIImage(panel, "Background", new Color(0.07f, 0.08f, 0.10f, 0.92f));
+            var bgRT = bgGo.GetComponent<RectTransform>();
+            bgRT.anchorMin = Vector2.zero; bgRT.anchorMax = Vector2.one;
+            bgRT.offsetMin = Vector2.zero; bgRT.offsetMax = Vector2.zero;
+
+            // AvatarPreview (Image) — посередине.
+            var avatarGo = CreateUIImage(panel, "AvatarPreview", new Color(0.30f, 0.32f, 0.40f));
+            var avRT = avatarGo.GetComponent<RectTransform>();
+            avRT.anchorMin = new Vector2(0.5f, 0.5f);
+            avRT.anchorMax = new Vector2(0.5f, 0.5f);
+            avRT.pivot     = new Vector2(0.5f, 0.5f);
+            avRT.sizeDelta = new Vector2(500, 700);
+            avRT.anchoredPosition = new Vector2(0, 40);
+
+            // Btn_PrevLook / Btn_NextLook — слева/справа от аватара.
+            var prev = CreateUIButton(panel, "Btn_PrevLook", "←", new Vector2(-360, 40));
+            prev.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 80);
+            var next = CreateUIButton(panel, "Btn_NextLook", "→", new Vector2( 360, 40));
+            next.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 80);
+
+            // MCNameInput (TMP_InputField).
+            var nameGo = CreateUIInputField(panel, "MCNameInput",
+                ToolLang.Get("Your name", "Ваше имя"), new Vector2(0, -380));
+
+            // Btn_Confirm (нет авто-вайра по имени — просто декоративный
+            // ярлык, StoryLauncher.AutoWireButtons вешает его сам по ссылке
+            // MCConfirmButton).
+            var confirm = CreateUIButton(panel, "Btn_Confirm",
+                ToolLang.Get("Confirm", "Готово"), new Vector2(0, -460));
+
+            panel.SetActive(active);
+
+            return new MCPanelRefs
+            {
+                gameObject    = panel,
+                AvatarPreview = avatarGo.GetComponent<UnityEngine.UI.Image>(),
+                PrevLook      = prev.GetComponent<UnityEngine.UI.Button>(),
+                NextLook      = next.GetComponent<UnityEngine.UI.Button>(),
+                Confirm       = confirm.GetComponent<UnityEngine.UI.Button>(),
+                NameInput     = nameGo.GetComponent<TMPro.TMP_InputField>(),
+            };
+        }
+
+        // TMP_InputField с placeholder'ом. По умолчанию белый фон, тёмный текст.
+        private GameObject CreateUIInputField(GameObject parent, string name, string placeholder, Vector2 anchoredPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = anchoredPos;
+            rt.sizeDelta = new Vector2(360, 56);
+
+            var bg = go.AddComponent<UnityEngine.UI.Image>();
+            bg.color = new Color(0.95f, 0.96f, 0.98f, 1f);
+
+            var input = go.AddComponent<TMPro.TMP_InputField>();
+
+            // Text-area child
+            var textArea = new GameObject("Text Area");
+            textArea.transform.SetParent(go.transform, false);
+            var taRT = textArea.AddComponent<RectTransform>();
+            taRT.anchorMin = Vector2.zero; taRT.anchorMax = Vector2.one;
+            taRT.offsetMin = new Vector2(12, 6); taRT.offsetMax = new Vector2(-12, -6);
+            var maskComp = textArea.AddComponent<UnityEngine.UI.RectMask2D>();
+
+            // Placeholder
+            var phGo = new GameObject("Placeholder");
+            phGo.transform.SetParent(textArea.transform, false);
+            var phRT = phGo.AddComponent<RectTransform>();
+            phRT.anchorMin = Vector2.zero; phRT.anchorMax = Vector2.one;
+            phRT.offsetMin = Vector2.zero; phRT.offsetMax = Vector2.zero;
+            var phT = phGo.AddComponent<TMPro.TextMeshProUGUI>();
+            phT.text = placeholder;
+            phT.fontStyle = TMPro.FontStyles.Italic;
+            phT.color = new Color(0.55f, 0.58f, 0.62f);
+            phT.fontSize = 22;
+            phT.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
+
+            // Real text
+            var txtGo = new GameObject("Text");
+            txtGo.transform.SetParent(textArea.transform, false);
+            var txtRT = txtGo.AddComponent<RectTransform>();
+            txtRT.anchorMin = Vector2.zero; txtRT.anchorMax = Vector2.one;
+            txtRT.offsetMin = Vector2.zero; txtRT.offsetMax = Vector2.zero;
+            var txtT = txtGo.AddComponent<TMPro.TextMeshProUGUI>();
+            txtT.text = "";
+            txtT.color = new Color(0.10f, 0.12f, 0.16f);
+            txtT.fontSize = 22;
+            txtT.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
+
+            input.textViewport = taRT;
+            input.textComponent = txtT;
+            input.placeholder   = phT;
+
+            return go;
         }
 
         // ═════════════════════════════════════════════════════════
@@ -1767,6 +1969,42 @@ namespace NovellaEngine.Editor
             var dtRT = dialogueText.GetComponent<RectTransform>();
             dtRT.anchorMin = Vector2.zero; dtRT.anchorMax = Vector2.one;
             dtRT.offsetMin = new Vector2(40, 30); dtRT.offsetMax = new Vector2(-40, -65);
+
+            // ChoiceContainer — сюда NovellaPlayer спавнит кнопки выбора.
+            // Layout по вертикали с интервалами, чтобы читалось из коробки.
+            var choiceContainer = new GameObject("ChoiceContainer");
+            choiceContainer.transform.SetParent(marker.transform, false);
+            var ccRT = choiceContainer.AddComponent<RectTransform>();
+            ccRT.anchorMin = new Vector2(0.5f, 0.5f);
+            ccRT.anchorMax = new Vector2(0.5f, 0.5f);
+            ccRT.pivot     = new Vector2(0.5f, 0.5f);
+            ccRT.sizeDelta = new Vector2(800, 600);
+            ccRT.anchoredPosition = new Vector2(0, 60);
+            var ccVlg = choiceContainer.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            ccVlg.spacing = 12;
+            ccVlg.childAlignment = TextAnchor.MiddleCenter;
+            ccVlg.childForceExpandHeight = false;
+            ccVlg.childForceExpandWidth  = true;
+            // ChoiceButtonPrefab — НЕ создаём в сцене (это prefab, не runtime).
+            // Если у юзера нет своего prefab'а, NovellaPlayer выводит warning при
+            // попытке показать выборы; решает юзер сам, пресет prefab’ы не плодит.
+
+            // ─── NovellaPlayer с ВСЕМИ привязками ──────────────────────────
+            // Без него пресет был «мёртвым» — диалоги, выборы, персонажи не
+            // работали. Теперь хватит назначить StoryTree в инспекторе плеера —
+            // и можно сразу запускать сцену.
+            var pGO = new GameObject("[Novella]_Player");
+            var p = pGO.AddComponent<NovellaPlayer>();
+            p.DialoguePanel       = dialogueBox;
+            p.SpeakerNameText     = speakerName.GetComponent<TMPro.TMP_Text>();
+            p.DialogueBodyText    = dialogueText.GetComponent<TMPro.TMP_Text>();
+            p.ChoiceContainer     = choiceContainer.transform;
+            p.CharactersContainer = charLayer.transform;
+
+            // ─── Гардероб (MC Creation panel) — изначально скрыта ─────────
+            // Юзер может показать её через NovellaUIBinding.ShowPanel из любой
+            // кнопки HUD. Имена и компоненты совпадают с auto-find в StoryLauncher.
+            BuildMCCreationPanel(canvas, active: false);
 
             Selection.activeGameObject = marker;
         }

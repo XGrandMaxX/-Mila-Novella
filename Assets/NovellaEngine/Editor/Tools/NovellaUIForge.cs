@@ -767,6 +767,29 @@ namespace NovellaEngine.Editor
             GUILayout.Space(6);
 
             _treeScroll = GUILayout.BeginScrollView(_treeScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
+
+            // Подсказка над первым холстом про Alt+клик — чтобы юзер сам
+            // догадался про массовое сворачивание/разворачивание поддерева.
+            // Видна только когда в дереве есть хоть один элемент с детьми и нет фильтра.
+            if (_allRects.Count > 0 && string.IsNullOrEmpty(_treeFilter))
+            {
+                GUILayout.Space(4);
+                Rect hintRect = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
+                EditorGUI.DrawRect(hintRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10f));
+                DrawRectBorder(hintRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f));
+                var hintTipSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.MiddleCenter,
+                    wordWrap = true,
+                };
+                hintTipSt.normal.textColor = C_TEXT_2;
+                GUI.Label(hintRect, ToolLang.Get(
+                    "💡 Alt + click on ▼/▶ — expand/collapse the whole subtree at once.",
+                    "💡 Alt + клик по ▼/▶ — раскрыть или свернуть всё поддерево разом."), hintTipSt);
+                GUILayout.Space(4);
+            }
+
             string filter = _treeFilter?.Trim().ToLowerInvariant() ?? "";
             bool useCollapse = filter.Length == 0;
             // skipRoot — корень свёрнутой ветки. Все элементы которые являются

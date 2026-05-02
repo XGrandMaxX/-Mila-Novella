@@ -442,7 +442,10 @@ namespace NovellaEngine.Runtime.UI
 
         // ─── ID generation ──────────────────────────────────────────────────────
 
-        private void EnsureId()
+        // Public, чтобы editor-скрипты (например пресеты сцен) могли явно
+        // гарантировать наличие _id сразу после AddComponent — иначе придётся
+        // надеяться на отложенный OnValidate.
+        public void EnsureId()
         {
             if (string.IsNullOrEmpty(_id))
             {

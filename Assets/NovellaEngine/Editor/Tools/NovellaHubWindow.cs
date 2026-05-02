@@ -227,6 +227,9 @@ namespace NovellaEngine.Editor
         private VisualElement _sideEl;
         private VisualElement _mainEl; // правая основная область — нужна для перекраски при смене темы
         private List<VisualElement> _modButtons;
+        // Бейджи на кнопке консоли в сайдбаре — три счётчика (logs / warnings / errors).
+        // Обновляются по событию NovellaConsoleStore.OnChanged.
+        private Label _consoleBadgeLog, _consoleBadgeWarn, _consoleBadgeErr;
         private Label _crumbCurrent;
         private IMGUIContainer _moduleContainer;
         private IMGUIContainer _tutorialOverlay;
@@ -338,6 +341,8 @@ namespace NovellaEngine.Editor
         {
             EditorApplication.projectChanged -= OnProjectChanged;
             NovellaSettingsModule.OnAppearanceChanged -= ApplyAppearance;
+            NovellaConsoleStore.OnChanged -= OnConsoleStoreChanged;
+            _consoleBadgeLog = _consoleBadgeWarn = _consoleBadgeErr = null;
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
             _tutorialPoll?.Pause();
             _tutorialPoll = null;
@@ -827,6 +832,11 @@ namespace NovellaEngine.Editor
                 };
                 var label = GetModuleLabelLocalized(i);
                 var btn = MakeModuleButton(label, icon, () => SwitchToModule(captured));
+                // На кнопке консоли — три бейджа со счётчиками логов.
+                if (icon == NovellaHubIcons.Console)
+                {
+                    AttachConsoleBadges(btn);
+                }
                 scroll.Add(btn);
                 _modButtons.Add(btn);
             }
@@ -849,6 +859,79 @@ namespace NovellaEngine.Editor
             var l = new Label(text.ToUpperInvariant());
             l.AddToClassList("ns-cat");
             return l;
+        }
+
+        // ─── Бейджи консоли в сайдбаре ─────────────────────────────────
+        // Три цветных пилюли «N ⓘ», «N ⚠», «N ✖» справа от названия.
+        // Каждый показывается только если соответствующий счётчик > 0.
+        private void AttachConsoleBadges(VisualElement btn)
+        {
+            var box = new VisualElement();
+            box.style.flexDirection = FlexDirection.Row;
+            box.style.alignItems = Align.Center;
+
+            _consoleBadgeLog  = MakeConsoleBadge(new Color(0.62f, 0.70f, 0.78f));
+            _consoleBadgeWarn = MakeConsoleBadge(new Color(0.95f, 0.78f, 0.30f));
+            _consoleBadgeErr  = MakeConsoleBadge(new Color(0.92f, 0.36f, 0.36f));
+
+            box.Add(_consoleBadgeLog);
+            box.Add(_consoleBadgeWarn);
+            box.Add(_consoleBadgeErr);
+            btn.Add(box);
+
+            // Подписываемся на изменения и сразу заполняем.
+            NovellaConsoleStore.OnChanged -= OnConsoleStoreChanged;
+            NovellaConsoleStore.OnChanged += OnConsoleStoreChanged;
+            UpdateConsoleBadges();
+        }
+
+        private static Label MakeConsoleBadge(Color tint)
+        {
+            var l = new Label("0");
+            l.style.fontSize = 9;
+            l.style.unityFontStyleAndWeight = FontStyle.Bold;
+            l.style.paddingLeft = 6; l.style.paddingRight = 6;
+            l.style.paddingTop = 1; l.style.paddingBottom = 1;
+            l.style.marginLeft = 3;
+            l.style.borderTopLeftRadius = 7;
+            l.style.borderTopRightRadius = 7;
+            l.style.borderBottomLeftRadius = 7;
+            l.style.borderBottomRightRadius = 7;
+            l.style.backgroundColor = new Color(tint.r, tint.g, tint.b, 0.22f);
+            l.style.color = tint;
+            l.style.display = DisplayStyle.None; // по умолчанию скрыт
+            return l;
+        }
+
+        private void OnConsoleStoreChanged()
+        {
+            // OnChanged может прилететь не из main thread — диспетчируем.
+            EditorApplication.delayCall += UpdateConsoleBadges;
+        }
+
+        private void UpdateConsoleBadges()
+        {
+            if (_consoleBadgeLog == null) return;
+            var c = NovellaConsoleStore.CountByType();
+            SetBadge(_consoleBadgeLog,  c.log,   "ⓘ");
+            SetBadge(_consoleBadgeWarn, c.warn,  "⚠");
+            SetBadge(_consoleBadgeErr,  c.error, "✖");
+        }
+
+        private static void SetBadge(Label l, int count, string icon)
+        {
+            if (l == null) return;
+            if (count <= 0)
+            {
+                l.style.display = DisplayStyle.None;
+            }
+            else
+            {
+                // Сжимаем большие числа: 99+ — потолок.
+                string num = count > 99 ? "99+" : count.ToString();
+                l.text = num + " " + icon;
+                l.style.display = DisplayStyle.Flex;
+            }
         }
 
         private VisualElement MakeModuleButton(string label, NovellaHubIcons.Icon icon, Action onClick)
