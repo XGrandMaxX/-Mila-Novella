@@ -987,12 +987,25 @@ namespace NovellaEngine.Editor
 
         // Пустышка — RectTransform-контейнер без графики. Используется как
         // логическая группа (например Character_Layer, HUD_Top), внутрь
-        // вкладывают другие элементы.
+        // вкладывают другие элементы. По дефолту растягиваем на весь родитель
+        // (full-stretch) — для слоя-контейнера это корректно: он покрывает всю
+        // канвас-зону, и дочерние элементы анкорятся внутри как нужно.
+        // Юзер может потом сжать вручную если нужен «локальный» контейнер.
         private void CreateEmpty()
         {
             string locName = ToolLang.Get("Group", "Группа");
             var go = new GameObject(locName);
-            PlaceUnderParent(go, new Vector2(200, 200), "Create Group");
+            var rt = PlaceUnderParent(go, new Vector2(200, 200), "Create Group");
+            if (rt != null)
+            {
+                // Перекрываем якоря на full-stretch и обнуляем offsets.
+                rt.anchorMin = new Vector2(0f, 0f);
+                rt.anchorMax = new Vector2(1f, 1f);
+                rt.pivot     = new Vector2(0.5f, 0.5f);
+                rt.offsetMin = Vector2.zero;
+                rt.offsetMax = Vector2.zero;
+                EditorUtility.SetDirty(rt);
+            }
         }
 
         private int ComputeDepth(RectTransform rt)
@@ -1312,11 +1325,15 @@ namespace NovellaEngine.Editor
 
             menu.AddDisabledItem(new GUIContent(string.Format(ToolLang.Get("Create inside: {0}", "Создать внутри: {0}"), parentName)));
             menu.AddSeparator("");
+            // «Пустая группа» — особый кейс: это контейнер-слой (HUD_Top, Character_Layer и т.п.),
+            // им юзер обычно структурирует сцену ДО того как добавляет контент.
+            // Поэтому ставим её первой и отделяем от обычных UI-элементов.
+            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateEmpty(); });
+            menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateText(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreatePanel(); });
-            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateEmpty(); });
             menu.AddSeparator("");
 
             bool isCanvas = rt == _canvas.GetComponent<RectTransform>();
@@ -1347,11 +1364,14 @@ namespace NovellaEngine.Editor
 
             menu.AddDisabledItem(new GUIContent(string.Format(ToolLang.Get("Create inside: {0}", "Создать внутри: {0}"), parentName)));
             menu.AddSeparator("");
+            // «Пустая группа» — наверху и через сепаратор: это контейнер-слой,
+            // им структурируют сцену до контента.
+            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateEmpty(); });
+            menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📝 Text", "📝 Текст")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateText(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreatePanel(); });
-            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateEmpty(); });
             menu.ShowAsContext();
         }
 

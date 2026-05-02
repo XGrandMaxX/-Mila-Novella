@@ -18,7 +18,7 @@ namespace NovellaEngine.Editor
     /// </summary>
     public static class NovellaHubIcons
     {
-        public enum Icon { Home, Characters, Scenes, UIEditor, Variables, Graph, Dialogues, Gallery, Search, Menu, Story, Plus, Lightbulb, Settings }
+        public enum Icon { Home, Characters, Scenes, UIEditor, Variables, Graph, Dialogues, Gallery, Search, Menu, Story, Plus, Lightbulb, Settings, Console }
 
         public const Icon Home = Icon.Home;
         public const Icon Characters = Icon.Characters;
@@ -34,6 +34,7 @@ namespace NovellaEngine.Editor
         public const Icon Plus = Icon.Plus;
         public const Icon Lightbulb = Icon.Lightbulb;
         public const Icon Settings = Icon.Settings;
+        public const Icon Console = Icon.Console;
 
         private const int SIZE = 32;
         private const int STROKE = 2;
@@ -157,6 +158,15 @@ namespace NovellaEngine.Editor
                     DrawLine(tex, 13, 26, 19, 26);
                     DrawLine(tex, 13, 16, 13, 22);
                     DrawLine(tex, 19, 16, 19, 22);
+                    break;
+                case Icon.Console:
+                    // Окно терминала: рамка + шеврон ">" + курсор.
+                    DrawRect(tex, 4, 7, 24, 18);
+                    // ">" prompt в верхней-левой части
+                    DrawLine(tex,  9, 13, 13, 16);
+                    DrawLine(tex, 13, 16,  9, 19);
+                    // Курсор-черта рядом
+                    DrawLine(tex, 16, 19, 22, 19);
                     break;
                 case Icon.Settings:
                     // Шестерёнка: внешний контур + внутренний кружок + 8 зубцов.

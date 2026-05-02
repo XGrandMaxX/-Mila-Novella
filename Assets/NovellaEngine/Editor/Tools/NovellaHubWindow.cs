@@ -284,6 +284,7 @@ namespace NovellaEngine.Editor
                 new NovellaSceneManagerModule(),
                 new NovellaUIForge(),
                 new NovellaVariableEditorModule(),
+                new NovellaConsoleModule(),
                 new NovellaSettingsModule(),
             };
             foreach (var m in _modules) m.OnEnable(this);
@@ -820,7 +821,8 @@ namespace NovellaEngine.Editor
                     2 => NovellaHubIcons.Scenes,
                     3 => NovellaHubIcons.UIEditor,
                     4 => NovellaHubIcons.Variables,
-                    5 => NovellaHubIcons.Settings,
+                    5 => NovellaHubIcons.Console,
+                    6 => NovellaHubIcons.Settings,
                     _ => NovellaHubIcons.Home,
                 };
                 var label = GetModuleLabelLocalized(i);
