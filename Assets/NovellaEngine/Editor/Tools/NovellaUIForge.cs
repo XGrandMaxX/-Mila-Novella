@@ -673,38 +673,20 @@ namespace NovellaEngine.Editor
             }
         }
 
-        // Меню «➕ Сцена ▾» в дереве — позволяет добавить Player / Launcher
-        // или применить полный пресет когда канвас уже есть.
+        // Открывает красивый диалог с карточками вместо плоского GenericMenu.
+        // Юзер видит описание каждого компонента / пресета и сознательно
+        // выбирает что добавить.
         private void ShowSceneComponentMenu()
         {
-            var menu = new GenericMenu();
-
-            bool playerExists = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null;
+            bool playerExists   = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null;
             bool launcherExists = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null;
 
-            if (playerExists)
-                menu.AddDisabledItem(new GUIContent(ToolLang.Get("✓ NovellaPlayer (already in scene)", "✓ NovellaPlayer (уже в сцене)")));
-            else
-                menu.AddItem(new GUIContent(ToolLang.Get(
-                    "➕ NovellaPlayer (for gameplay)",
-                    "➕ NovellaPlayer (для игровых сцен)")), false, CreateNovellaPlayerInScene);
-
-            if (launcherExists)
-                menu.AddDisabledItem(new GUIContent(ToolLang.Get("✓ StoryLauncher (already in scene)", "✓ StoryLauncher (уже в сцене)")));
-            else
-                menu.AddItem(new GUIContent(ToolLang.Get(
-                    "➕ StoryLauncher (for menu)",
-                    "➕ StoryLauncher (для меню)")), false, CreateStoryLauncherInScene);
-
-            menu.AddSeparator("");
-            menu.AddItem(new GUIContent(ToolLang.Get(
-                "✨ Apply Main Menu preset",
-                "✨ Применить шаблон Главного Меню")), false, ApplyMenuPresetFromForge);
-            menu.AddItem(new GUIContent(ToolLang.Get(
-                "✨ Apply Gameplay preset",
-                "✨ Применить шаблон Игровой сцены")), false, ApplyGameplayPresetFromForge);
-
-            menu.ShowAsContext();
+            NovellaSceneSetupDialog.Show(
+                playerExists, launcherExists,
+                onAddPlayer:     CreateNovellaPlayerInScene,
+                onAddLauncher:   CreateStoryLauncherInScene,
+                onApplyMenu:     ApplyMenuPresetFromForge,
+                onApplyGameplay: ApplyGameplayPresetFromForge);
         }
 
         // Применяет пресет ПРЯМО в активной сцене через публичный фасад
@@ -863,14 +845,28 @@ namespace NovellaEngine.Editor
                 if (tree != null) p.StoryTree = tree;
             }
 
+            // Auto-bind UI-полей по именам объектов в сцене (как делает пресет).
+            // Имена из PerformGameplaySetup в SceneManagerModule.
+            var goPanel    = FindGameObjectByName("Dialogue_Box");
+            var goSpeaker  = FindGameObjectByName("Speaker_Name");
+            var goBody     = FindGameObjectByName("Dialogue_Text");
+            var goChoices  = FindGameObjectByName("ChoiceContainer");
+            var goCharLay  = FindGameObjectByName("Character_Layer");
+            if (goPanel   != null) p.DialoguePanel       = goPanel;
+            if (goSpeaker != null) p.SpeakerNameText     = goSpeaker.GetComponent<TMPro.TMP_Text>();
+            if (goBody    != null) p.DialogueBodyText    = goBody.GetComponent<TMPro.TMP_Text>();
+            if (goChoices != null) p.ChoiceContainer     = goChoices.transform;
+            if (goCharLay != null) p.CharactersContainer = goCharLay.transform;
+
             Undo.RegisterCreatedObjectUndo(go, "Create NovellaPlayer");
             FindReferences();
             _window?.Repaint();
         }
 
-        // Добавляет в сцену пустой StoryLauncher GameObject. Auto-find в
-        // самом StoryLauncher.Start() сам найдёт Stories/MC панели по именам
-        // в сцене (если они есть).
+        // Добавляет в сцену StoryLauncher GameObject + сразу привязывает все
+        // UI-поля по именам объектов в сцене (как делает пресет MainMenu).
+        // AutoFindPanels внутри StoryLauncher.Start() работает только в рантайме —
+        // в редакторе поля оставались пустыми и юзер видел голый компонент.
         private void CreateStoryLauncherInScene()
         {
             if (UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null)
@@ -883,10 +879,57 @@ namespace NovellaEngine.Editor
                 return;
             }
             var go = new GameObject("[Novella]_StoryLauncher");
-            go.AddComponent<NovellaEngine.Runtime.StoryLauncher>();
+            var sl = go.AddComponent<NovellaEngine.Runtime.StoryLauncher>();
+
+            // Auto-bind полей по именам — те же имена что в пресете MainMenu.
+            var mainMenu     = FindGameObjectByName("[Novella]_MainMenuPanel")
+                            ?? FindGameObjectByName("MainMenuPanel");
+            var storiesPanel = FindGameObjectByName("StoriesPanel");
+            var mcPanel      = FindGameObjectByName("MCCreationPanel");
+            var storiesCont  = FindGameObjectByName("StoriesContainer");
+            var avatar       = FindGameObjectByName("AvatarPreview");
+            var btnPrev      = FindGameObjectByName("Btn_PrevLook");
+            var btnNext      = FindGameObjectByName("Btn_NextLook");
+            var btnConfirm   = FindGameObjectByName("Btn_Confirm");
+            var nameInput    = FindGameObjectByName("MCNameInput");
+
+            if (mainMenu     != null) sl.MainMenuPanel    = mainMenu;
+            if (storiesPanel != null) sl.StoriesPanel     = storiesPanel;
+            if (mcPanel      != null) sl.MCCreationPanel  = mcPanel;
+            if (storiesCont  != null) sl.StoriesContainer = storiesCont.transform;
+            if (avatar       != null) sl.MCAvatarPreview  = avatar.GetComponent<UnityEngine.UI.Image>();
+            if (btnPrev      != null) sl.MCPrevLookButton = btnPrev.GetComponent<UnityEngine.UI.Button>();
+            if (btnNext      != null) sl.MCNextLookButton = btnNext.GetComponent<UnityEngine.UI.Button>();
+            if (btnConfirm   != null) sl.MCConfirmButton  = btnConfirm.GetComponent<UnityEngine.UI.Button>();
+            if (nameInput    != null) sl.MCNameInput      = nameInput.GetComponent<TMPro.TMP_InputField>();
+
+            // Подцепляем StoryButtonPrefab если он лежит как Generated/.
+            var prefabGuids = AssetDatabase.FindAssets("Starter_StoryButton t:Prefab");
+            if (prefabGuids != null && prefabGuids.Length > 0)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(prefabGuids[0]);
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab != null) sl.StoryButtonPrefab = prefab;
+            }
+
             Undo.RegisterCreatedObjectUndo(go, "Create StoryLauncher");
             FindReferences();
             _window?.Repaint();
+        }
+
+        // Находит первый активный GameObject в сцене с заданным именем.
+        // Используется для auto-bind полей при создании Player/Launcher.
+        // Берём через FindObjectsByType<RectTransform> чтобы захватить и
+        // отключённые объекты (например MCCreationPanel изначально выключен).
+        private static GameObject FindGameObjectByName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            var rects = UnityEngine.Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var rt in rects)
+            {
+                if (rt != null && rt.gameObject.name == name) return rt.gameObject;
+            }
+            return null;
         }
 
         private void FindReferences()
@@ -1355,8 +1398,8 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(10);
             GUILayout.Label("💡 " + ToolLang.Get(
-                "Drag rows to reorder. Drop middle = child, edge = sibling, bottom strip = root.\n🔒 — protect from edits.  ✋ — block click-pickup on the canvas preview.  ●/◌ — toggle active.",
-                "Тяни строки. Центр — дочерний, край — рядом, нижняя полоса — в корень.\n🔒 — защита от правок.  ✋ — клики проходят сквозь объект на превью.  ●/◌ — вкл/выкл объект."), hint);
+                "Drag rows to reorder. Drop middle = child, edge = sibling, bottom strip = root.\nLock — protect from edits.  Hand — block click-pickup on the canvas preview.  ●/◌ — toggle active.",
+                "Тяни строки. Центр — дочерний, край — рядом, нижняя полоса — в корень.\nЗамок — защита от правок.  Рука — клики проходят сквозь объект на превью.  ●/◌ — вкл/выкл объект."), hint);
             GUILayout.Space(10);
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
@@ -1730,7 +1773,10 @@ namespace NovellaEngine.Editor
             Rect lockRect     = new Rect(rightX - 22, row.y, 22, row.height);
 
             // ─── Lock ─────────────────────────────────────────────────────
-            string lockIcon = isLocked ? "🔒" : "🔓";
+            // Используем Unity built-in lock-иконку («IN LockButton» / «...on»)
+            // вместо эмодзи 🔒 — шрифт IMGUI часто не имеет fallback на эмодзи,
+            // и иконка получается «плоским квадратиком». Built-in рендерится
+            // в стиле Unity-инспектора и одинакова по высоте с другими.
             string lockTip = isLocked
                 ? ToolLang.Get(
                     "Locked: cannot delete, duplicate, drag or toggle active. Click to unlock.",
@@ -1738,12 +1784,12 @@ namespace NovellaEngine.Editor
                 : ToolLang.Get(
                     "Click to lock — protects from accidental delete / drag / disable. Editor-only flag, doesn't affect the game.",
                     "Клик — заблокировать. Защита от случайного удаления / перетаскивания / выключения. Только в редакторе, на игру не влияет.");
-            var lockSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
-            lockSt.normal.textColor = isLocked ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_4;
-            GUI.Label(lockRect, new GUIContent(lockIcon, lockTip), lockSt);
+            var lockTex = EditorGUIUtility.IconContent(isLocked ? "IN LockButton on" : "IN LockButton").image as Texture;
+            DrawSmallIconWithTint(lockRect, lockTex, isLocked ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_4, lockTip);
 
             // ─── Click-pickup ─────────────────────────────────────────────
-            string pickIcon = isClickBlocked ? "✋" : "👆";
+            // Unity-style hand icon для click-pickup (как в Hierarchy
+            // Pickable=on/off). Tooltip объясняет редактор-only смысл.
             string pickTip = isClickBlocked
                 ? ToolLang.Get(
                     "Click-pickup blocked: this object is invisible to clicks on the canvas preview. Click to unblock.",
@@ -1751,9 +1797,8 @@ namespace NovellaEngine.Editor
                 : ToolLang.Get(
                     "Click to block pickup — clicks on the canvas preview will go through this object. Useful when an upper canvas blocks selecting elements behind it. Editor-only.",
                     "Клик — заблокировать pickup. Клики на превью канваса будут проходить сквозь этот объект. Удобно когда верхний канвас мешает выделять элементы под ним. Только в редакторе.");
-            var pickSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
-            pickSt.normal.textColor = isClickBlocked ? new Color(0.92f, 0.36f, 0.36f) : C_TEXT_4;
-            GUI.Label(pickRect, new GUIContent(pickIcon, pickTip), pickSt);
+            var pickTex = EditorGUIUtility.IconContent(isClickBlocked ? "scenepicking_notpickable" : "scenepicking_pickable").image as Texture;
+            DrawSmallIconWithTint(pickRect, pickTex, isClickBlocked ? new Color(0.92f, 0.36f, 0.36f) : C_TEXT_4, pickTip);
 
             // ─── Eye (active) ─────────────────────────────────────────────
             // Кнопка-«глаз» переключает activeSelf. Для preset-managed и locked
@@ -2675,6 +2720,26 @@ namespace NovellaEngine.Editor
                 if (rs.Contains(mousePosScreen)) return rt;
             }
             return null;
+        }
+
+        // Рисует built-in Unity-иконку 16×16 в центре rect, с цветной
+        // подкраской через GUI.color. После DrawTexture восстанавливаем
+        // оригинальный GUI.color чтобы не подкрасить остальные элементы.
+        // Tooltip пробрасываем через невидимый GUI.Label поверх иконки.
+        private static void DrawSmallIconWithTint(Rect r, Texture tex, Color tint, string tooltip)
+        {
+            if (tex == null) return;
+            const float SZ = 14f;
+            Rect center = new Rect(r.x + (r.width - SZ) * 0.5f, r.y + (r.height - SZ) * 0.5f, SZ, SZ);
+
+            Color prev = GUI.color;
+            GUI.color = tint;
+            GUI.DrawTexture(center, tex, ScaleMode.ScaleToFit, true);
+            GUI.color = prev;
+
+            // Tooltip — невидимый Label поверх области.
+            if (!string.IsNullOrEmpty(tooltip))
+                GUI.Label(r, new GUIContent("", tooltip));
         }
 
         // Транзитивная проверка click-block: сам объект или любой его предок
