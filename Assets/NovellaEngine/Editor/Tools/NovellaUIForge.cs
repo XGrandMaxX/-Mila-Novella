@@ -1135,29 +1135,31 @@ namespace NovellaEngine.Editor
             float bx = r.x + 4;
             float by = r.y + (r.height - bh) * 0.5f;
 
-            float gridW = 66f;
+            const float gap = 10f; // комфортный зазор между кнопками тулбара
+
+            float gridW = 70f;
             DrawIconToggle(new Rect(bx, by, gridW, bh), "▦", ToolLang.Get("Grid", "Сетка"), ref _showGrid);
-            bx += gridW + 4;
+            bx += gridW + gap;
 
-            float snapW = 66f;
+            float snapW = 78f;
             DrawIconToggle(new Rect(bx, by, snapW, bh), "✦", ToolLang.Get("Snap", "Магнит"), ref _smartGuides);
-            bx += snapW + 4;
+            bx += snapW + gap;
 
-            float guideW = 126f;
+            float guideW = 130f;
             string guideText = _showGuideMode ? ToolLang.Get("Hints: On", "Подсказки: Вкл") : ToolLang.Get("Hints: Off", "Подсказки: Выкл");
             DrawIconToggle(new Rect(bx, by, guideW, bh), "💡", guideText, ref _showGuideMode);
-            bx += guideW + 4;
+            bx += guideW + gap;
 
             if (_isMobileMode)
             {
-                DrawIconToggle(new Rect(bx, by, 90f, bh), "📱", ToolLang.Get("Safe Area", "Безоп. зона"), ref _showSafeArea);
-                bx += 90f + 4;
+                DrawIconToggle(new Rect(bx, by, 110f, bh), "📱", ToolLang.Get("Safe Area", "Безоп. зона"), ref _showSafeArea);
+                bx += 110f + gap;
             }
             else _showSafeArea = false;
 
             // Открыть таблицу всех связей сцены — отдельное окно с подсчётом
             // использований по всем NovellaTree-ассетам.
-            float overviewW = 116f;
+            float overviewW = 96f;
             if (DrawIconButton(new Rect(bx, by, overviewW, bh), "📋", ToolLang.Get("Bindings", "Связи")))
             {
                 NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();

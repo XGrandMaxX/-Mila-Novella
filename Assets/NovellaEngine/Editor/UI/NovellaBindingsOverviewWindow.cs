@@ -235,13 +235,15 @@ namespace NovellaEngine.Editor.UIBindings
         private static float[] ColumnWidths(float total)
         {
             // Name | Kind | Loc | Var | OnClick | Uses
-            //   Name takes flex, Kind/Uses fixed, others share.
-            float kindW = 50, usesW = 90;
+            // Kind вмещает '🔘 Button', 'Использован' — иконку/число — фиксы;
+            // остальное растягивается пропорционально.
+            float kindW = 110, usesW = 110;
             float remaining = total - kindW - usesW - 16;
-            float nameW = remaining * 0.32f;
+            if (remaining < 240) remaining = 240;
+            float nameW = remaining * 0.30f;
             float locW  = remaining * 0.24f;
             float varW  = remaining * 0.22f;
-            float clkW  = remaining * 0.22f;
+            float clkW  = remaining * 0.24f;
             return new[] { nameW, kindW, locW, varW, clkW, usesW };
         }
 
