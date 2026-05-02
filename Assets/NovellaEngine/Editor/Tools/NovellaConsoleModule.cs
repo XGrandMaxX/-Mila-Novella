@@ -145,31 +145,12 @@ namespace NovellaEngine.Editor
 
             GUILayout.FlexibleSpace();
 
-            // Кнопка-меню «Жалоба» — видна только если есть хоть одна ошибка.
+            // Кнопка «Жалоба» — кастомная отрисовка (capsule-like с
+            // иконкой-мегафоном и счётчиком). Видна только если есть
+            // хоть одна ошибка.
             if (counts.error > 0)
             {
-                var rptSt = new GUIStyle(EditorStyles.miniButton)
-                {
-                    fontSize = 11,
-                    fixedHeight = 22,
-                    padding = new RectOffset(10, 10, 2, 2),
-                    fontStyle = FontStyle.Bold,
-                };
-                rptSt.normal.textColor = new Color(0.92f, 0.36f, 0.36f);
-
-                var prevBg = GUI.backgroundColor;
-                GUI.backgroundColor = new Color(0.92f, 0.36f, 0.36f, 0.22f);
-                if (GUILayout.Button(new GUIContent(
-                        string.Format("📤  " + ToolLang.Get("Report ({0})", "Жалоба ({0})"), counts.error),
-                        ToolLang.Get(
-                            "Send the error report to the toolkit author. Pick channel: Discord, Telegram, or save as a .txt file.",
-                            "Отправить отчёт об ошибках автору инструмента. Выбери канал: Discord, Telegram или сохранить .txt.")),
-                    rptSt))
-                {
-                    var report = BuildReportText();
-                    NovellaReportDialog.Show(report, counts.error);
-                }
-                GUI.backgroundColor = prevBg;
+                DrawReportButton(counts.error);
                 GUILayout.Space(6);
             }
 
@@ -206,8 +187,7 @@ namespace NovellaEngine.Editor
                              "Удалить все записи из консоли Studio. Стандартная Unity Console не затрагивается.")),
                 clrSt))
             {
-                NovellaConsoleStore.Clear();
-                _selectedFiltered = -1;
+                HandleClearConsole();
             }
             GUILayout.Space(10);
             GUILayout.EndHorizontal();
@@ -255,6 +235,148 @@ namespace NovellaEngine.Editor
                 }
             });
             menu.ShowAsContext();
+        }
+
+        // Логика подтверждения очистки консоли. По дизайну:
+        //   • 0 ошибок и общее число записей <= 1500 → no-op confirm.
+        //   • 1+ ошибок (но < 1000) → одинарный confirm про «потерю» багов.
+        //   • 1000+ ошибок → двойной confirm с акцентом «не бойся фидбека».
+        //   • суммарно > 1500 + 1000+ инфо/предупреждений → двойной confirm
+        //     про потерю накопленной отладочной информации.
+        private void HandleClearConsole()
+        {
+            var c = NovellaConsoleStore.CountByType();
+            int total = c.log + c.warn + c.error;
+
+            // Полностью «безопасный» случай — чистим без вопросов.
+            if (c.error == 0 && total <= 1500)
+            {
+                NovellaConsoleStore.Clear();
+                _selectedFiltered = -1;
+                return;
+            }
+
+            // Определяем сценарий и тексты.
+            string title, message, secondTitle = null, secondMessage = null;
+
+            bool tooManyErrors  = c.error >= 1000;
+            bool tooMuchData    = !tooManyErrors && total > 1500 && (c.log + c.warn) > 1000;
+
+            if (tooManyErrors)
+            {
+                title   = ToolLang.Get("Many errors in the console", "Много ошибок в консоли");
+                message = string.Format(ToolLang.Get(
+                    "There are {0} in the Studio console. ⚠ Don't be afraid to send a report — bugs usually get fixed quickly. After clearing, the trace is gone — you won't be able to send it.\n\nClear anyway?",
+                    "В консоли {0}. ⚠ Не бойся отправить отчёт — баги обычно быстро исправляются. После очистки стек уже не вернёшь — отправить не получится.\n\nВсё равно очистить?"),
+                    NovellaPlurals.Errors(c.error));
+                secondTitle   = ToolLang.Get("Confirm clear", "Подтверждение очистки");
+                secondMessage = ToolLang.Get(
+                    "Last chance. Are you sure you want to delete the entire error log?",
+                    "Последний шанс. Точно удалить весь список ошибок?");
+            }
+            else if (tooMuchData)
+            {
+                title   = ToolLang.Get("Lots of data in the console", "Много данных в консоли");
+                message = string.Format(ToolLang.Get(
+                    "Console holds {0} ({1}, {2}, {3}). If these logs were helping you debug something, clearing wipes them.\n\nProceed?",
+                    "В консоли {0} ({1}, {2}, {3}). Если эти логи помогали тебе разбираться в проблеме — очистка их сотрёт.\n\nПродолжить?"),
+                    NovellaPlurals.Entries(total),
+                    NovellaPlurals.Messages(c.log),
+                    NovellaPlurals.Warnings(c.warn),
+                    NovellaPlurals.Errors(c.error));
+                secondTitle   = ToolLang.Get("Confirm clear", "Подтверждение очистки");
+                secondMessage = ToolLang.Get(
+                    "Reminder: any unsent error reports will also be lost. Continue?",
+                    "Напоминание: все неотправленные отчёты об ошибках тоже будут потеряны. Продолжить?");
+            }
+            else
+            {
+                // Обычный случай: 1+ ошибка, но небольшое число.
+                title   = ToolLang.Get("Clear console", "Очистить консоль");
+                message = string.Format(ToolLang.Get(
+                    "There {0} in the console. If you haven't sent the report yet, the data will be lost.\n\nClear?",
+                    "В консоли {0}. Если ты ещё не отправил отчёт автору, эти данные будут потеряны.\n\nОчистить?"),
+                    c.error == 1
+                        ? (ToolLang.IsRU ? "1 ошибка" : "is 1 error")
+                        : (ToolLang.IsRU ? "" : "are ") + NovellaPlurals.Errors(c.error));
+            }
+
+            bool ok = EditorUtility.DisplayDialog(title, message,
+                ToolLang.Get("Clear", "Очистить"),
+                ToolLang.Get("Cancel",  "Отмена"));
+            if (!ok) return;
+
+            // Двойное подтверждение для критичных кейсов.
+            if (secondMessage != null)
+            {
+                bool ok2 = EditorUtility.DisplayDialog(secondTitle, secondMessage,
+                    ToolLang.Get("Yes, clear",  "Да, очистить"),
+                    ToolLang.Get("No, keep it", "Нет, оставить"));
+                if (!ok2) return;
+            }
+
+            NovellaConsoleStore.Clear();
+            _selectedFiltered = -1;
+        }
+
+        // Кастомная кнопка «Жалоба». Стандартный GUILayout.Button даёт
+        // плоскую серую плашку — недостаточно «акцентно» для вызова
+        // отправки бага. Здесь рисуем capsule-like с цветным фоном,
+        // верхним highlight'ом, иконкой-мегафоном и счётчиком.
+        private void DrawReportButton(int errorCount)
+        {
+            // Размер зависит от текста, минимум 170 чтобы не зажиматься.
+            var content = new GUIContent(
+                "📣  " + string.Format(ToolLang.Get("Report ({0})", "Сообщить ({0})"),
+                                       NovellaPlurals.Errors(errorCount)),
+                ToolLang.Get(
+                    "Send the error report to the toolkit author. Pick channel: Discord, Telegram, or save as a .txt file.",
+                    "Отправить отчёт об ошибках автору инструмента. Выбери канал: Discord, Telegram или сохранить .txt."));
+
+            // Сначала измеряем требуемую ширину текста, чтобы кнопка тянулась
+            // под количество цифр (1, 25, 1000+).
+            var measureSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
+            float textW = measureSt.CalcSize(new GUIContent(content.text)).x;
+            float btnW = Mathf.Clamp(textW + 24f, 170f, 260f);
+
+            Rect r = GUILayoutUtility.GetRect(btnW, 26, GUILayout.Width(btnW), GUILayout.Height(26));
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            // Фон — насыщенный красный, при hover чуть ярче.
+            Color baseCol = new Color(0.92f, 0.36f, 0.36f);
+            Color bg = hover ? new Color(0.96f, 0.42f, 0.42f) : baseCol;
+            EditorGUI.DrawRect(r, bg);
+
+            // Верхний highlight 2px — визуально приподнимает кнопку.
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 2),
+                new Color(1f, 1f, 1f, hover ? 0.40f : 0.25f));
+            // Нижняя тень 1px — глубина.
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1),
+                new Color(0f, 0f, 0f, 0.30f));
+            // Боковые тонкие границы — обозначают «капсулу».
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), new Color(0f, 0f, 0f, 0.15f));
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), new Color(0f, 0f, 0f, 0.15f));
+
+            // Текст белым полужирным.
+            var textSt = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+            };
+            textSt.normal.textColor = Color.white;
+            textSt.hover.textColor = Color.white;
+            GUI.Label(r, content, textSt);
+
+            // Курсор-указатель над кнопкой.
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+
+            // Клик.
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            {
+                var report = BuildReportText();
+                NovellaReportDialog.Show(report, errorCount);
+                Event.current.Use();
+            }
         }
 
         // ─── Жалоба автору ─────────────────────────────────────────────────
