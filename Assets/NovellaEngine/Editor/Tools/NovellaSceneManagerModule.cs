@@ -1176,15 +1176,22 @@ namespace NovellaEngine.Editor
             Rect menuCard = new Rect(block.x + 14, gridY, cardW, gridH - 10);
             Rect gpCard = new Rect(block.x + 14 + cardW + gridGap, gridY, cardW, gridH - 10);
 
+            // ApplyPreset надо вызывать ЧЕРЕЗ delayCall — он делает много
+            // тяжёлых операций со сценой (создание GameObjects, AssetDatabase
+            // CreateAsset/SaveAssets, EditorSceneManager.MarkSceneDirty/SaveScene),
+            // и если выполнять прямо в onClick посреди OnGUI — IMGUI-стек
+            // разваливается, и End-вызовы DrawBody падают «EndLayoutGroup
+            // must be called first / Stack empty». ClearPreset рядом уже
+            // обёрнут в delayCall — теперь и ApplyPreset тоже.
             DrawPresetCard(menuCard, "📱", ToolLang.Get("Main Menu", "Главное Меню"),
                 ToolLang.Get("Menu with character editor and story selection.", "Меню с редактором персонажа и выбором истории."),
                 C_PURPLE, applied == AppliedPreset.MainMenu, applied == AppliedPreset.Gameplay, AppliedPreset.Gameplay,
-                () => ApplyPreset(sc, AppliedPreset.MainMenu));
+                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.MainMenu));
 
             DrawPresetCard(gpCard, "🎮", ToolLang.Get("Gameplay", "Игровая сцена"),
                 ToolLang.Get("Canvas with dialogue box, character displays and CG layer.", "Canvas с диалоговым окном, персонажами и слоем CG."),
                 C_ACCENT, applied == AppliedPreset.Gameplay, applied == AppliedPreset.MainMenu, AppliedPreset.MainMenu,
-                () => ApplyPreset(sc, AppliedPreset.Gameplay));
+                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Gameplay));
 
             GUILayout.Space(14);
         }
