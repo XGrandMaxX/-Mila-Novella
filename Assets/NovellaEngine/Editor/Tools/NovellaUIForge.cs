@@ -4802,9 +4802,33 @@ namespace NovellaEngine.Editor
         private void DeleteSelected()
         {
             if (_selectedList.Count == 0) return;
+
             string text = _selectedList.Count == 1
                 ? string.Format(ToolLang.Get("Delete '{0}'?", "Удалить «{0}»?"), GetDisplayName(FirstSelected))
                 : string.Format(ToolLang.Get("Delete {0} elements?", "Удалить {0} эл.?"), _selectedList.Count);
+
+            // Если в удаляемых объектах есть NovellaPresetMarker — собираем
+            // все имена пресетов и ищем «осиротевшие» объекты с теми же
+            // именами вне выделения (например StoryLauncher / Player лежат
+            // в корне сцены, не внутри Холста). Без этого удаление Холста
+            // оставляло бы их пустые компонентами с null-ссылками.
+            var presetNames = CollectPresetNamesInside(_selectedList);
+            // MainMenu и Gameplay всегда тащат с собой Wardrobe-панель —
+            // она логически часть пресета.
+            if (presetNames.Contains("MainMenu") || presetNames.Contains("Gameplay"))
+            {
+                presetNames.Add("Wardrobe");
+            }
+
+            var orphaned = FindOrphanedPresetObjects(presetNames, _selectedList);
+
+            if (orphaned.Count > 0)
+            {
+                var names = string.Join(", ", orphaned.Select(o => o.name));
+                text += "\n\n" + string.Format(ToolLang.Get(
+                    "Also removes related preset objects: {0}",
+                    "Будут удалены связанные объекты пресета: {0}"), names);
+            }
 
             if (!EditorUtility.DisplayDialog(
                 ToolLang.Get("Delete element?", "Удалить элемент(ы)?"),
@@ -4812,13 +4836,76 @@ namespace NovellaEngine.Editor
                 ToolLang.Get("Delete", "Удалить"),
                 ToolLang.Get("Cancel", "Отмена"))) return;
 
+            // Сначала удаляем выделенное.
             foreach (var rt in _selectedList)
             {
                 if (rt != null) Undo.DestroyObjectImmediate(rt.gameObject);
             }
 
+            // Затем — связанные «осиротевшие» объекты пресета. Список
+            // пересобираем заново на случай если предыдущие удаления
+            // уже задели что-то транзитивно.
+            if (presetNames.Count > 0)
+            {
+                var allMarkers = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.NovellaPresetMarker>(
+                    FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var m in allMarkers)
+                {
+                    if (m == null || string.IsNullOrEmpty(m.PresetName)) continue;
+                    if (!presetNames.Contains(m.PresetName)) continue;
+                    Undo.DestroyObjectImmediate(m.gameObject);
+                }
+            }
+
             _selectedList.Clear();
             RefreshRectsCache();
+        }
+
+        // Собирает уникальные имена пресетов из всех NovellaPresetMarker
+        // внутри переданных объектов (включая потомков).
+        private static HashSet<string> CollectPresetNamesInside(List<RectTransform> selection)
+        {
+            var result = new HashSet<string>();
+            foreach (var rt in selection)
+            {
+                if (rt == null) continue;
+                var markers = rt.GetComponentsInChildren<NovellaEngine.Runtime.NovellaPresetMarker>(true);
+                foreach (var m in markers)
+                {
+                    if (m != null && !string.IsNullOrEmpty(m.PresetName))
+                        result.Add(m.PresetName);
+                }
+            }
+            return result;
+        }
+
+        // Возвращает GameObject'ы с NovellaPresetMarker'ом из заданных
+        // пресет-имён, которые НЕ являются потомками выделенных объектов.
+        // Это и есть «осиротевшие» элементы — их надо удалить вместе с канвасом.
+        private static List<GameObject> FindOrphanedPresetObjects(HashSet<string> presetNames, List<RectTransform> selection)
+        {
+            var result = new List<GameObject>();
+            if (presetNames == null || presetNames.Count == 0) return result;
+
+            var allMarkers = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.NovellaPresetMarker>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var m in allMarkers)
+            {
+                if (m == null || string.IsNullOrEmpty(m.PresetName)) continue;
+                if (!presetNames.Contains(m.PresetName)) continue;
+
+                bool insideSelection = false;
+                foreach (var rt in selection)
+                {
+                    if (rt == null) continue;
+                    if (m.transform == rt || m.transform.IsChildOf(rt))
+                    {
+                        insideSelection = true; break;
+                    }
+                }
+                if (!insideSelection) result.Add(m.gameObject);
+            }
+            return result;
         }
 
         private static void DrawSectionLabel(string text, string helpKey = "")
