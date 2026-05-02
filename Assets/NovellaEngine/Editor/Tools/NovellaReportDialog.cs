@@ -36,6 +36,16 @@ namespace NovellaEngine.Editor
         // юзер сам закрывает окно по кнопке Close.
         private string _statusMessage;
         private double _statusSetAt;
+        // Кэш hover-состояния карточек — чтобы Repaint вызывался только
+        // когда курсор пересёк границу, а не каждый MouseMove.
+        private bool _hoverTelegram, _hoverDiscord;
+
+        private void OnEnable()
+        {
+            // Без wantsMouseMove IMGUI не получает MouseMove события и
+            // hover-эффекты «застывают» — visually это и был «лаг».
+            wantsMouseMove = true;
+        }
 
         // Контактные ссылки автора. Дублируются с константами в ConsoleModule
         // намеренно — модуль и диалог должны жить независимо. Если поменяешь
@@ -87,9 +97,17 @@ namespace NovellaEngine.Editor
             var subSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
             subSt.normal.textColor = C_TEXT_3;
             GUILayout.Label(string.Format(ToolLang.Get(
-                "We collected {0} error(s) from this session. Don't be shy — sending the report takes 5 seconds and really helps fix bugs.",
-                "Мы собрали {0} ошибок за сессию. Не стесняйся — отправка отчёта займёт 5 секунд и реально помогает чинить баги."),
+                "We collected {0} error(s) from this session. Don't be shy — sending the report takes 5 seconds.",
+                "Мы собрали {0} ошибок за сессию. Не стесняйся — отправка отчёта займёт 5 секунд."),
                 _errorCount), subSt);
+
+            GUILayout.Space(4);
+            var promiseSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, fontStyle = FontStyle.Italic };
+            promiseSt.normal.textColor = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.95f);
+            GUILayout.Label(ToolLang.Get(
+                "⚡  Bugs are fixed as fast as possible — your feedback is never wasted, it makes the toolkit better for everyone.",
+                "⚡  Баги исправляются максимально быстро — твой фидбек не лишний, он делает инструмент лучше для всех."),
+                promiseSt);
             GUILayout.EndVertical();
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
@@ -117,7 +135,8 @@ namespace NovellaEngine.Editor
                     SetStatus(ToolLang.Get(
                         "✓ Telegram opened — paste the report (Ctrl+V) into the chat. Thanks ❤",
                         "✓ Telegram открыт — вставь отчёт (Ctrl+V) в чат. Спасибо ❤"));
-                });
+                },
+                ref _hoverTelegram);
 
             GUILayout.Space(16);
 
@@ -136,7 +155,8 @@ namespace NovellaEngine.Editor
                     SetStatus(ToolLang.Get(
                         "✓ Discord profile opened — click «Send Message», then Ctrl+V. Thanks ❤",
                         "✓ Профиль Discord открыт — жми «Send Message», потом Ctrl+V. Спасибо ❤"));
-                });
+                },
+                ref _hoverDiscord);
 
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
@@ -240,56 +260,89 @@ namespace NovellaEngine.Editor
             GUILayout.Space(14);
         }
 
-        // Большая «карточка-кнопка» канала. Цветной фон бренда + настоящий
-        // логотип (Texture2D, нарисован программно) + название + сабтайтл +
-        // вся карточка кликабельна.
-        private void DrawChannelCard(Texture2D icon, string title, string subtitle, Color brandColor, string tooltip, System.Action onClick)
+        // Большая «карточка-кнопка» канала. Cached-hover bool снаружи —
+        // чтобы вызывать Repaint только при реальной смене hover, а не на
+        // каждое MouseMove (раньше это было причиной «лагающего» интерфейса).
+        private void DrawChannelCard(Texture2D icon, string title, string subtitle, Color brandColor,
+                                     string tooltip, System.Action onClick, ref bool cachedHover)
         {
             const float cardW = 220f, cardH = 130f;
             Rect r = GUILayoutUtility.GetRect(cardW, cardH, GUILayout.Width(cardW), GUILayout.Height(cardH));
-            bool hover = r.Contains(Event.current.mousePosition);
+
+            // Hover пересчитываем только в Repaint/MouseMove чтобы не пересоздавать
+            // GUI-стили на каждый event-проход (Layout, KeyDown, etc.).
+            if (Event.current.type == EventType.Repaint || Event.current.type == EventType.MouseMove)
+            {
+                bool h = r.Contains(Event.current.mousePosition);
+                if (h != cachedHover)
+                {
+                    cachedHover = h;
+                    if (Event.current.type == EventType.MouseMove) Repaint();
+                }
+            }
 
             // Тень / приподнятость на hover.
-            Color bg = hover ? new Color(brandColor.r, brandColor.g, brandColor.b, 0.26f)
-                             : new Color(brandColor.r, brandColor.g, brandColor.b, 0.16f);
+            Color bg = cachedHover ? new Color(brandColor.r, brandColor.g, brandColor.b, 0.26f)
+                                   : new Color(brandColor.r, brandColor.g, brandColor.b, 0.16f);
             EditorGUI.DrawRect(r, bg);
-
-            // Бордер.
-            DrawBorder(r, hover ? brandColor : new Color(brandColor.r, brandColor.g, brandColor.b, 0.55f));
-
-            // Цветная полоса слева — акцент.
+            DrawBorder(r, cachedHover ? brandColor : new Color(brandColor.r, brandColor.g, brandColor.b, 0.55f));
             EditorGUI.DrawRect(new Rect(r.x, r.y, 4, r.height), brandColor);
 
-            // Логотип-иконка — настоящий бренд-знак, не эмодзи.
-            // ScaleToFit чтобы 64×64-текстура аккуратно села в 56×56 ячейку.
+            // Логотип. ScaleToFit — для 64→56.
             if (icon != null)
             {
                 Rect iconRect = new Rect(r.x + 14, r.y + 18, 56, 56);
                 GUI.DrawTexture(iconRect, icon, ScaleMode.ScaleToFit, true);
-                // Невидимый GUI.Label для tooltip — текст не виден, только hover.
-                GUI.Label(iconRect, new GUIContent("", tooltip));
+                // Tooltip перенесён ниже на сам label-блок — не накладываем
+                // лишний GUI.Label поверх Texture (это лишний хит-тест).
             }
 
-            // Title.
-            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
-            titleSt.normal.textColor = C_TEXT_1;
+            // Title (ленивая инициализация стиля — раньше создавали GUIStyle на
+            // каждый кадр, что и могло слегка тормозить на hover).
+            var titleSt = LazyTitleStyle();
             GUI.Label(new Rect(r.x + 80, r.y + 24, r.width - 88, 22), new GUIContent(title, tooltip), titleSt);
 
-            // Subtitle.
-            var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
-            subSt.normal.textColor = C_TEXT_3;
-            GUI.Label(new Rect(r.x + 80, r.y + 46, r.width - 88, 16), new GUIContent(subtitle, tooltip), subSt);
+            var subSt = LazySubtitleStyle();
+            GUI.Label(new Rect(r.x + 80, r.y + 46, r.width - 88, 16), subtitle, subSt);
 
-            // Tooltip-подпись внизу карточки.
-            var tipSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-            tipSt.normal.textColor = C_TEXT_4;
+            var tipSt = LazyTipStyle();
             GUI.Label(new Rect(r.x + 14, r.y + 82, r.width - 28, 40), tooltip, tipSt);
 
-            if (Event.current.type == EventType.MouseDown && hover)
+            if (Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
             {
                 onClick?.Invoke();
                 Event.current.Use();
             }
+        }
+
+        // ─── Кэш стилей ───────────────────────────────────────────────
+        private GUIStyle _titleStyle, _subtitleStyle, _tipStyle;
+        private GUIStyle LazyTitleStyle()
+        {
+            if (_titleStyle == null)
+            {
+                _titleStyle = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
+            }
+            _titleStyle.normal.textColor = C_TEXT_1; // тема могла поменяться
+            return _titleStyle;
+        }
+        private GUIStyle LazySubtitleStyle()
+        {
+            if (_subtitleStyle == null)
+            {
+                _subtitleStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            }
+            _subtitleStyle.normal.textColor = C_TEXT_3;
+            return _subtitleStyle;
+        }
+        private GUIStyle LazyTipStyle()
+        {
+            if (_tipStyle == null)
+            {
+                _tipStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
+            }
+            _tipStyle.normal.textColor = C_TEXT_4;
+            return _tipStyle;
         }
 
         // Серая «второстепенная» кнопка под основными — для clipboard / save.
