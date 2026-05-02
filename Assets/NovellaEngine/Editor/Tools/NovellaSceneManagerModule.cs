@@ -1663,29 +1663,44 @@ namespace NovellaEngine.Editor
 
         private void ClearPreset()
         {
-            DestroyByName(MARKER_MAINMENU);
-            DestroyByName(MARKER_GAMEPLAY);
-            DestroyByName("[Novella]_Canvas");
-            DestroyByName("[Novella]_Camera");
-            // Дополнительно: новые объекты пресета (StoryLauncher / NovellaPlayer
-            // и сопутствующие panel-маркеры). Без этой строки Clear оставлял бы
-            // «осиротевшие» компоненты, которые потом ругаются null-ссылками.
-            DestroyByName("[Novella]_StoryLauncher");
-            DestroyByName("[Novella]_Player");
-            DestroyByName("StoriesPanel");
-            DestroyByName("MCCreationPanel");
+            // Старая версия искала через GameObject.Find и StartsWith("[Novella]") —
+            // это пропускало (а) отключенные объекты, (б) холсты которые юзер
+            // переименовал, (в) канвасы добавленные позже через UI Forge.
+            // Теперь делаем «полный nuke» под подтверждением: всё лучше чем
+            // оставить дубликаты после повторного применения пресета.
 
-            var canvas = Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
-            foreach (var c in canvas)
+            bool ok = EditorUtility.DisplayDialog(
+                ToolLang.Get("Clear preset", "Очистить пресет"),
+                ToolLang.Get(
+                    "This will remove ALL Canvases, EventSystems and Novella-managed objects (StoryLauncher / NovellaPlayer) from the active scene, including disabled ones. Custom non-Novella scene content (3D objects, lights, etc.) is left untouched.\n\nProceed?",
+                    "Будут удалены ВСЕ Canvas, EventSystem и связанные объекты Novella (StoryLauncher / NovellaPlayer) в активной сцене — включая отключенные. Прочие 3D-объекты и свет в сцене не трогаются.\n\nПродолжить?"),
+                ToolLang.Get("Clear", "Очистить"),
+                ToolLang.Get("Cancel", "Отмена"));
+            if (!ok) return;
+
+            // Все root-канвасы (с учётом отключенных).
+            var canvases = Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in canvases)
             {
-                if (c == null) continue;
-                if (c.name.StartsWith("[Novella]")) Object.DestroyImmediate(c.gameObject);
+                if (c == null || !c.isRootCanvas) continue;
+                Undo.DestroyObjectImmediate(c.gameObject);
             }
-            var es = Object.FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsSortMode.None);
-            foreach (var e in es)
+            // EventSystem'ы.
+            var eventSystems = Object.FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var e in eventSystems)
             {
-                if (e != null && e.name.StartsWith("[Novella]")) Object.DestroyImmediate(e.gameObject);
+                if (e != null) Undo.DestroyObjectImmediate(e.gameObject);
             }
+            // Player / StoryLauncher как отдельные GameObject (на случай если
+            // юзер вынес их из канваса).
+            var players = Object.FindObjectsByType<NovellaPlayer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var p in players) { if (p != null) Undo.DestroyObjectImmediate(p.gameObject); }
+            var launchers = Object.FindObjectsByType<StoryLauncher>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var l in launchers) { if (l != null) Undo.DestroyObjectImmediate(l.gameObject); }
+
+            // Камеры пресета — удаляем по имени (юзерскую `Main Camera` не
+            // трогаем чтобы не убить пользовательский setup).
+            DestroyByName("[Novella]_Camera");
 
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
@@ -1714,6 +1729,8 @@ namespace NovellaEngine.Editor
             var markerRT = marker.AddComponent<RectTransform>();
             markerRT.anchorMin = Vector2.zero; markerRT.anchorMax = Vector2.one;
             markerRT.offsetMin = Vector2.zero; markerRT.offsetMax = Vector2.zero;
+            AddPresetMarker(marker, "MainMenu");
+            AddPresetMarker(canvas.gameObject, "MainMenu");
 
             var title = CreateUIText(marker, "Title", "MY GAME", 64, FontStyle.Bold);
             var titleRT = title.GetComponent<RectTransform>();
@@ -1744,6 +1761,7 @@ namespace NovellaEngine.Editor
             var spRT = storiesPanel.AddComponent<RectTransform>();
             spRT.anchorMin = Vector2.zero; spRT.anchorMax = Vector2.one;
             spRT.offsetMin = Vector2.zero; spRT.offsetMax = Vector2.zero;
+            AddPresetMarker(storiesPanel, "MainMenu");
 
             var storiesContainer = new GameObject("StoriesContainer");
             storiesContainer.transform.SetParent(storiesPanel.transform, false);
@@ -1768,6 +1786,7 @@ namespace NovellaEngine.Editor
             // Без StoryLauncher кнопки в главном меню были бы декоративными —
             // его наличие в сцене обязательно для пресета MainMenu.
             var slGO = new GameObject("[Novella]_StoryLauncher");
+            AddPresetMarker(slGO, "MainMenu");
             var sl   = slGO.AddComponent<StoryLauncher>();
             sl.MainMenuPanel    = marker;
             sl.StoriesPanel     = storiesPanel;
@@ -1790,6 +1809,18 @@ namespace NovellaEngine.Editor
             if (!sl.SpecificStories.Contains(starterStory)) sl.SpecificStories.Add(starterStory);
 
             Selection.activeGameObject = marker;
+        }
+
+        // Помечает GameObject как «созданный пресетом». Studio дерево использует
+        // эту метку, чтобы запретить ручное переключение active у структурных
+        // объектов (MCCreationPanel должен оставаться выключенным; Player/Launcher
+        // должны быть активны и т.д.). Любой потомок помеченного — тоже preset-managed.
+        private static void AddPresetMarker(GameObject go, string presetName)
+        {
+            if (go == null) return;
+            var m = go.GetComponent<NovellaPresetMarker>();
+            if (m == null) m = go.AddComponent<NovellaPresetMarker>();
+            m.PresetName = presetName;
         }
 
         // ─── Авто-привязка ассетов: NovellaTree / NovellaStory / StoryButtonPrefab ───
@@ -1960,6 +1991,7 @@ namespace NovellaEngine.Editor
             var rt = panel.AddComponent<RectTransform>();
             rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
             rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            AddPresetMarker(panel, "Wardrobe");
 
             // Полупрозрачный фон, чтобы был «модальный» вид.
             var bgGo = CreateUIImage(panel, "Background", new Color(0.07f, 0.08f, 0.10f, 0.92f));
@@ -2077,6 +2109,8 @@ namespace NovellaEngine.Editor
             var markerRT = marker.AddComponent<RectTransform>();
             markerRT.anchorMin = Vector2.zero; markerRT.anchorMax = Vector2.one;
             markerRT.offsetMin = Vector2.zero; markerRT.offsetMax = Vector2.zero;
+            AddPresetMarker(marker, "Gameplay");
+            AddPresetMarker(canvas.gameObject, "Gameplay");
 
             var bg = CreateUIImage(marker, "Background_CG", new Color(0.1f, 0.1f, 0.15f));
             var bgRT = bg.GetComponent<RectTransform>();
@@ -2133,6 +2167,7 @@ namespace NovellaEngine.Editor
             // работали. Теперь хватит назначить StoryTree в инспекторе плеера —
             // и можно сразу запускать сцену.
             var pGO = new GameObject("[Novella]_Player");
+            AddPresetMarker(pGO, "Gameplay");
             var p = pGO.AddComponent<NovellaPlayer>();
             p.DialoguePanel       = dialogueBox;
             p.SpeakerNameText     = speakerName.GetComponent<TMPro.TMP_Text>();

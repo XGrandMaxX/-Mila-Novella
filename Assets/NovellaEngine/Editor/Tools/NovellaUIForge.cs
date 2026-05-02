@@ -1118,43 +1118,107 @@ namespace NovellaEngine.Editor
 
             float iconStartX = iconX + 14;
 
+            // Активность объекта (включён/выключен) — определяет цвет имени и
+            // подпись «выкл». activeSelf — то что юзер сам поставил, без учёта
+            // родителей; activeInHierarchy дополнительно показывает «реально
+            // невидимый из-за выключенного предка». Серим оба случая.
+            bool selfActive = rt.gameObject.activeSelf;
+            bool actuallyVisible = rt.gameObject.activeInHierarchy;
+            bool isInactive = !actuallyVisible || !selfActive;
+            // Создан ли пресетом — нельзя ли трогать активность вручную.
+            bool isPresetManaged = rt.GetComponentInParent<NovellaEngine.Runtime.NovellaPresetMarker>(true) != null;
+
             var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = isSel ? C_ACCENT : C_TEXT_3;
+            iconSt.normal.textColor = isInactive ? C_TEXT_4
+                                                 : (isSel ? C_ACCENT : C_TEXT_3);
             GUI.Label(new Rect(iconStartX, row.y, 22, row.height), icon, iconSt);
 
             // Имя — верхняя строка ряда.
             var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 2) };
-            nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
-            // textX теперь сдвинут на ширину шеврона (14px), потому что иконку
-            // мы сместили — иначе текст наезжал бы на иконку.
+            // Серость + italic для отключённых, чтобы их сразу было видно.
+            if (isInactive)
+            {
+                nameSt.fontStyle = FontStyle.Italic;
+                nameSt.normal.textColor = C_TEXT_4;
+            }
+            else
+            {
+                nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
+            }
+            // Справа резервируем место под кнопку-глаз (24px) и индикатор «!» (24px).
             float textX = iconStartX + 24;
-            float textW = row.width - (textX - row.x) - 60;
+            float textW = row.width - (textX - row.x) - 70;
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
-            // Подпись типа — нижняя строка, мелким серым шрифтом. Объясняет
-            // юзеру что это за объект (Panel / Image / Empty / ...) даже если
-            // имя кастомное (Character_Layer).
+            // Подпись типа — нижняя строка, мелким серым шрифтом. Если объект
+            // выключен — добавляем «· выкл» в конец подписи.
             string subtitle = GetElementSubtitle(rt);
+            if (isInactive)
+            {
+                string offTag = ToolLang.Get("off", "выкл");
+                subtitle = string.IsNullOrEmpty(subtitle) ? offTag : subtitle + " · " + offTag;
+            }
             if (!string.IsNullOrEmpty(subtitle))
             {
                 var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
-                subSt.normal.textColor = isSel ? C_TEXT_3 : C_TEXT_4;
+                subSt.normal.textColor = isInactive ? C_TEXT_4
+                                                   : (isSel ? C_TEXT_3 : C_TEXT_4);
                 GUI.Label(new Rect(textX, row.y + 18, textW, 14), subtitle, subSt);
             }
 
-            // Индикатор проблем — янтарный «!» справа от имени, с tooltip
-            // о причине. Сейчас только legacy UnityEngine.UI.Text, но точка
-            // расширения на любые проблемные компоненты в будущем.
+            // Индикатор проблем — янтарный «!» справа от имени.
             string warning = GetElementWarning(rt);
             if (!string.IsNullOrEmpty(warning))
             {
-                Rect warnRect = new Rect(row.xMax - 40, row.y, 22, row.height);
+                Rect warnRect = new Rect(row.xMax - 50, row.y, 22, row.height);
                 var warnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
                 warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
                 GUI.Label(warnRect, new GUIContent("!", warning), warnSt);
             }
 
+            // Кнопка-«глаз» — переключает activeSelf. Для preset-managed
+            // оставлена видимой но click игнорируется, tooltip объясняет почему.
+            Rect eyeRect = new Rect(row.xMax - 26, row.y, 22, row.height);
+            string eyeIcon = selfActive ? "●" : "◌";
+            string eyeTip;
+            if (isPresetManaged)
+            {
+                eyeTip = ToolLang.Get(
+                    "Created by a scene preset — its active state is locked. Clear the preset if you really need to remove it.",
+                    "Создано пресетом сцены — состояние active заблокировано. Удали пресет целиком если действительно нужно.");
+            }
+            else
+            {
+                eyeTip = selfActive
+                    ? ToolLang.Get("Click to disable this object (and its children).",
+                                   "Клик — выключить объект (и его потомков).")
+                    : ToolLang.Get("Click to enable this object.",
+                                   "Клик — включить объект.");
+            }
+            var eyeSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
+            if (isPresetManaged)
+                eyeSt.normal.textColor = new Color(C_TEXT_4.r, C_TEXT_4.g, C_TEXT_4.b, 0.55f);
+            else
+                eyeSt.normal.textColor = selfActive ? C_TEXT_2 : C_TEXT_4;
+            GUI.Label(eyeRect, new GUIContent(eyeIcon, eyeTip), eyeSt);
+
             Event e = Event.current;
+
+            // Клик по «глазу» переключает active. Для preset-managed клик
+            // блокируется (но всё равно e.Use(), чтобы строка не выделилась
+            // из-за случайного попадания по этой зоне).
+            if (e.type == EventType.MouseDown && e.button == 0 && eyeRect.Contains(e.mousePosition))
+            {
+                if (!isPresetManaged)
+                {
+                    Undo.RecordObject(rt.gameObject, selfActive ? "Disable Object" : "Enable Object");
+                    rt.gameObject.SetActive(!selfActive);
+                    EditorUtility.SetDirty(rt.gameObject);
+                }
+                _window?.Repaint();
+                e.Use();
+                return;
+            }
 
             // ─── DRAG & DROP с тремя режимами: Above / Inside / Below ─────────────
             // Ranges по высоте: верхние 25% — Above, нижние 25% — Below, центр — Inside.
