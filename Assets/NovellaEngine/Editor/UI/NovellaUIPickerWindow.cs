@@ -451,14 +451,18 @@ namespace NovellaEngine.Editor.UIBindings
         {
             RectTransform deepest = null;
             HitTestRecursive(parent, canvasSize, view, scale, mouse, ref deepest);
-            // Walk up до подходящего по фильтру предка. Так клик по «Play»-тексту
-            // внутри Play-кнопки (при фильтре Button) выбирает саму кнопку.
+            // Walk up до подходящего по фильтру предка С BINDING'ом. Без binding'а
+            // элементы вообще не должны быть выбираемы — иначе пользователь «попадает»
+            // по невидимому в превью объекту и тот авто-привязывается.
             var canvasRt = _canvas.GetComponent<RectTransform>();
-            while (deepest != null && deepest != canvasRt && !IsCompatible(deepest))
+            while (deepest != null && deepest != canvasRt && (!IsCompatible(deepest) || deepest.GetComponent<NovellaUIBinding>() == null))
             {
                 deepest = deepest.parent as RectTransform;
             }
-            return (deepest != null && deepest != canvasRt && IsCompatible(deepest)) ? deepest : null;
+            if (deepest == null || deepest == canvasRt) return null;
+            if (!IsCompatible(deepest)) return null;
+            if (deepest.GetComponent<NovellaUIBinding>() == null) return null;
+            return deepest;
         }
 
         private void HitTestRecursive(RectTransform rt, Vector2 canvasSize, Rect view, float scale, Vector2 mouse, ref RectTransform best)
@@ -469,6 +473,13 @@ namespace NovellaEngine.Editor.UIBindings
                 if (ch == null) continue;
                 if (!ch.gameObject.activeInHierarchy) continue;
                 if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
+                // Без binding'а элемент в пикере не существует — клик по его
+                // области передаём дальше (родителю/соседу).
+                if (ch.GetComponent<NovellaUIBinding>() == null)
+                {
+                    HitTestRecursive(ch, canvasSize, view, scale, mouse, ref best);
+                    continue;
+                }
 
                 Rect r = MapRect(ch, canvasSize, view, scale);
                 if (r.Contains(mouse)) best = ch;
@@ -515,8 +526,11 @@ namespace NovellaEngine.Editor.UIBindings
         private void Confirm()
         {
             if (_selected == null) { Close(); return; }
-            var b = NovellaUIBinding.GetOrAdd(_selected.gameObject);
-            if (b != null) _callback?.Invoke(b.Id);
+            // В пикере выбираются ТОЛЬКО уже привязанные элементы — без авто-добавления
+            // компонента. Это убирает «клик по воздуху» который раньше создавал binding
+            // у невидимого в превью элемента.
+            var b = _selected.GetComponent<NovellaUIBinding>();
+            if (b != null && !string.IsNullOrEmpty(b.Id)) _callback?.Invoke(b.Id);
             Close();
         }
 

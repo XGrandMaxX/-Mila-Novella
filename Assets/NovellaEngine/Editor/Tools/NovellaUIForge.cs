@@ -1151,8 +1151,40 @@ namespace NovellaEngine.Editor
             if (_isMobileMode)
             {
                 DrawIconToggle(new Rect(bx, by, 90f, bh), "📱", ToolLang.Get("Safe Area", "Безоп. зона"), ref _showSafeArea);
+                bx += 90f + 4;
             }
             else _showSafeArea = false;
+
+            // Открыть таблицу всех связей сцены — отдельное окно с подсчётом
+            // использований по всем NovellaTree-ассетам.
+            float overviewW = 116f;
+            if (DrawIconButton(new Rect(bx, by, overviewW, bh), "📋", ToolLang.Get("Bindings", "Связи")))
+            {
+                NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
+            }
+        }
+
+        private bool DrawIconButton(Rect r, string icon, string label)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            Color bg = hover ? new Color(1, 1, 1, 0.07f) : Color.clear;
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(r, new Color(1, 1, 1, 0.07f));
+
+            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = C_TEXT_2;
+            GUI.Label(new Rect(r.x + 4, r.y, 18, r.height), icon, iconSt);
+
+            var textSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            textSt.normal.textColor = C_TEXT_2;
+            GUI.Label(new Rect(r.x + 24, r.y, r.width - 26, r.height), label, textSt);
+
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                Event.current.Use();
+                return true;
+            }
+            return false;
         }
 
         private void DrawIconToggle(Rect r, string icon, string label, ref bool value)
