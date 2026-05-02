@@ -61,6 +61,11 @@ namespace NovellaEngine.Editor
 
         // Пытается загрузить PNG/JPG-файл иконки. Принимает имя без расширения.
         // Внутри пробует .png и .jpg. Возвращает null если ничего нет.
+        // При первой загрузке проверяет TextureImporter — если настройки «не
+        // наши» (например стоит compression / нет alpha), правит на лету
+        // через AssetDatabase.ImportAsset. Это ленивая альтернатива
+        // AssetPostprocessor'у — НЕ заставляет Unity реимпортировать все
+        // текстуры в проекте, а только нашу иконку при первом обращении.
         private static Texture2D LoadIcon(string baseName)
         {
             string[] extensions = { ".png", ".jpg", ".jpeg" };
@@ -68,9 +73,47 @@ namespace NovellaEngine.Editor
             {
                 string path = ICON_DIR + baseName + ext;
                 var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (tex != null) return tex;
+                if (tex != null)
+                {
+                    EnsureCorrectImportSettings(path);
+                    return tex;
+                }
             }
             return null;
+        }
+
+        // Чинит настройки импорта на конкретном файле. Дешёвая no-op если
+        // всё уже настроено правильно. Срабатывает только при первой загрузке
+        // иконки за сессию + при изменении файла.
+        private static void EnsureCorrectImportSettings(string path)
+        {
+            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer == null) return;
+
+            bool dirty = false;
+            if (importer.textureType        != TextureImporterType.Default)        { importer.textureType        = TextureImporterType.Default;          dirty = true; }
+            if (importer.alphaSource        != TextureImporterAlphaSource.FromInput) { importer.alphaSource      = TextureImporterAlphaSource.FromInput;  dirty = true; }
+            if (!importer.alphaIsTransparency)                                       { importer.alphaIsTransparency = true;                                dirty = true; }
+            if (importer.mipmapEnabled)                                              { importer.mipmapEnabled    = false;                                  dirty = true; }
+            if (importer.npotScale          != TextureImporterNPOTScale.None)        { importer.npotScale        = TextureImporterNPOTScale.None;          dirty = true; }
+            if (importer.wrapMode           != TextureWrapMode.Clamp)                { importer.wrapMode         = TextureWrapMode.Clamp;                  dirty = true; }
+            if (importer.filterMode         != FilterMode.Bilinear)                  { importer.filterMode       = FilterMode.Bilinear;                    dirty = true; }
+            if (importer.maxTextureSize     > 256)                                   { importer.maxTextureSize   = 256;                                    dirty = true; }
+
+            var settings = importer.GetDefaultPlatformTextureSettings();
+            if (settings.format             != TextureImporterFormat.RGBA32 ||
+                settings.textureCompression != TextureImporterCompression.Uncompressed)
+            {
+                settings.format             = TextureImporterFormat.RGBA32;
+                settings.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SetPlatformTextureSettings(settings);
+                dirty = true;
+            }
+
+            if (dirty)
+            {
+                importer.SaveAndReimport();
+            }
         }
 
         // ─── Telegram ──────────────────────────────────────────────────
