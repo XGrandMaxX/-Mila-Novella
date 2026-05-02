@@ -4158,7 +4158,9 @@ namespace NovellaEngine.Editor
                 "Auto-Resize: TMP picks font size automatically between Min and Max so the text fits the box. Useful for dynamic content (character names, translations, {var}-substitutions). When ON, the «Font Size» field is ignored.",
                 "Авто-размер: TMP сам подбирает размер шрифта в диапазоне Мин..Макс, чтобы текст помещался в рамку. Удобно для динамики (имя персонажа, переводы, {var}-подстановки). Когда ВКЛ, поле «Размер» игнорируется."));
             GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Auto-resize", "Авто-размер"), GUILayout.Width(72));
+            // Подпись короче чем «Авто-размер» (70px не хватало под «Авто-разме…»),
+            // полный смысл всё равно в подсказке выше.
+            GUILayout.Label(ToolLang.Get("Auto", "Авто"), GUILayout.Width(72));
             EditorGUI.BeginChangeCheck();
             bool autoResize = EditorGUILayout.Toggle(firstTxt.enableAutoSizing, GUILayout.Width(20));
             if (EditorGUI.EndChangeCheck())
