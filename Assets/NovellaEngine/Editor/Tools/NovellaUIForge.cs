@@ -1270,8 +1270,9 @@ namespace NovellaEngine.Editor
             }
         }
 
-        // Линии-индикаторы snap'а во время drag'а. Координаты в canvas-юнитах,
-        // мапим к drawRect через PreviewDeltaToCanvasDelta-обратное соотношение.
+        // Линии-индикаторы snap'а в WORLD-координатах. Конвертим к drawRect-пикселям
+        // через размер canvas в world-пространстве — это надёжно работает для
+        // элементов на любом уровне вложенности.
         private void DrawSnapGuides(Rect drawRect, int targetW, int targetH)
         {
             if (_snapLinesX.Count == 0 && _snapLinesY.Count == 0) return;
@@ -1279,21 +1280,24 @@ namespace NovellaEngine.Editor
             var canvasRT = _canvas.GetComponent<RectTransform>();
             if (canvasRT == null) return;
 
-            float pxPerUnitX = drawRect.width  / canvasRT.rect.width;
-            float pxPerUnitY = drawRect.height / canvasRT.rect.height;
+            Rect canvasWorld = GetWorldRect(canvasRT);
+            if (canvasWorld.width <= 0.0001f || canvasWorld.height <= 0.0001f) return;
 
             Color c = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.85f);
 
-            // Vertical guides — x-line проходит вертикально через всё превью.
-            foreach (float x in _snapLinesX)
+            foreach (float worldX in _snapLinesX)
             {
-                float px = drawRect.x + (x - canvasRT.rect.xMin) * pxPerUnitX;
+                float u = (worldX - canvasWorld.xMin) / canvasWorld.width;
+                if (u < -0.05f || u > 1.05f) continue;
+                float px = drawRect.x + u * drawRect.width;
                 EditorGUI.DrawRect(new Rect(px - 0.5f, drawRect.y, 1f, drawRect.height), c);
             }
-            // Horizontal guides — y инвертирован (canvas y вверх, GUI вниз).
-            foreach (float y in _snapLinesY)
+            foreach (float worldY in _snapLinesY)
             {
-                float py = drawRect.y + (canvasRT.rect.yMax - y) * pxPerUnitY;
+                // canvas world y растёт вверх; в GUI — вниз. Инвертируем v.
+                float v = 1f - (worldY - canvasWorld.yMin) / canvasWorld.height;
+                if (v < -0.05f || v > 1.05f) continue;
+                float py = drawRect.y + v * drawRect.height;
                 EditorGUI.DrawRect(new Rect(drawRect.x, py - 0.5f, drawRect.width, 1f), c);
             }
         }
@@ -1582,12 +1586,12 @@ namespace NovellaEngine.Editor
             Vector2 deltaCanvas = PreviewDeltaToCanvasDelta(deltaPreview, drawRect);
 
             // Smart-guides — корректируем deltaCanvas если можно прилипнуть к
-            // соседям/центрам/краям canvas. Делаем только для одиночного перетаскивания
-            // (для multi-select snap считать сложно и обычно нежеланно).
+            // соседям/краям/центру родителя. Только для одиночного перетаскивания.
             _snapLinesX.Clear(); _snapLinesY.Clear();
+            bool snappedX = false, snappedY = false;
             if (_smartGuides && _selectedList.Count == 1)
             {
-                deltaCanvas = ApplySmartSnap(_selectedList[0], deltaCanvas, drawRect);
+                deltaCanvas = ApplySmartSnap(_selectedList[0], deltaCanvas, drawRect, out snappedX, out snappedY);
             }
 
             foreach (var rt in _selectedList)
@@ -1595,12 +1599,12 @@ namespace NovellaEngine.Editor
                 if (!_dragAnchorStarts.TryGetValue(rt, out Vector2 startPos)) continue;
 
                 Vector2 newAnchor = startPos + deltaCanvas;
-                if (_showGrid && _gridStep > 0.5f && _snapLinesX.Count == 0 && _snapLinesY.Count == 0)
+                if (_showGrid && _gridStep > 0.5f)
                 {
-                    // Сетка перекрывается guide-snap'ом: если уже прилипли к
-                    // соседу — не довинчиваем по сетке.
-                    newAnchor.x = Mathf.Round(newAnchor.x / _gridStep) * _gridStep;
-                    newAnchor.y = Mathf.Round(newAnchor.y / _gridStep) * _gridStep;
+                    // Grid применяется ПОСЛЕ snap'а, и только по тем осям где
+                    // снапа нет — иначе magnet всегда проигрывает сетке.
+                    if (!snappedX) newAnchor.x = Mathf.Round(newAnchor.x / _gridStep) * _gridStep;
+                    if (!snappedY) newAnchor.y = Mathf.Round(newAnchor.y / _gridStep) * _gridStep;
                 }
 
                 rt.anchoredPosition = newAnchor;
@@ -1608,60 +1612,81 @@ namespace NovellaEngine.Editor
             }
         }
 
-        // Магнитное прилипание к соседним элементам и краям/центру canvas.
-        // Возвращает скорректированную дельту в canvas-юнитах.
-        private Vector2 ApplySmartSnap(RectTransform rt, Vector2 deltaCanvas, Rect drawRect)
+        // Магнитное прилипание к соседним элементам сцены и краям/центру родителя.
+        // Считаем всё в WORLD-координатах через RectTransform.GetWorldCorners — так
+        // корректно работает для элементов на любом уровне вложенности (canvas → panel
+        // → group → button и т.п.), и линии-индикаторы рендерятся в правильных местах.
+        //
+        // Возвращает скорректированную deltaCanvas (в parent-local единицах, как ожидает
+        // anchoredPosition); out-параметры snappedX/snappedY говорят применилось ли
+        // прилипание по соответствующей оси (нужно для grid-fallback).
+        private Vector2 ApplySmartSnap(RectTransform rt, Vector2 deltaCanvas, Rect drawRect, out bool snappedX, out bool snappedY)
         {
+            snappedX = false; snappedY = false;
             if (rt == null || rt.parent == null || _canvas == null) return deltaCanvas;
+            if (!(rt.parent is RectTransform pRT)) return deltaCanvas;
             var canvasRT = _canvas.GetComponent<RectTransform>();
             if (canvasRT == null) return deltaCanvas;
 
-            // Порог snap'а — 12 пикселей превью; subjectively ощутимое
-            // «прилипание» а не лёгкая дрожь. В canvas-юнитах конвертируем
-            // через текущий зум превью.
-            float pxPerUnit = drawRect.width > 0 ? drawRect.width / canvasRT.rect.width : 1f;
-            float threshold = 12f / Mathf.Max(0.001f, pxPerUnit);
+            // Конвертим parent-local дельту в world-дельту через lossyScale родителя.
+            Vector2 pLossy = pRT.lossyScale;
+            if (Mathf.Abs(pLossy.x) < 0.0001f) pLossy.x = 1f;
+            if (Mathf.Abs(pLossy.y) < 0.0001f) pLossy.y = 1f;
+            Vector2 deltaWorld = new Vector2(deltaCanvas.x * pLossy.x, deltaCanvas.y * pLossy.y);
 
-            // Текущие planned-границы dragged-элемента в локальных координатах
-            // его родителя (после применения deltaCanvas).
-            Rect dragged = ComputeLocalRectAfterDrag(rt, deltaCanvas);
+            // Порог в world-юнитах: 12 px превью, переведённые через текущий zoom.
+            // Превью показывает canvas — поэтому px-per-world = drawRect.width / canvasWorldWidth.
+            Rect canvasWorld = GetWorldRect(canvasRT);
+            if (canvasWorld.width <= 0.0001f) return deltaCanvas;
+            float pxPerWorld = drawRect.width / canvasWorld.width;
+            float threshold = 12f / Mathf.Max(0.001f, pxPerWorld);
 
-            // Кандидаты — siblings (не в выделении) + сам canvas (его центр + края).
-            float bestDx = 0, bestDy = 0;
+            // Запланированные world-bounds dragged-элемента.
+            Rect rtWorld = GetWorldRect(rt);
+            Rect planned = new Rect(rtWorld.x + deltaWorld.x, rtWorld.y + deltaWorld.y, rtWorld.width, rtWorld.height);
+
             float bestX = float.MaxValue, bestY = float.MaxValue;
-            float? snapLineX = null, snapLineY = null;
+            float bestDx = 0f, bestDy = 0f;
+            float? snapX = null, snapY = null;
 
-            // Sibling-цели.
-            foreach (Transform sib in rt.parent)
+            // Цель 1: сиблинги под тем же родителем (исключая сам dragged).
+            foreach (Transform sib in pRT)
             {
                 if (sib == rt.transform) continue;
                 if (!(sib is RectTransform sibRT)) continue;
-                Rect r = ComputeLocalRect(sibRT);
+                if (!sibRT.gameObject.activeInHierarchy) continue;
+                Rect sw = GetWorldRect(sibRT);
+                if (sw.width <= 0.0001f || sw.height <= 0.0001f) continue;
 
-                // X-оси: left, center, right.
-                TrySnapAxis(dragged.xMin, r.xMin, threshold, ref bestX, ref bestDx, ref snapLineX, r.xMin);
-                TrySnapAxis(dragged.center.x, r.center.x, threshold, ref bestX, ref bestDx, ref snapLineX, r.center.x);
-                TrySnapAxis(dragged.xMax, r.xMax, threshold, ref bestX, ref bestDx, ref snapLineX, r.xMax);
-
-                TrySnapAxis(dragged.yMin, r.yMin, threshold, ref bestY, ref bestDy, ref snapLineY, r.yMin);
-                TrySnapAxis(dragged.center.y, r.center.y, threshold, ref bestY, ref bestDy, ref snapLineY, r.center.y);
-                TrySnapAxis(dragged.yMax, r.yMax, threshold, ref bestY, ref bestDy, ref snapLineY, r.yMax);
+                TrySnapAxis(planned.xMin,    sw.xMin,    threshold, ref bestX, ref bestDx, ref snapX, sw.xMin);
+                TrySnapAxis(planned.center.x, sw.center.x, threshold, ref bestX, ref bestDx, ref snapX, sw.center.x);
+                TrySnapAxis(planned.xMax,    sw.xMax,    threshold, ref bestX, ref bestDx, ref snapX, sw.xMax);
+                TrySnapAxis(planned.yMin,    sw.yMin,    threshold, ref bestY, ref bestDy, ref snapY, sw.yMin);
+                TrySnapAxis(planned.center.y, sw.center.y, threshold, ref bestY, ref bestDy, ref snapY, sw.center.y);
+                TrySnapAxis(planned.yMax,    sw.yMax,    threshold, ref bestY, ref bestDy, ref snapY, sw.yMax);
             }
 
-            // Цели от parent'а — края и центр родителя (для canvas это центр canvas).
-            if (rt.parent is RectTransform parentRT)
+            // Цель 2: границы и центр родителя (часто это canvas).
+            Rect pW = GetWorldRect(pRT);
+            TrySnapAxis(planned.xMin,    pW.xMin,    threshold, ref bestX, ref bestDx, ref snapX, pW.xMin);
+            TrySnapAxis(planned.center.x, pW.center.x, threshold, ref bestX, ref bestDx, ref snapX, pW.center.x);
+            TrySnapAxis(planned.xMax,    pW.xMax,    threshold, ref bestX, ref bestDx, ref snapX, pW.xMax);
+            TrySnapAxis(planned.yMin,    pW.yMin,    threshold, ref bestY, ref bestDy, ref snapY, pW.yMin);
+            TrySnapAxis(planned.center.y, pW.center.y, threshold, ref bestY, ref bestDy, ref snapY, pW.center.y);
+            TrySnapAxis(planned.yMax,    pW.yMax,    threshold, ref bestY, ref bestDy, ref snapY, pW.yMax);
+
+            if (bestX != float.MaxValue)
             {
-                Rect pr = parentRT.rect;
-                TrySnapAxis(dragged.center.x, pr.center.x, threshold, ref bestX, ref bestDx, ref snapLineX, pr.center.x);
-                TrySnapAxis(dragged.center.y, pr.center.y, threshold, ref bestY, ref bestDy, ref snapLineY, pr.center.y);
-                TrySnapAxis(dragged.xMin, pr.xMin, threshold, ref bestX, ref bestDx, ref snapLineX, pr.xMin);
-                TrySnapAxis(dragged.xMax, pr.xMax, threshold, ref bestX, ref bestDx, ref snapLineX, pr.xMax);
-                TrySnapAxis(dragged.yMin, pr.yMin, threshold, ref bestY, ref bestDy, ref snapLineY, pr.yMin);
-                TrySnapAxis(dragged.yMax, pr.yMax, threshold, ref bestY, ref bestDy, ref snapLineY, pr.yMax);
+                deltaCanvas.x += bestDx / pLossy.x;
+                snappedX = true;
+                if (snapX.HasValue) _snapLinesX.Add(snapX.Value);
             }
-
-            if (bestX != float.MaxValue) { deltaCanvas.x += bestDx; if (snapLineX.HasValue) _snapLinesX.Add(snapLineX.Value); }
-            if (bestY != float.MaxValue) { deltaCanvas.y += bestDy; if (snapLineY.HasValue) _snapLinesY.Add(snapLineY.Value); }
+            if (bestY != float.MaxValue)
+            {
+                deltaCanvas.y += bestDy / pLossy.y;
+                snappedY = true;
+                if (snapY.HasValue) _snapLinesY.Add(snapY.Value);
+            }
 
             return deltaCanvas;
         }
@@ -1676,30 +1701,6 @@ namespace NovellaEngine.Editor
                 bestDelta = d;
                 snapLine = lineAt;
             }
-        }
-
-        // Локальный rect элемента в системе координат его родителя.
-        private static Rect ComputeLocalRect(RectTransform rt)
-        {
-            // anchoredPosition + sizeDelta дают bounds относительно anchor'a.
-            // Для элементов с растяжением (anchorMin != anchorMax) используем
-            // упрощённую модель: bounds = anchorMin..anchorMax в parentRect + sizeDelta padding.
-            Rect parentRect = ((RectTransform)rt.parent).rect;
-            Vector2 minRel = new Vector2(rt.anchorMin.x * parentRect.width, rt.anchorMin.y * parentRect.height) + parentRect.position;
-            Vector2 maxRel = new Vector2(rt.anchorMax.x * parentRect.width, rt.anchorMax.y * parentRect.height) + parentRect.position;
-            // anchoredPosition смещает центр rect'а; sizeDelta задаёт +/- от anchor-зоны.
-            Vector2 center = (minRel + maxRel) * 0.5f + rt.anchoredPosition;
-            Vector2 size = (maxRel - minRel) + rt.sizeDelta;
-            return new Rect(center.x - size.x * 0.5f, center.y - size.y * 0.5f, size.x, size.y);
-        }
-
-        // То же что ComputeLocalRect, но с применённой deltaCanvas (план drag'а).
-        private static Rect ComputeLocalRectAfterDrag(RectTransform rt, Vector2 deltaCanvas)
-        {
-            Rect r = ComputeLocalRect(rt);
-            r.x += deltaCanvas.x;
-            r.y += deltaCanvas.y;
-            return r;
         }
 
         private Vector2 PreviewDeltaToCanvasDelta(Vector2 deltaPreview, Rect drawRect)
