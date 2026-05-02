@@ -53,7 +53,7 @@ namespace NovellaEngine.Editor.UIBindings
 
             if (GUI.Button(fieldRect, btnLabel, EditorStyles.popup))
             {
-                ShowPickerMenu(current, attr.Kind, newId =>
+                NovellaUIPickerWindow.Open(label.text, attr.Kind, current, newId =>
                 {
                     property.stringValue = newId;
                     property.serializedObject.ApplyModifiedProperties();
@@ -61,50 +61,5 @@ namespace NovellaEngine.Editor.UIBindings
             }
         }
 
-        private static void ShowPickerMenu(string currentId, UIBindingKind kind, System.Action<string> onPick)
-        {
-            var menu = new GenericMenu();
-            var all = NovellaUIBinding.FindAllInScene();
-
-            int compatibleCount = 0;
-            foreach (var b in all)
-            {
-                if (b == null) continue;
-                bool ok = kind == UIBindingKind.Any
-                    || (kind == UIBindingKind.Text   && b.GetComponent<TMPro.TMP_Text>()           != null)
-                    || (kind == UIBindingKind.Button && b.GetComponent<UnityEngine.UI.Button>()    != null);
-                if (!ok) continue;
-
-                compatibleCount++;
-                string folder = FolderFor(b.DetectKind());
-                string item = $"{folder}/{b.DisplayName}";
-                var bRef = b;
-                menu.AddItem(new GUIContent(item), b.Id == currentId, () => onPick(bRef.Id));
-            }
-
-            if (compatibleCount == 0)
-            {
-                menu.AddDisabledItem(new GUIContent("В сцене нет привязываемых элементов"));
-                menu.AddDisabledItem(new GUIContent("Открой Кузницу UI и нажми «➕ Сделать привязываемым»"));
-            }
-            else
-            {
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("(очистить)"), false, () => onPick(""));
-            }
-
-            menu.ShowAsContext();
-        }
-
-        private static string FolderFor(NovellaUIBinding.BindingKind k)
-        {
-            switch (k)
-            {
-                case NovellaUIBinding.BindingKind.Text:   return "📝 Тексты";
-                case NovellaUIBinding.BindingKind.Button: return "🔘 Кнопки";
-                case NovellaUIBinding.BindingKind.Image:  return "🖼 Картинки";
-                default: return "▣ Прочее";
-            }
-        }
     }
 }
