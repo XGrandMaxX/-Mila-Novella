@@ -231,6 +231,13 @@ namespace NovellaEngine.Editor
         {
             if (_camera == null) FindReferences();
 
+            // Prune мертвых ссылок ПЕРЕД любой отрисовкой инспектора/дерева.
+            // После Undo (или внешнего Destroy) RectTransform-ы могут быть
+            // «destroyed companion»: managed-обёртка ещё жива, но любой
+            // GetComponent<> бросает MissingReferenceException — что в IMGUI
+            // ломает GUIClip-стек («pushing more clips than popping»).
+            PruneSelection();
+
             Event ev = Event.current;
             if (ev != null && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Delete && _selectedList.Count > 0)
             {
@@ -261,6 +268,33 @@ namespace NovellaEngine.Editor
             DrawInspector(inspRect);
 
             SyncSelectionToUnityIfNeeded();
+        }
+
+        // Убирает из _selectedList все null и «destroyed companion» ссылки.
+        // Дополнительно подчищает кэш _allRects если в нём тоже завелись битые
+        // элементы (после Undo Unity не всегда вызывает hierarchyChanged).
+        private void PruneSelection()
+        {
+            // Unity-овский `==` сравнивает с native-частью; для destroyed
+            // объектов он возвращает true даже если managed-обёртка не null.
+            for (int i = _selectedList.Count - 1; i >= 0; i--)
+            {
+                var rt = _selectedList[i];
+                if (rt == null) _selectedList.RemoveAt(i);
+            }
+
+            bool needsRebuild = false;
+            for (int i = 0; i < _allRects.Count; i++)
+            {
+                if (_allRects[i] == null) { needsRebuild = true; break; }
+            }
+            if (needsRebuild) RefreshRectsCache();
+
+            // Index подсветки тоже мог стать невалидным.
+            if (_lastSelectedTreeIndex >= _allRects.Count) _lastSelectedTreeIndex = -1;
+
+            // Кэш переименования.
+            if (_renameTarget == null) { _renameTarget = null; _pendingRename = null; }
         }
 
         // Прокидываем _selectedList в Unity Selection — чтобы:
