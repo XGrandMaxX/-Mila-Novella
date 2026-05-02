@@ -138,6 +138,10 @@ namespace NovellaEngine.Editor
         // 🔒 Заблокированные объекты — нельзя удалять/дублировать/переключать
         // active/двигать в дереве. Только редактор-only флаг (не влияет на игру).
         private HashSet<int> _lockedNodes = new HashSet<int>();
+        // ID объектов которые мы уже «видели» как preset-managed — нужно
+        // чтобы автозамок ставился ОДИН РАЗ (при первом появлении в _allRects).
+        // Если юзер сам снял замок — повторного восстановления не будет.
+        private HashSet<int> _seenPresetIds = new HashSet<int>();
         // ✋ Объекты с заблокированным «click pickup»: PickDeepestRectAt их
         // пропускает. Удобно когда канвас A поверх канваса B мешает выбирать
         // элементы B — отключаешь pickup на A и работаешь с B. Сами объекты
@@ -280,7 +284,7 @@ namespace NovellaEngine.Editor
 
             if (_allRects.Count == 0) RefreshRectsCache();
 
-            const float treeW = 280f; // Сделал чуть шире для кнопок вверх/вниз
+            const float treeW = 340f; // Расширено для иконок lock/pickup/eye слева + длинные имена
             const float inspectorW = 340f;
             float canvasW = position.width - treeW - inspectorW;
             if (canvasW < 200f) canvasW = 200f;
@@ -686,7 +690,51 @@ namespace NovellaEngine.Editor
                 onAddPlayer:     CreateNovellaPlayerInScene,
                 onAddLauncher:   CreateStoryLauncherInScene,
                 onApplyMenu:     ApplyMenuPresetFromForge,
-                onApplyGameplay: ApplyGameplayPresetFromForge);
+                onApplyGameplay: ApplyGameplayPresetFromForge,
+                onClearScene:    ClearSceneFromForge);
+        }
+
+        // Очищает сцену от всех Canvas / EventSystem / Player / Launcher.
+        // Locked (🔒) объекты остаются — они защищены. После очистки в Forge
+        // можно сразу применить пресет на «чистом листе».
+        private void ClearSceneFromForge()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                int removed = 0;
+                // Canvases (включая отключённые).
+                var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var c in canvases)
+                {
+                    if (c == null || !c.isRootCanvas) continue;
+                    var rt = c.GetComponent<RectTransform>();
+                    if (rt != null && IsLockedTransitive(rt)) continue;
+                    Undo.DestroyObjectImmediate(c.gameObject);
+                    removed++;
+                }
+                // EventSystem.
+                var eventSystems = UnityEngine.Object.FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var e in eventSystems)
+                {
+                    if (e != null) { Undo.DestroyObjectImmediate(e.gameObject); removed++; }
+                }
+                // Player / Launcher.
+                var players = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var p in players)
+                {
+                    if (p != null) { Undo.DestroyObjectImmediate(p.gameObject); removed++; }
+                }
+                var launchers = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var l in launchers)
+                {
+                    if (l != null) { Undo.DestroyObjectImmediate(l.gameObject); removed++; }
+                }
+
+                FindReferences();
+                RefreshRectsCache();
+                _window?.Repaint();
+                Debug.Log($"[Novella] Scene cleared: removed {removed} objects (locked items preserved).");
+            };
         }
 
         // Применяет пресет ПРЯМО в активной сцене через публичный фасад
@@ -1069,6 +1117,21 @@ namespace NovellaEngine.Editor
                     var rt = c.GetComponent<RectTransform>();
                     if (rt != null) CollectRectsRecursive(rt, _allRects, 0);
                 }
+            }
+
+            // Автозамок для preset-managed объектов — ставится ОДИН РАЗ при
+            // первом появлении объекта в _allRects. Если юзер сам снял замок —
+            // мы уже зафиксировали его id в _seenPresetIds, повторно замок
+            // ставить не будем. Это защита от случайного удаления preset-кнопок,
+            // но юзер всё ещё может снять замок осознанно.
+            foreach (var rt in _allRects)
+            {
+                if (rt == null) continue;
+                int id = rt.GetInstanceID();
+                if (_seenPresetIds.Contains(id)) continue;
+                if (rt.GetComponent<NovellaEngine.Runtime.NovellaPresetMarker>() == null) continue;
+                _seenPresetIds.Add(id);
+                _lockedNodes.Add(id);
             }
         }
 
@@ -1664,7 +1727,19 @@ namespace NovellaEngine.Editor
                 GUI.Label(chevronRect, collapsed ? "▶" : "▼", chSt);
             }
 
-            float iconStartX = iconX + 14;
+            // Состояние locked / click-blocked — два редактор-only флага.
+            int rtId = rt.GetInstanceID();
+            bool isLocked       = _lockedNodes.Contains(rtId);
+            bool isClickBlocked = _clickBlockedNodes.Contains(rtId);
+
+            // Три кнопки СЛЕВА от иконки (после chevron'а): lock | pickup | eye.
+            // Раньше они были справа и съедали место под имя — теперь имя
+            // получает почти всю ширину строки до warning'а.
+            float btnsStartX = iconX + 14; // после chevron
+            Rect lockRect = new Rect(btnsStartX,      row.y, 20, row.height);
+            Rect pickRect = new Rect(btnsStartX + 20, row.y, 20, row.height);
+            Rect eyeRect  = new Rect(btnsStartX + 40, row.y, 20, row.height);
+            float iconStartX = btnsStartX + 64; // место под три кнопки + 4px зазора
 
             // Активность объекта. Различаем три состояния:
             //  • selfActive=true,  visible=true   → норма
@@ -1709,11 +1784,9 @@ namespace NovellaEngine.Editor
             {
                 nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
             }
-            // Справа резервируем место под кнопку-глаз (24px) и индикатор «!» (24px).
+            // Справа теперь только warning ~28px (lock/pickup/eye переехали слева).
             float textX = iconStartX + 24;
-            // Резервируем место под три кнопки справа (lock 22 + pickup 22 +
-            // eye 22 + warning 22 + зазоры) ≈ 110px.
-            float textW = row.width - (textX - row.x) - 110;
+            float textW = row.width - (textX - row.x) - 30;
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
             // Подпись типа — нижняя строка, мелким серым шрифтом. К ней
@@ -1749,28 +1822,16 @@ namespace NovellaEngine.Editor
                           new GUIContent(subtitle, subtitleTip), subSt);
             }
 
-            // Индикатор проблем — янтарный «!». Слева от блока кнопок-иконок
-            // (lock + pickup + eye занимают по 22px с 4px зазорами справа).
+            // Индикатор проблем «!» — теперь у самого правого края, потому
+            // что lock/pickup/eye переехали слева.
             string warning = GetElementWarning(rt);
             if (!string.IsNullOrEmpty(warning))
             {
-                Rect warnRect = new Rect(row.xMax - 108, row.y, 22, row.height);
+                Rect warnRect = new Rect(row.xMax - 26, row.y, 22, row.height);
                 var warnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
                 warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
                 GUI.Label(warnRect, new GUIContent("!", warning), warnSt);
             }
-
-            // Состояние locked / click-blocked — два редактор-only флага в HashSet'ах.
-            int rtId = rt.GetInstanceID();
-            bool isLocked       = _lockedNodes.Contains(rtId);
-            bool isClickBlocked = _clickBlockedNodes.Contains(rtId);
-
-            // Три кнопки справа: 🔒/🔓 lock | ✋/👆 click-pickup | ●/◌ eye.
-            // Каждая 22px шириной с зазором 4px. Считаем справа налево.
-            float rightX = row.xMax - 4;
-            Rect eyeRect      = new Rect(rightX - 22, row.y, 22, row.height); rightX -= 26;
-            Rect pickRect     = new Rect(rightX - 22, row.y, 22, row.height); rightX -= 26;
-            Rect lockRect     = new Rect(rightX - 22, row.y, 22, row.height);
 
             // ─── Lock ─────────────────────────────────────────────────────
             // Используем Unity built-in lock-иконку («IN LockButton» / «...on»)
@@ -1785,7 +1846,12 @@ namespace NovellaEngine.Editor
                     "Click to lock — protects from accidental delete / drag / disable. Editor-only flag, doesn't affect the game.",
                     "Клик — заблокировать. Защита от случайного удаления / перетаскивания / выключения. Только в редакторе, на игру не влияет.");
             var lockTex = EditorGUIUtility.IconContent(isLocked ? "IN LockButton on" : "IN LockButton").image as Texture;
-            DrawSmallIconWithTint(lockRect, lockTex, isLocked ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_4, lockTip);
+            // Ярче чем раньше — locked насыщенно amber, unlocked видимый
+            // C_TEXT_3 (раньше C_TEXT_4 был почти невидим).
+            Color lockColor = isLocked
+                ? new Color(0.98f, 0.72f, 0.30f)
+                : new Color(C_TEXT_3.r, C_TEXT_3.g, C_TEXT_3.b, 0.85f);
+            DrawSmallIconWithTint(lockRect, lockTex, lockColor, lockTip, 16f);
 
             // ─── Click-pickup ─────────────────────────────────────────────
             // Unity-style hand icon для click-pickup (как в Hierarchy
@@ -1798,7 +1864,10 @@ namespace NovellaEngine.Editor
                     "Click to block pickup — clicks on the canvas preview will go through this object. Useful when an upper canvas blocks selecting elements behind it. Editor-only.",
                     "Клик — заблокировать pickup. Клики на превью канваса будут проходить сквозь этот объект. Удобно когда верхний канвас мешает выделять элементы под ним. Только в редакторе.");
             var pickTex = EditorGUIUtility.IconContent(isClickBlocked ? "scenepicking_notpickable" : "scenepicking_pickable").image as Texture;
-            DrawSmallIconWithTint(pickRect, pickTex, isClickBlocked ? new Color(0.92f, 0.36f, 0.36f) : C_TEXT_4, pickTip);
+            Color pickColor = isClickBlocked
+                ? new Color(0.95f, 0.40f, 0.40f)
+                : new Color(C_TEXT_3.r, C_TEXT_3.g, C_TEXT_3.b, 0.85f);
+            DrawSmallIconWithTint(pickRect, pickTex, pickColor, pickTip, 16f);
 
             // ─── Eye (active) ─────────────────────────────────────────────
             // Кнопка-«глаз» переключает activeSelf. Для preset-managed и locked
@@ -2726,11 +2795,10 @@ namespace NovellaEngine.Editor
         // подкраской через GUI.color. После DrawTexture восстанавливаем
         // оригинальный GUI.color чтобы не подкрасить остальные элементы.
         // Tooltip пробрасываем через невидимый GUI.Label поверх иконки.
-        private static void DrawSmallIconWithTint(Rect r, Texture tex, Color tint, string tooltip)
+        private static void DrawSmallIconWithTint(Rect r, Texture tex, Color tint, string tooltip, float size = 14f)
         {
             if (tex == null) return;
-            const float SZ = 14f;
-            Rect center = new Rect(r.x + (r.width - SZ) * 0.5f, r.y + (r.height - SZ) * 0.5f, SZ, SZ);
+            Rect center = new Rect(r.x + (r.width - size) * 0.5f, r.y + (r.height - size) * 0.5f, size, size);
 
             Color prev = GUI.color;
             GUI.color = tint;

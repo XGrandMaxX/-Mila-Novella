@@ -30,6 +30,7 @@ namespace NovellaEngine.Editor
         private Action _onAddLauncher;
         private Action _onApplyMenu;
         private Action _onApplyGameplay;
+        private Action _onClearScene;
         private bool _playerExists;
         private bool _launcherExists;
 
@@ -40,7 +41,8 @@ namespace NovellaEngine.Editor
         public static void Show(
             bool playerExists, bool launcherExists,
             Action onAddPlayer, Action onAddLauncher,
-            Action onApplyMenu, Action onApplyGameplay)
+            Action onApplyMenu, Action onApplyGameplay,
+            Action onClearScene)
         {
             var win = CreateInstance<NovellaSceneSetupDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Add scene component", "Добавить компонент сцены"));
@@ -50,9 +52,12 @@ namespace NovellaEngine.Editor
             win._onAddLauncher   = onAddLauncher;
             win._onApplyMenu     = onApplyMenu;
             win._onApplyGameplay = onApplyGameplay;
+            win._onClearScene    = onClearScene;
 
-            // Центруем относительно главного окна Unity.
-            var size = new Vector2(640, 540);
+            // Центруем относительно главного окна Unity. 640×620 чтобы
+            // footer-кнопки гарантированно влезли (раньше 540 — кнопка
+            // «Закрыть» обрезалась).
+            var size = new Vector2(640, 620);
             var main = EditorGUIUtility.GetMainWindowPosition();
             win.position = new Rect(
                 main.x + (main.width - size.x) * 0.5f,
@@ -158,13 +163,36 @@ namespace NovellaEngine.Editor
             GUILayout.Space(20);
             GUILayout.EndHorizontal();
 
-            // ── Footer: close ──
+            // ── Footer: clear-scene + close ────────────────────────────
             GUILayout.FlexibleSpace();
             EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), C_BORDER);
             GUILayout.Space(10);
             GUILayout.BeginHorizontal();
+            GUILayout.Space(20);
+
+            // «Очистить сцену» — снести всё что не под замком, чтобы
+            // потом применить пресет на чистой сцене.
+            var clearSt = new GUIStyle(EditorStyles.miniButton)
+            {
+                fontSize = 11,
+                fixedHeight = 26,
+                padding = new RectOffset(14, 14, 2, 2),
+            };
+            clearSt.normal.textColor = new Color(0.92f, 0.36f, 0.36f);
+            if (GUILayout.Button(new GUIContent(
+                    "🗑  " + ToolLang.Get("Clear scene", "Очистить сцену"),
+                    ToolLang.Get(
+                        "Remove all canvases, EventSystems and Novella-managed objects (StoryLauncher / NovellaPlayer) from the scene. Locked objects stay. Useful before applying a preset.",
+                        "Удалить все Canvas, EventSystem и объекты Novella (StoryLauncher / NovellaPlayer) из сцены. Заблокированные (🔒) останутся. Удобно перед применением пресета.")),
+                clearSt, GUILayout.Width(140)))
+            {
+                _onClearScene?.Invoke();
+                Close();
+            }
+
             GUILayout.FlexibleSpace();
-            var closeSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 11, fixedHeight = 24, padding = new RectOffset(16, 16, 2, 2) };
+
+            var closeSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 11, fixedHeight = 26, padding = new RectOffset(16, 16, 2, 2) };
             closeSt.normal.textColor = C_TEXT_3;
             if (GUILayout.Button(ToolLang.Get("Close", "Закрыть"), closeSt, GUILayout.Width(100)))
             {
