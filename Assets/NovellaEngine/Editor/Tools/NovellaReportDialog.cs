@@ -126,16 +126,9 @@ namespace NovellaEngine.Editor
                 "@" + AUTHOR_TELEGRAM_USERNAME,
                 C_TELEGRAM,
                 ToolLang.Get(
-                    "Opens directly in Telegram. One Ctrl+V — and the report is in.",
-                    "Откроется прямо в Telegram. Одно нажатие Ctrl+V — и отчёт у автора."),
-                () =>
-                {
-                    EditorGUIUtility.systemCopyBuffer = _reportText;
-                    Application.OpenURL("https://t.me/" + AUTHOR_TELEGRAM_USERNAME);
-                    SetStatus(ToolLang.Get(
-                        "✓ Telegram opened — paste the report (Ctrl+V) into the chat. Thanks ❤",
-                        "✓ Telegram открыт — вставь отчёт (Ctrl+V) в чат. Спасибо ❤"));
-                },
+                    "Opens Telegram. Long reports are auto-saved as .txt — drag the file from File Explorer into the chat.",
+                    "Откроется Telegram. Длинные отчёты автоматически сохраняются в .txt — перетащи файл из проводника в чат."),
+                () => OpenChannel("Telegram", "https://t.me/" + AUTHOR_TELEGRAM_USERNAME),
                 ref _hoverTelegram);
 
             GUILayout.Space(16);
@@ -146,16 +139,9 @@ namespace NovellaEngine.Editor
                 ToolLang.Get("DM the author", "Личка автора"),
                 C_DISCORD,
                 ToolLang.Get(
-                    "Opens the author's profile. Click «Send Message», then Ctrl+V.",
-                    "Откроется профиль автора. Жми «Send Message», потом Ctrl+V."),
-                () =>
-                {
-                    EditorGUIUtility.systemCopyBuffer = _reportText;
-                    Application.OpenURL("https://discord.com/users/" + AUTHOR_DISCORD_USER_ID);
-                    SetStatus(ToolLang.Get(
-                        "✓ Discord profile opened — click «Send Message», then Ctrl+V. Thanks ❤",
-                        "✓ Профиль Discord открыт — жми «Send Message», потом Ctrl+V. Спасибо ❤"));
-                },
+                    "Opens Discord. Long reports are auto-saved as .txt — drag the file from File Explorer into the DM.",
+                    "Откроется Discord. Длинные отчёты автоматически сохраняются в .txt — перетащи файл из проводника в DM."),
+                () => OpenChannel("Discord", "https://discord.com/users/" + AUTHOR_DISCORD_USER_ID),
                 ref _hoverDiscord);
 
             GUILayout.Space(24);
@@ -370,6 +356,55 @@ namespace NovellaEngine.Editor
             _statusMessage = text;
             _statusSetAt = EditorApplication.timeSinceStartup;
             Repaint();
+        }
+
+        // Открывает мессенджер с разной стратегией передачи отчёта в зависимости
+        // от длины: короткий текст (≤ TG_MESSAGE_LIMIT) кладём в буфер обмена,
+        // длинный — сохраняем .txt во временную папку и открываем проводник
+        // на этом файле, чтобы юзер мог перетащить его в чат drag-n-drop'ом.
+        // Telegram-мессадж имеет лимит 4096 символов, Discord — 2000. Берём
+        // более жёсткий 1900 как общий порог чтобы был запас.
+        private const int CHAT_INLINE_LIMIT = 1900;
+
+        private void OpenChannel(string channelName, string url)
+        {
+            EditorGUIUtility.systemCopyBuffer = _reportText;
+
+            bool tooLong = _reportText != null && _reportText.Length > CHAT_INLINE_LIMIT;
+            string savedPath = null;
+            if (tooLong)
+            {
+                try
+                {
+                    string fname = "Novella_Studio_Error_Report_" +
+                        DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + ".txt";
+                    savedPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), fname);
+                    System.IO.File.WriteAllText(savedPath, _reportText);
+                    EditorUtility.RevealInFinder(savedPath);
+                }
+                catch (Exception ex)
+                {
+                    SetStatus(ToolLang.Get("✗ Failed to save temp file: ", "✗ Не удалось сохранить временный файл: ") + ex.Message);
+                    return;
+                }
+            }
+
+            Application.OpenURL(url);
+
+            if (tooLong)
+            {
+                SetStatus(string.Format(ToolLang.Get(
+                    "✓ {0} opened. Report is long — drag {1} from File Explorer into the chat. Thanks ❤",
+                    "✓ {0} открыт. Отчёт длинный — перетащи {1} из проводника в чат. Спасибо ❤"),
+                    channelName, System.IO.Path.GetFileName(savedPath)));
+            }
+            else
+            {
+                SetStatus(string.Format(ToolLang.Get(
+                    "✓ {0} opened — paste the report (Ctrl+V) into the chat. Thanks ❤",
+                    "✓ {0} открыт — вставь отчёт (Ctrl+V) в чат. Спасибо ❤"),
+                    channelName));
+            }
         }
 
         private static void DrawBorder(Rect r, Color c)
