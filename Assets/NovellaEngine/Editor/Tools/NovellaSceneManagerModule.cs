@@ -815,7 +815,9 @@ namespace NovellaEngine.Editor
             DrawSceneInfoBox(sc);
 
             AppliedPreset applied = sc.IsOpen ? DetectAppliedPreset() : AppliedPreset.None;
-            DrawPresetsBlock(sc, applied, contentWidth);
+            // Карточки «применить пресет» переехали в Кузницу UI (welcome-экран).
+            // Здесь оставляем только tools-блок: показывает какой пресет
+            // применён + кнопка «Очистить» + «Открыть в Кузнице UI».
             DrawToolsBlock(sc, applied, contentWidth);
 
             GUILayout.Space(20);
@@ -1815,10 +1817,18 @@ namespace NovellaEngine.Editor
             //   Btn_Exit      → ExitGame
             // Btn_Continue не auto-wired (загрузка сейва живёт в NovellaPlayer);
             // ему вешаем NovellaUIBinding с действием LoadLastSave.
-            var btnStart    = CreateUIButton(marker, "Btn_StartPlay", ToolLang.Get("New game",   "Новая игра"),  new Vector2(0, -80));
-            var btnContinue = CreateUIButton(marker, "Btn_Continue",  ToolLang.Get("Continue",   "Продолжить"),  new Vector2(0, -160));
-            var btnSettings = CreateUIButton(marker, "Btn_Settings",  ToolLang.Get("Settings",   "Настройки"),   new Vector2(0, -240));
-            var btnExit     = CreateUIButton(marker, "Btn_Exit",      ToolLang.Get("Quit",       "Выход"),       new Vector2(0, -320));
+            //
+            // Якоря — center-center (0.5, 0.5), блок кнопок центрирован по
+            // вертикали относительно центра экрана. Шаг между кнопками 80px,
+            // 4 кнопки → высота 320, верхняя на +120, нижняя на -120.
+            var btnStart    = CreateUIButton(marker, "Btn_StartPlay", ToolLang.Get("New game",   "Новая игра"),  Vector2.zero);
+            SetCenterAnchorPos(btnStart,    new Vector2(0,  120));
+            var btnContinue = CreateUIButton(marker, "Btn_Continue",  ToolLang.Get("Continue",   "Продолжить"),  Vector2.zero);
+            SetCenterAnchorPos(btnContinue, new Vector2(0,   40));
+            var btnSettings = CreateUIButton(marker, "Btn_Settings",  ToolLang.Get("Settings",   "Настройки"),   Vector2.zero);
+            SetCenterAnchorPos(btnSettings, new Vector2(0,  -40));
+            var btnExit     = CreateUIButton(marker, "Btn_Exit",      ToolLang.Get("Quit",       "Выход"),       Vector2.zero);
+            SetCenterAnchorPos(btnExit,     new Vector2(0, -120));
 
             AddLoadLastSaveBinding(btnContinue);
 
@@ -2352,6 +2362,20 @@ namespace NovellaEngine.Editor
             t.alignment = TMPro.TextAlignmentOptions.Center;
             t.color = Color.white;
             return go;
+        }
+
+        // Перепривязывает якоря объекта на center-center и ставит anchoredPos.
+        // Используется после CreateUIButton чтобы превратить top-anchored
+        // кнопку в центрированную (для блока кнопок MainMenu).
+        private static void SetCenterAnchorPos(GameObject go, Vector2 pos)
+        {
+            if (go == null) return;
+            var rt = go.GetComponent<RectTransform>();
+            if (rt == null) return;
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot     = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = pos;
         }
 
         private GameObject CreateUIButton(GameObject parent, string name, string label, Vector2 anchoredPos)

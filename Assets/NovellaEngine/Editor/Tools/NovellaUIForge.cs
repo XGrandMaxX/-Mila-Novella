@@ -135,6 +135,14 @@ namespace NovellaEngine.Editor
         // ссылки на удалённые объекты. Сессионное состояние, пересоздание окна
         // сбрасывает (намеренно — логика «по дефолту всё развернуто»).
         private HashSet<int> _collapsedNodes = new HashSet<int>();
+        // 🔒 Заблокированные объекты — нельзя удалять/дублировать/переключать
+        // active/двигать в дереве. Только редактор-only флаг (не влияет на игру).
+        private HashSet<int> _lockedNodes = new HashSet<int>();
+        // ✋ Объекты с заблокированным «click pickup»: PickDeepestRectAt их
+        // пропускает. Удобно когда канвас A поверх канваса B мешает выбирать
+        // элементы B — отключаешь pickup на A и работаешь с B. Сами объекты
+        // остаются полностью функциональны в рантайме (флаг editor-only).
+        private HashSet<int> _clickBlockedNodes = new HashSet<int>();
 
         // Активный экземпляр модуля — нужен внешним вызовам (Bindings overview
         // делает PingBinding и должен достучаться до текущего Forge).
@@ -663,6 +671,40 @@ namespace NovellaEngine.Editor
                 onClick?.Invoke();
                 Event.current.Use();
             }
+        }
+
+        // Меню «➕ Сцена ▾» в дереве — позволяет добавить Player / Launcher
+        // или применить полный пресет когда канвас уже есть.
+        private void ShowSceneComponentMenu()
+        {
+            var menu = new GenericMenu();
+
+            bool playerExists = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null;
+            bool launcherExists = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null;
+
+            if (playerExists)
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get("✓ NovellaPlayer (already in scene)", "✓ NovellaPlayer (уже в сцене)")));
+            else
+                menu.AddItem(new GUIContent(ToolLang.Get(
+                    "➕ NovellaPlayer (for gameplay)",
+                    "➕ NovellaPlayer (для игровых сцен)")), false, CreateNovellaPlayerInScene);
+
+            if (launcherExists)
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get("✓ StoryLauncher (already in scene)", "✓ StoryLauncher (уже в сцене)")));
+            else
+                menu.AddItem(new GUIContent(ToolLang.Get(
+                    "➕ StoryLauncher (for menu)",
+                    "➕ StoryLauncher (для меню)")), false, CreateStoryLauncherInScene);
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get(
+                "✨ Apply Main Menu preset",
+                "✨ Применить шаблон Главного Меню")), false, ApplyMenuPresetFromForge);
+            menu.AddItem(new GUIContent(ToolLang.Get(
+                "✨ Apply Gameplay preset",
+                "✨ Применить шаблон Игровой сцены")), false, ApplyGameplayPresetFromForge);
+
+            menu.ShowAsContext();
         }
 
         // Применяет пресет ПРЯМО в активной сцене через публичный фасад
@@ -1194,6 +1236,29 @@ namespace NovellaEngine.Editor
                 }
             }
             GUI.backgroundColor = prevBg;
+
+            // Кнопка-меню для добавления компонентов сцены (Player / Launcher)
+            // или применения пресета. Доступна когда канвас уже создан —
+            // юзер хочет добавить только Player без полного пресета.
+            GUILayout.Space(6);
+            var addCompSt = new GUIStyle(EditorStyles.miniButton)
+            {
+                fontSize = 11,
+                alignment = TextAnchor.MiddleCenter,
+                fixedHeight = 22,
+                padding = new RectOffset(10, 10, 2, 2)
+            };
+            addCompSt.normal.textColor = C_TEXT_2;
+            if (GUILayout.Button(new GUIContent(
+                    "➕  " + ToolLang.Get("Scene", "Сцена") + "  ▾",
+                    ToolLang.Get(
+                        "Add NovellaPlayer / StoryLauncher to the scene, or apply a full scene preset.",
+                        "Добавить NovellaPlayer / StoryLauncher на сцену, или применить полный пресет сцены.")),
+                addCompSt, GUILayout.MinWidth(90)))
+            {
+                ShowSceneComponentMenu();
+            }
+
             GUILayout.FlexibleSpace();
             GUILayout.Space(10);
             GUILayout.EndHorizontal();
@@ -1290,8 +1355,8 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Space(10);
             GUILayout.Label("💡 " + ToolLang.Get(
-                "Drag rows to reorder. Drop in middle = make child, drop on edge = sibling. Drop on bottom strip = move to root.",
-                "Тяни строки. По центру — сделать дочерним, на край — поставить рядом. На нижнюю полосу — вытащить в корень."), hint);
+                "Drag rows to reorder. Drop middle = child, edge = sibling, bottom strip = root.\n🔒 — protect from edits.  ✋ — block click-pickup on the canvas preview.  ●/◌ — toggle active.",
+                "Тяни строки. Центр — дочерний, край — рядом, нижняя полоса — в корень.\n🔒 — защита от правок.  ✋ — клики проходят сквозь объект на превью.  ●/◌ — вкл/выкл объект."), hint);
             GUILayout.Space(10);
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
@@ -1603,7 +1668,9 @@ namespace NovellaEngine.Editor
             }
             // Справа резервируем место под кнопку-глаз (24px) и индикатор «!» (24px).
             float textX = iconStartX + 24;
-            float textW = row.width - (textX - row.x) - 70;
+            // Резервируем место под три кнопки справа (lock 22 + pickup 22 +
+            // eye 22 + warning 22 + зазоры) ≈ 110px.
+            float textW = row.width - (textX - row.x) - 110;
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
             // Подпись типа — нижняя строка, мелким серым шрифтом. К ней
@@ -1639,19 +1706,58 @@ namespace NovellaEngine.Editor
                           new GUIContent(subtitle, subtitleTip), subSt);
             }
 
-            // Индикатор проблем — янтарный «!» справа от имени.
+            // Индикатор проблем — янтарный «!». Слева от блока кнопок-иконок
+            // (lock + pickup + eye занимают по 22px с 4px зазорами справа).
             string warning = GetElementWarning(rt);
             if (!string.IsNullOrEmpty(warning))
             {
-                Rect warnRect = new Rect(row.xMax - 50, row.y, 22, row.height);
+                Rect warnRect = new Rect(row.xMax - 108, row.y, 22, row.height);
                 var warnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
                 warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
                 GUI.Label(warnRect, new GUIContent("!", warning), warnSt);
             }
 
-            // Кнопка-«глаз» — переключает activeSelf. Для preset-managed
-            // оставлена видимой но click игнорируется, tooltip объясняет почему.
-            Rect eyeRect = new Rect(row.xMax - 26, row.y, 22, row.height);
+            // Состояние locked / click-blocked — два редактор-only флага в HashSet'ах.
+            int rtId = rt.GetInstanceID();
+            bool isLocked       = _lockedNodes.Contains(rtId);
+            bool isClickBlocked = _clickBlockedNodes.Contains(rtId);
+
+            // Три кнопки справа: 🔒/🔓 lock | ✋/👆 click-pickup | ●/◌ eye.
+            // Каждая 22px шириной с зазором 4px. Считаем справа налево.
+            float rightX = row.xMax - 4;
+            Rect eyeRect      = new Rect(rightX - 22, row.y, 22, row.height); rightX -= 26;
+            Rect pickRect     = new Rect(rightX - 22, row.y, 22, row.height); rightX -= 26;
+            Rect lockRect     = new Rect(rightX - 22, row.y, 22, row.height);
+
+            // ─── Lock ─────────────────────────────────────────────────────
+            string lockIcon = isLocked ? "🔒" : "🔓";
+            string lockTip = isLocked
+                ? ToolLang.Get(
+                    "Locked: cannot delete, duplicate, drag or toggle active. Click to unlock.",
+                    "Заблокирован: нельзя удалять, дублировать, перетаскивать, включать/выключать. Клик — снять.")
+                : ToolLang.Get(
+                    "Click to lock — protects from accidental delete / drag / disable. Editor-only flag, doesn't affect the game.",
+                    "Клик — заблокировать. Защита от случайного удаления / перетаскивания / выключения. Только в редакторе, на игру не влияет.");
+            var lockSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
+            lockSt.normal.textColor = isLocked ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_4;
+            GUI.Label(lockRect, new GUIContent(lockIcon, lockTip), lockSt);
+
+            // ─── Click-pickup ─────────────────────────────────────────────
+            string pickIcon = isClickBlocked ? "✋" : "👆";
+            string pickTip = isClickBlocked
+                ? ToolLang.Get(
+                    "Click-pickup blocked: this object is invisible to clicks on the canvas preview. Click to unblock.",
+                    "Pickup заблокирован: этот объект игнорируется при клике на превью канваса. Клик — снять.")
+                : ToolLang.Get(
+                    "Click to block pickup — clicks on the canvas preview will go through this object. Useful when an upper canvas blocks selecting elements behind it. Editor-only.",
+                    "Клик — заблокировать pickup. Клики на превью канваса будут проходить сквозь этот объект. Удобно когда верхний канвас мешает выделять элементы под ним. Только в редакторе.");
+            var pickSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
+            pickSt.normal.textColor = isClickBlocked ? new Color(0.92f, 0.36f, 0.36f) : C_TEXT_4;
+            GUI.Label(pickRect, new GUIContent(pickIcon, pickTip), pickSt);
+
+            // ─── Eye (active) ─────────────────────────────────────────────
+            // Кнопка-«глаз» переключает activeSelf. Для preset-managed и locked
+            // отключена, tooltip объясняет почему.
             string eyeIcon = selfActive ? "●" : "◌";
             string eyeTip;
             if (isPresetManaged)
@@ -1659,6 +1765,10 @@ namespace NovellaEngine.Editor
                 eyeTip = ToolLang.Get(
                     "Created by a scene preset — its active state is locked. Clear the preset if you really need to remove it.",
                     "Создано пресетом сцены — состояние active заблокировано. Удали пресет целиком если действительно нужно.");
+            }
+            else if (isLocked)
+            {
+                eyeTip = ToolLang.Get("Locked. Unlock first.", "Заблокирован. Сначала сними замок.");
             }
             else
             {
@@ -1669,7 +1779,7 @@ namespace NovellaEngine.Editor
                                    "Клик — включить объект.");
             }
             var eyeSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            if (isPresetManaged)
+            if (isPresetManaged || isLocked)
                 eyeSt.normal.textColor = new Color(C_TEXT_4.r, C_TEXT_4.g, C_TEXT_4.b, 0.55f);
             else
                 eyeSt.normal.textColor = selfActive ? C_TEXT_2 : C_TEXT_4;
@@ -1677,20 +1787,37 @@ namespace NovellaEngine.Editor
 
             Event e = Event.current;
 
-            // Клик по «глазу» переключает active. Для preset-managed клик
-            // блокируется (но всё равно e.Use(), чтобы строка не выделилась
-            // из-за случайного попадания по этой зоне).
-            if (e.type == EventType.MouseDown && e.button == 0 && eyeRect.Contains(e.mousePosition))
+            // Клики по lock / pickup / eye. Каждая кнопка съедает event.
+            if (e.type == EventType.MouseDown && e.button == 0)
             {
-                if (!isPresetManaged)
+                if (lockRect.Contains(e.mousePosition))
                 {
-                    Undo.RecordObject(rt.gameObject, selfActive ? "Disable Object" : "Enable Object");
-                    rt.gameObject.SetActive(!selfActive);
-                    EditorUtility.SetDirty(rt.gameObject);
+                    if (isLocked) _lockedNodes.Remove(rtId);
+                    else _lockedNodes.Add(rtId);
+                    _window?.Repaint();
+                    e.Use();
+                    return;
                 }
-                _window?.Repaint();
-                e.Use();
-                return;
+                if (pickRect.Contains(e.mousePosition))
+                {
+                    if (isClickBlocked) _clickBlockedNodes.Remove(rtId);
+                    else _clickBlockedNodes.Add(rtId);
+                    _window?.Repaint();
+                    e.Use();
+                    return;
+                }
+                if (eyeRect.Contains(e.mousePosition))
+                {
+                    if (!isPresetManaged && !isLocked)
+                    {
+                        Undo.RecordObject(rt.gameObject, selfActive ? "Disable Object" : "Enable Object");
+                        rt.gameObject.SetActive(!selfActive);
+                        EditorUtility.SetDirty(rt.gameObject);
+                    }
+                    _window?.Repaint();
+                    e.Use();
+                    return;
+                }
             }
 
             // ─── DRAG & DROP с тремя режимами: Above / Inside / Below ─────────────
@@ -1706,9 +1833,14 @@ namespace NovellaEngine.Editor
             {
                 if (Vector2.Distance(e.mousePosition, _treeMouseDownPos) >= TREE_DRAG_THRESHOLD)
                 {
-                    DragAndDrop.PrepareStartDrag();
-                    DragAndDrop.objectReferences = _selectedList.Select(x => x.gameObject).ToArray();
-                    DragAndDrop.StartDrag("Move UI Elements");
+                    // Locked-объекты не таскаем — drag отключаем.
+                    bool anyLocked = _selectedList.Any(x => x != null && IsLockedTransitive(x));
+                    if (!anyLocked)
+                    {
+                        DragAndDrop.PrepareStartDrag();
+                        DragAndDrop.objectReferences = _selectedList.Select(x => x.gameObject).ToArray();
+                        DragAndDrop.StartDrag("Move UI Elements");
+                    }
                     _treeDragArmed = false;
                     e.Use();
                 }
@@ -2535,11 +2667,43 @@ namespace NovellaEngine.Editor
                 if (rt == null) continue;
                 if (rt == _canvas.GetComponent<RectTransform>()) continue;
                 if (!rt.gameObject.activeInHierarchy) continue;
+                // Pickup-блокировка: если объект (или любой его предок) помечен
+                // ✋, клик проходит сквозь него. Аналог Pickable=off в Unity.
+                if (IsClickBlockedTransitive(rt)) continue;
                 Rect rs = ComputeRectScreenForRT(rt, drawRect, targetW, targetH);
                 if (rs.width < 4f || rs.height < 4f) continue;
                 if (rs.Contains(mousePosScreen)) return rt;
             }
             return null;
+        }
+
+        // Транзитивная проверка click-block: сам объект или любой его предок
+        // помечен как ✋. Удобно — заблокировал родительский холст и все его
+        // потомки автоматически не кликабельны в превью.
+        private bool IsClickBlockedTransitive(RectTransform rt)
+        {
+            Transform t = rt;
+            while (t != null)
+            {
+                if (t is RectTransform trt && _clickBlockedNodes.Contains(trt.GetInstanceID()))
+                    return true;
+                t = t.parent;
+            }
+            return false;
+        }
+
+        // Транзитивная проверка замка: сам объект или любой его предок 🔒.
+        // Замок на родителе автоматически защищает всех потомков.
+        private bool IsLockedTransitive(RectTransform rt)
+        {
+            Transform t = rt;
+            while (t != null)
+            {
+                if (t is RectTransform trt && _lockedNodes.Contains(trt.GetInstanceID()))
+                    return true;
+                t = t.parent;
+            }
+            return false;
         }
 
         private RectTransform GetTopLevelParent(RectTransform deepest)
@@ -4934,10 +5098,25 @@ namespace NovellaEngine.Editor
         private void DuplicateSelected()
         {
             if (_selectedList.Count == 0) return;
-            List<RectTransform> newSel = new List<RectTransform>();
+            // Locked-объекты не дублируем. Если ВСЕ выделены locked — выходим
+            // с предупреждением. Если часть locked — дублируем остальные.
+            int lockedCount = _selectedList.Count(rt => rt != null && IsLockedTransitive(rt));
+            if (lockedCount == _selectedList.Count)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Locked",  "Заблокировано"),
+                    ToolLang.Get(
+                        "Selected objects are locked (🔒) and cannot be duplicated. Unlock them first.",
+                        "Выделенные объекты заблокированы (🔒) — дубль невозможен. Сними замок чтобы продолжить."),
+                    "OK");
+                return;
+            }
 
+            List<RectTransform> newSel = new List<RectTransform>();
             foreach (var rt in _selectedList)
             {
+                if (rt == null) continue;
+                if (IsLockedTransitive(rt)) continue; // защита замком
                 var dup = UnityEngine.Object.Instantiate(rt.gameObject, rt.parent);
                 // Берём ИСХОДНОЕ имя оригинала (rt.gameObject.name), а не имя дубля
                 // (которое Unity мог обогатить " (Clone)"). EnforceUniqueName сам снимет
@@ -4954,6 +5133,19 @@ namespace NovellaEngine.Editor
         private void DeleteSelected()
         {
             if (_selectedList.Count == 0) return;
+
+            // Если ВСЕ выделенные заблокированы — отказываем сразу.
+            int lockedCount = _selectedList.Count(rt => rt != null && IsLockedTransitive(rt));
+            if (lockedCount == _selectedList.Count)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Locked",  "Заблокировано"),
+                    ToolLang.Get(
+                        "Selected objects are locked (🔒) and cannot be deleted. Unlock them first.",
+                        "Выделенные объекты заблокированы (🔒) — удалить нельзя. Сними замок чтобы продолжить."),
+                    "OK");
+                return;
+            }
 
             string text = _selectedList.Count == 1
                 ? string.Format(ToolLang.Get("Delete '{0}'?", "Удалить «{0}»?"), GetDisplayName(FirstSelected))
@@ -4988,10 +5180,12 @@ namespace NovellaEngine.Editor
                 ToolLang.Get("Delete", "Удалить"),
                 ToolLang.Get("Cancel", "Отмена"))) return;
 
-            // Сначала удаляем выделенное.
+            // Сначала удаляем выделенное (locked-объекты пропускаем).
             foreach (var rt in _selectedList)
             {
-                if (rt != null) Undo.DestroyObjectImmediate(rt.gameObject);
+                if (rt == null) continue;
+                if (IsLockedTransitive(rt)) continue;
+                Undo.DestroyObjectImmediate(rt.gameObject);
             }
 
             // Затем — связанные «осиротевшие» объекты пресета. Список
