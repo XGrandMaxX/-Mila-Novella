@@ -526,111 +526,168 @@ namespace NovellaEngine.Editor
             GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
-            GUILayout.BeginVertical(GUILayout.Width(520));
+            GUILayout.BeginVertical(GUILayout.Width(820));
 
-            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
+            // Заголовок и подзаголовок.
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 22, alignment = TextAnchor.MiddleCenter };
             titleSt.normal.textColor = C_TEXT_1;
             GUILayout.Label("🎨 " + ToolLang.Get("UI Forge", "Кузница UI"), titleSt);
-            GUILayout.Space(6);
+            GUILayout.Space(8);
 
             var subSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             subSt.normal.textColor = C_TEXT_3;
+            GUILayout.Label(ToolLang.Get(
+                "Pick a starting scene template — UI, camera and required components will be set up automatically.",
+                "Выбери шаблон сцены с которого начнёшь — UI, камера и нужные компоненты соберутся автоматически."), subSt);
 
-            string statusText;
-            bool canProceed = _camera != null && _canvas != null;
+            GUILayout.Space(20);
 
-            if (canProceed) statusText = ToolLang.Get("Loading…", "Загрузка…");
-            else if (_camera == null && _canvas == null)
-                statusText = ToolLang.Get("Scene seems to be empty. Open the Scene Manager and load a scene that has a Camera and a Canvas.", "В сцене ничего не найдено. Открой «Менеджер Сцен» и загрузи сцену с камерой и UI Canvas.");
-            else if (_camera == null)
-                statusText = ToolLang.Get("Canvas found, but no Camera in scene. Add a Camera or load a scene preset.", "Canvas нашёлся, но в сцене нет камеры. Добавь камеру или загрузи пресет сцены.");
-            else
-                statusText = ToolLang.Get("Camera found, but no UI Canvas. Add a Canvas to the scene or load a scene preset.", "Камера нашлась, но в сцене нет UI Canvas. Добавь Canvas или загрузи пресет сцены.");
-            GUILayout.Label(statusText, subSt);
-
-            GUILayout.Space(10);
-
-            Rect diagRect = GUILayoutUtility.GetRect(0, 92, GUILayout.ExpandWidth(true));
-            EditorGUI.DrawRect(diagRect, C_BG_RAISED);
-            DrawRectBorder(diagRect, C_BORDER);
-
-            var diagSt = new GUIStyle(EditorStyles.label) { fontSize = 11 };
-            diagSt.normal.textColor = C_TEXT_2;
-            float y = diagRect.y + 8;
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18), (_camera != null ? "✅" : "❌") + "  " + ToolLang.Get("Camera", "Камера") + (_camera != null ? "  ·  " + _camera.gameObject.name : ""), diagSt);
-            y += 18;
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18), (_canvas != null ? "✅" : "❌") + "  " + ToolLang.Get("UI Canvas", "UI Canvas") + (_canvas != null ? "  ·  " + _canvas.gameObject.name : ""), diagSt);
-            y += 18;
-            // NovellaPlayer обязателен для GAMEPLAY-сцен (играет ноды графа).
-            // Для меню/splash он не нужен. Поэтому ярлык контекстный.
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
-                (_player != null ? "✅" : "⚪") + "  NovellaPlayer" +
-                (_player != null
-                    ? "  ·  " + _player.gameObject.name
-                    : "  " + ToolLang.Get("(needed for gameplay scenes)", "(нужен для игровых сцен)")),
-                diagSt);
-            y += 18;
-            // StoryLauncher обязателен для MENU-сцен (привязывает кнопки меню,
-            // показывает список историй, MC creation). Для геймплея не нужен.
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
-                (_launcher != null ? "✅" : "⚪") + "  StoryLauncher" +
-                (_launcher != null
-                    ? "  ·  " + _launcher.gameObject.name
-                    : "  " + ToolLang.Get("(needed for menu scenes)", "(нужен для меню)")),
-                diagSt);
+            // Три большие карточки сценариев.
+            GUILayout.BeginHorizontal();
+            DrawStartCard(
+                "📱",
+                ToolLang.Get("Main Menu",      "Главное Меню"),
+                new Color(0.65f, 0.45f, 0.95f),
+                ToolLang.Get(
+                    "Menu with story selection, MC creation and Settings/Quit buttons. Includes Canvas + EventSystem + StoryLauncher with all bindings ready.",
+                    "Меню с выбором истории, редактором персонажа и кнопками Настройки/Выход. Создаёт Canvas + EventSystem + StoryLauncher со всеми связями."),
+                ToolLang.Get("Apply preset", "Применить шаблон"),
+                () => ApplyMenuPresetFromForge());
 
             GUILayout.Space(14);
 
-            if (_canvas == null)
-            {
-                GUI.backgroundColor = C_SUCCESS;
-                if (GUILayout.Button(ToolLang.Get("✨ Create UI Canvas in scene", "✨ Создать UI Canvas в сцене"), GUILayout.Height(34)))
-                {
-                    CreateCanvasInScene();
-                }
-                GUI.backgroundColor = Color.white;
-                GUILayout.Space(8);
-            }
+            DrawStartCard(
+                "🎮",
+                ToolLang.Get("Gameplay",      "Игровая сцена"),
+                C_ACCENT,
+                ToolLang.Get(
+                    "Dialogue box, character layer, choice container. Includes NovellaPlayer with all bindings ready and a starter NovellaTree if you don't have one.",
+                    "Диалоговое окно, слой персонажей, контейнер выборов. Создаёт NovellaPlayer со всеми связями и стартовый NovellaTree если у тебя его нет."),
+                ToolLang.Get("Apply preset", "Применить шаблон"),
+                () => ApplyGameplayPresetFromForge());
 
-            // Кнопки добавления Player / Launcher — показываем когда их в сцене
-            // нет. Так юзер может собрать сцену вручную, без применения пресета.
-            // GameObject создаётся в корне сцены (как и в пресете), компонент
-            // добавляется. Привязки придётся настроить в Unity-инспекторе самому
-            // (или через пресет — там они выставляются автоматически).
-            if (_player == null)
-            {
-                if (GUILayout.Button(ToolLang.Get(
-                    "➕ Add NovellaPlayer (for gameplay scenes)",
-                    "➕ Добавить NovellaPlayer (для игровых сцен)"), GUILayout.Height(28)))
-                {
-                    CreateNovellaPlayerInScene();
-                }
-                GUILayout.Space(6);
-            }
-            if (_launcher == null)
-            {
-                if (GUILayout.Button(ToolLang.Get(
-                    "➕ Add StoryLauncher (for menu scenes)",
-                    "➕ Добавить StoryLauncher (для меню)"), GUILayout.Height(28)))
-                {
-                    CreateStoryLauncherInScene();
-                }
-                GUILayout.Space(8);
-            }
+            GUILayout.Space(14);
 
-            GUI.backgroundColor = C_ACCENT;
-            if (GUILayout.Button(ToolLang.Get("🔄 Refresh", "🔄 Обновить"), GUILayout.Height(34)))
+            DrawStartCard(
+                "🛠",
+                ToolLang.Get("Empty canvas", "Пустой холст"),
+                new Color(0.55f, 0.62f, 0.72f),
+                ToolLang.Get(
+                    "Just a Canvas + EventSystem + Camera. For when you want to build the UI from scratch. NovellaPlayer / StoryLauncher you can add later from the toolbar.",
+                    "Только Canvas + EventSystem + камера. Для тех кто хочет собрать UI с нуля. NovellaPlayer / StoryLauncher позже добавишь из тулбара."),
+                ToolLang.Get("Create canvas", "Создать холст"),
+                () => CreateCanvasInScene());
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(20);
+
+            // Тонкая мелкая ссылка-обновление — если юзер уже что-то насоздавал
+            // через Unity Hierarchy и хочет чтобы Кузница это подхватила.
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            var refreshSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            refreshSt.normal.textColor = C_TEXT_4;
+            refreshSt.hover.textColor  = C_TEXT_2;
+            if (GUILayout.Button(new GUIContent(
+                    "🔄 " + ToolLang.Get("Already prepared the scene? Re-scan", "Уже подготовил сцену вручную? Пересканировать"),
+                    ToolLang.Get(
+                        "Re-detect Camera / Canvas / Player / Launcher in the scene. Useful if you set them up via Unity Hierarchy.",
+                        "Перепроверить наличие Camera / Canvas / Player / Launcher в сцене. Нужно если ты собирал их через Unity Hierarchy.")),
+                refreshSt))
             {
                 FindReferences();
                 RefreshRectsCache();
             }
-            GUI.backgroundColor = Color.white;
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             GUILayout.FlexibleSpace();
             GUILayout.EndArea();
+        }
+
+        // Большая карточка-сценарий на welcome-экране Кузницы.
+        // Цветной hover, иконка-эмодзи 36px, заголовок, описание, акцентная
+        // кнопка снизу. Вся карточка кликабельна.
+        private void DrawStartCard(string icon, string title, Color accent, string desc, string actionLabel, System.Action onClick)
+        {
+            const float cardW = 240f, cardH = 280f;
+            Rect r = GUILayoutUtility.GetRect(cardW, cardH, GUILayout.Width(cardW), GUILayout.Height(cardH));
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            // Фон с лёгким бренд-тоном.
+            Color bg = hover
+                ? new Color(accent.r, accent.g, accent.b, 0.20f)
+                : new Color(accent.r, accent.g, accent.b, 0.10f);
+            EditorGUI.DrawRect(r, bg);
+
+            // Тонкий бордер, ярче на hover.
+            Color border = hover ? accent : new Color(accent.r, accent.g, accent.b, 0.50f);
+            DrawRectBorder(r, border);
+
+            // Цветная полоса слева.
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 4, r.height), accent);
+
+            // Иконка.
+            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 42, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = accent;
+            GUI.Label(new Rect(r.x, r.y + 24, r.width, 56), icon, iconSt);
+
+            // Заголовок.
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
+            titleSt.normal.textColor = C_TEXT_1;
+            GUI.Label(new Rect(r.x, r.y + 88, r.width, 22), title, titleSt);
+
+            // Описание.
+            var descSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.UpperCenter, wordWrap = true };
+            descSt.normal.textColor = C_TEXT_3;
+            GUI.Label(new Rect(r.x + 14, r.y + 116, r.width - 28, 110), desc, descSt);
+
+            // CTA-кнопка снизу.
+            Rect btnR = new Rect(r.x + 14, r.yMax - 42, r.width - 28, 30);
+            bool btnHover = btnR.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(btnR, btnHover ? accent : new Color(accent.r, accent.g, accent.b, 0.75f));
+
+            var btnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+            btnSt.normal.textColor = Color.white;
+            GUI.Label(btnR, actionLabel, btnSt);
+
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+
+            // Клик по любой части карточки.
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            {
+                onClick?.Invoke();
+                Event.current.Use();
+            }
+        }
+
+        // Применяет пресет ПРЯМО в активной сцене через публичный фасад
+        // NovellaSceneManagerModule. Всё тяжёлое делается через delayCall —
+        // иначе IMGUI-стек разваливается посреди отрисовки приветственного экрана.
+        private void ApplyMenuPresetFromForge()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                NovellaSceneManagerModule.ApplyMainMenuPresetToActiveScene();
+                FindReferences();
+                RefreshRectsCache();
+                _window?.Repaint();
+            };
+        }
+
+        private void ApplyGameplayPresetFromForge()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                NovellaSceneManagerModule.ApplyGameplayPresetToActiveScene();
+                FindReferences();
+                RefreshRectsCache();
+                _window?.Repaint();
+            };
         }
 
         // Лимит на количество корневых канвасов в сцене.

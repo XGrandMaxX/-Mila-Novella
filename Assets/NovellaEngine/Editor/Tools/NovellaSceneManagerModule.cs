@@ -1731,6 +1731,61 @@ namespace NovellaEngine.Editor
         // SETUP — Main Menu
         // ═════════════════════════════════════════════════════════
 
+        // Публичный фасад для вызова пресетов из других модулей (например
+        // из Кузницы UI welcome-экрана). Внутри тот же поток что и при клике
+        // на карточку пресета в «Сценах и Меню»: проверка существующего пресета,
+        // PerformXxxSetup, MarkSceneDirty + SaveScene.
+        public static void ApplyMainMenuPresetToActiveScene()
+        {
+            // Используем экземпляр модуля — без него методы Perform не работают.
+            // Если Hub открыт, у нас точно есть модуль. Если нет — создаём
+            // временный (он бесстейтовый для целей этой операции).
+            var mod = FindModuleInstance() ?? new NovellaSceneManagerModule();
+            mod.ApplyPresetToActiveScene(AppliedPreset.MainMenu);
+        }
+
+        public static void ApplyGameplayPresetToActiveScene()
+        {
+            var mod = FindModuleInstance() ?? new NovellaSceneManagerModule();
+            mod.ApplyPresetToActiveScene(AppliedPreset.Gameplay);
+        }
+
+        private static NovellaSceneManagerModule FindModuleInstance()
+        {
+            if (NovellaHubWindow.Instance == null) return null;
+            for (int i = 0; i < 10; i++)
+            {
+                var m = NovellaHubWindow.Instance.GetModule(i) as NovellaSceneManagerModule;
+                if (m != null) return m;
+            }
+            return null;
+        }
+
+        // Внутренний метод — повторяет логику ApplyPreset(SceneRow, AppliedPreset)
+        // но для активной сцены без SceneRow (она нужна только для
+        // переключения сцены, что здесь не нужно — мы и так в активной).
+        private void ApplyPresetToActiveScene(AppliedPreset preset)
+        {
+            AppliedPreset existing = DetectAppliedPreset();
+            if (existing != AppliedPreset.None && existing != preset)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Preset already applied", "Пресет уже применён"),
+                    ToolLang.Get(
+                        "This scene already has a preset. Click 'Clear preset' in «Scenes & Menu» before applying another.",
+                        "В этой сцене уже есть пресет. Нажми «Удалить пресет» во вкладке «Сцены и Меню» прежде чем применять другой."),
+                    "OK");
+                return;
+            }
+            if (existing == preset) return;
+
+            if (preset == AppliedPreset.MainMenu) PerformMainMenuSetup();
+            else if (preset == AppliedPreset.Gameplay) PerformGameplaySetup();
+
+            EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+            EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
+        }
+
         private void PerformMainMenuSetup()
         {
             EnsureMainCamera();
