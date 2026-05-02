@@ -421,16 +421,25 @@ namespace NovellaEngine.Editor
         // Если в сцене 2+ root-канвасов — сворачивает все остальные, оставляя
         // открытым только тот в котором сейчас выделение. Плюс прокручивает
         // tree-scroll к выделенной строке если она вне viewport.
+        //
+        // КРИТИЧНО: _collapsedNodes хранит InstanceID именно RectTransform-а
+        // (так делает DrawElementsTree и шеврон-toggle: rt.GetInstanceID()).
+        // GameObject и RectTransform имеют РАЗНЫЕ InstanceID. Если перепутать —
+        // Remove ищет «свой» ID а в наборе лежит «чужой», и сворачивание
+        // никогда не снимается.
         private void ExpandTreeToTarget(RectTransform target)
         {
             if (target == null) return;
 
-            // 1. Раскрываем всех предков (убираем их InstanceID из _collapsedNodes).
+            // 1. Раскрываем всех предков (убираем RectTransform.InstanceID).
             Transform t = target.parent;
             while (t != null)
             {
-                int id = t.gameObject.GetInstanceID();
-                _collapsedNodes.Remove(id);
+                var trt = t as RectTransform;
+                if (trt != null)
+                {
+                    _collapsedNodes.Remove(trt.GetInstanceID());
+                }
                 // Останавливаемся на root-канвасе (он сам root, нет предков выше).
                 var c = t.GetComponent<Canvas>();
                 if (c != null && c.isRootCanvas) break;
@@ -441,7 +450,8 @@ namespace NovellaEngine.Editor
             // Целевой root — определяем поднявшись до root-канваса.
             Transform rootT = target;
             while (rootT.parent != null) rootT = rootT.parent;
-            int targetRootId = rootT.gameObject.GetInstanceID();
+            int targetRootRtId = -1;
+            if (rootT is RectTransform rrt) targetRootRtId = rrt.GetInstanceID();
 
             // Считаем сколько всего root-канвасов в _allRects.
             var rootCanvases = new List<RectTransform>();
@@ -456,8 +466,8 @@ namespace NovellaEngine.Editor
             {
                 foreach (var rc in rootCanvases)
                 {
-                    int id = rc.gameObject.GetInstanceID();
-                    if (id == targetRootId) continue;
+                    int id = rc.GetInstanceID();           // ← InstanceID RectTransform
+                    if (id == targetRootRtId) continue;
                     _collapsedNodes.Add(id);
                 }
             }
