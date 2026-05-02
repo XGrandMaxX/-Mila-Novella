@@ -1812,13 +1812,18 @@ namespace NovellaEngine.Editor
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
             go.AddComponent<RectTransform>();
-            var t = go.AddComponent<UnityEngine.UI.Text>();
+            // Создаём СРАЗУ TextMeshPro — legacy UnityEngine.UI.Text больше не используется,
+            // плохо рендерится на больших экранах. Конвертация ручная больше не нужна.
+            var t = go.AddComponent<TMPro.TextMeshProUGUI>();
             t.text = text;
             t.fontSize = fontSize;
-            t.fontStyle = style;
-            t.alignment = TextAnchor.MiddleCenter;
+            // Маппим UnityEngine.FontStyle (Bold/Italic) в TMP-флаги.
+            TMPro.FontStyles tmpStyle = TMPro.FontStyles.Normal;
+            if ((style & FontStyle.Bold)   != 0) tmpStyle |= TMPro.FontStyles.Bold;
+            if ((style & FontStyle.Italic) != 0) tmpStyle |= TMPro.FontStyles.Italic;
+            t.fontStyle = tmpStyle;
+            t.alignment = TMPro.TextAlignmentOptions.Center;
             t.color = Color.white;
-            t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             return go;
         }
 
