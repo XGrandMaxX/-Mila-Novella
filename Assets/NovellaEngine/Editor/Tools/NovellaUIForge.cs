@@ -2457,8 +2457,60 @@ namespace NovellaEngine.Editor
             var firstBtn = FirstSelected.GetComponent<Button>();
             if (firstBtn != null) DrawButtonSection(firstBtn);
 
+            // Маленькая секция «ловит ли клики» — общая для любого Graphic-элемента
+            // (Image / TMP_Text / RawImage). Универсальная — не дублируется per-type.
+            var firstGraphic = FirstSelected.GetComponent<UnityEngine.UI.Graphic>();
+            if (firstGraphic != null) DrawClicksSection(firstGraphic);
+
             // Bindings — связь UI-элемента с графом/локализацией/переменными.
             DrawBindingSection();
+        }
+
+        // Универсальный «ловит ли клики» — RaycastTarget. Один тоггл-кнопка с
+        // объясняющей подсказкой. По умолчанию ON у всех Graphic, но юзер часто
+        // забывает выключить у декоративных панелей и потом удивляется почему
+        // кнопка под ними не нажимается.
+        private void DrawClicksSection(UnityEngine.UI.Graphic graphic)
+        {
+            DrawSectionLabel(ToolLang.Get("CLICKS", "ЛОВИТ ЛИ КЛИКИ"), "raycast");
+
+            DrawFieldHint(ToolLang.Get(
+                "If ON — this element receives mouse/touch events (and intercepts them from elements behind it). " +
+                "Turn OFF for decorative panels/images placed over buttons, otherwise the panel will eat the click and the button won't fire.",
+                "Если ВКЛ — элемент ловит клики мышью/тачем (и забирает их у того что за ним). " +
+                "Выключай для декоративных панелей/картинок поверх кнопок: иначе панель «съест» клик и кнопка не сработает."));
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+
+            const float cell = 30f;
+            bool active = graphic.raycastTarget;
+            bool clicked = DrawTextStyleCell(cell, "RT", active, true,
+                ToolLang.Get("Raycast Target — receive clicks/touches",
+                             "Raycast Target — ловить клики/тачи"));
+            if (clicked)
+            {
+                foreach (var rt in _selectedList)
+                {
+                    var g = rt.GetComponent<UnityEngine.UI.Graphic>();
+                    if (g == null) continue;
+                    Undo.RecordObject(g, "Toggle Raycast Target");
+                    g.raycastTarget = !active;
+                    EditorUtility.SetDirty(g);
+                }
+            }
+
+            // Состояние словами рядом с кнопкой — для самоочевидности.
+            var stateSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            stateSt.normal.textColor = active ? C_TEXT_2 : new Color(0.95f, 0.66f, 0.30f);
+            GUILayout.Space(8);
+            GUILayout.Label(active
+                ? ToolLang.Get("ON — element receives clicks", "ВКЛ — элемент ловит клики")
+                : ToolLang.Get("OFF — clicks pass through", "ВЫКЛ — клики проходят сквозь"), stateSt);
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
         }
 
         // ─── BINDINGS section ───────────────────────────────────────────────────
@@ -3806,6 +3858,10 @@ namespace NovellaEngine.Editor
                     return ToolLang.Get(
                         "A clickable element with three colors:\n• Normal — resting state\n• Highlight — mouse hovers over\n• Pressed — being clicked",
                         "Кликабельный элемент реагирующий на действия цветом:\n• Обычная — состояние покоя\n• Hover — мышь находится над кнопкой\n• Нажата — в момент клика мышкой");
+                case "raycast":
+                    return ToolLang.Get(
+                        "Decides whether THIS element catches mouse/touch events. Decorative images and panels typically should have it OFF — otherwise they steal clicks meant for buttons placed underneath them.\n\nIf you ever wonder \"why is my button not clickable?\" — likely there's another Graphic on top of it with Raycast Target ON, blocking the input.",
+                        "Решает: ловит ли ЭТОТ элемент клики мышью/пальцем. У декоративных картинок и панелей обычно лучше ВЫКЛ — иначе они «съедят» клик предназначенный кнопке которая под ними.\n\nЕсли вдруг кажется «почему моя кнопка не нажимается?» — скорее всего сверху лежит другой Graphic с включённым Raycast Target, который перехватывает ввод.");
                 case "bindings":
                     return ToolLang.Get(
                         "Bindings make this UI element controllable from the story graph.\n• Localization key — text auto-updates on language switch.\n• Variable — substitutes a value of a variable into '{var}' inside the text.\n• Click → node — for buttons: clicking jumps the Player to a chosen node.\n\nIn graph nodes (Dialogue, Branch, Wait, Scene Settings) you'll see fields where you can drag this element from scene to target it directly.",
