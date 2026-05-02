@@ -54,6 +54,26 @@ namespace NovellaEngine.Editor
             win.Show();
         }
 
+        // Открыть редактор и сразу выбрать конкретный ключ — используется
+        // из других окон (Forge, Loc Key Picker) когда юзер хочет быстро
+        // отредактировать перевод.
+        public static void ShowAtKey(string key)
+        {
+            ShowWindow();
+            var win = GetWindow<NovellaUILocalizationEditor>(false,
+                ToolLang.Get("UI Localization", "Локализация UI"), false);
+            if (win == null) return;
+            if (win._table == null) win._table = GetOrCreateTable();
+            // Если ключа в таблице нет — добавляем (юзер хочет редактировать).
+            if (!string.IsNullOrEmpty(key) && win._table.FindEntry(key) == null)
+            {
+                win._table.AddKey(key);
+                EditorUtility.SetDirty(win._table);
+            }
+            win._selectedKey = key;
+            win.Repaint();
+        }
+
         public static NovellaUILocalizationTable GetOrCreateTable()
         {
             var guids = AssetDatabase.FindAssets("t:NovellaUILocalizationTable");
@@ -380,6 +400,24 @@ namespace NovellaEngine.Editor
             DrawGuideTip(ToolLang.Get(
                 "Fill in a translation for each language. The default-language field (marked ⭐) is the fallback when other languages are empty. The ✕ button next to a language removes it from the project entirely.",
                 "Заполни перевод для каждого языка. Поле языка по умолчанию (⭐) используется как fallback, если другие языки пусты. Кнопка ✕ рядом с языком полностью удаляет его из проекта."));
+
+            // Категория ключа — для группировки в picker'ах. Свободный текст;
+            // пользователь сам придумывает («menu», «dialog», «hud», ...).
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Category", "Категория"), EditorStyles.miniBoldLabel, GUILayout.Width(140));
+            string newCat = EditorGUILayout.TextField(entry.Category ?? "", GUILayout.Height(22));
+            if (newCat != (entry.Category ?? ""))
+            {
+                Undo.RecordObject(_table, "Edit Category");
+                entry.Category = newCat;
+                EditorUtility.SetDirty(_table);
+            }
+            // Quick-pick кнопки для часто-используемых.
+            if (GUILayout.Button("menu", EditorStyles.miniButton, GUILayout.Width(50)))   { Undo.RecordObject(_table, "Edit Category"); entry.Category = "menu";   EditorUtility.SetDirty(_table); }
+            if (GUILayout.Button("dialog", EditorStyles.miniButton, GUILayout.Width(60))) { Undo.RecordObject(_table, "Edit Category"); entry.Category = "dialog"; EditorUtility.SetDirty(_table); }
+            if (GUILayout.Button("hud", EditorStyles.miniButton, GUILayout.Width(50)))    { Undo.RecordObject(_table, "Edit Category"); entry.Category = "hud";    EditorUtility.SetDirty(_table); }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
 
             // Translations per language
             _editScroll = GUILayout.BeginScrollView(_editScroll);

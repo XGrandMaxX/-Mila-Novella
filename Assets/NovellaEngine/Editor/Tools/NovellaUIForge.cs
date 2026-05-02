@@ -3085,23 +3085,24 @@ namespace NovellaEngine.Editor
             return name != null ? $"{name} ({code})" : code;
         }
 
-        // Маленькая «💡»-плашка под лейблом поля — объясняет рядовому
-        // пользователю зачем это поле и как им пользоваться. Показывается
-        // только когда включены Подсказки в Hub.
+        // «💡»-плашка под лейблом поля — объясняет рядовому пользователю
+        // зачем это поле и как им пользоваться. Показывается только когда
+        // включены Подсказки. Шрифт fontSize=11 — читаемо, не «мелкий стир».
         private static void DrawFieldHint(string text)
         {
             if (!NovellaSettingsModule.ShowGuide) return;
             if (string.IsNullOrEmpty(text)) return;
-            var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true, padding = new RectOffset(6, 6, 4, 4) };
+            var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(8, 8, 6, 6) };
             st.normal.textColor = NovellaSettingsModule.GetHintColor();
             Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), st);
             EditorGUI.DrawRect(r, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.07f));
-            EditorGUI.DrawRect(new Rect(r.x, r.y, 2, r.height), NovellaSettingsModule.GetAccentColor());
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), NovellaSettingsModule.GetAccentColor());
             GUI.Label(r, "💡 " + text, st);
             GUILayout.Space(2);
         }
 
-        // Поле «ключ + кнопка пикера» для локализации.
+        // Поле «ключ + кнопка пикера» для локализации. Кнопка открывает
+        // визуальное окно NovellaLocKeyPickerWindow с группами по категориям.
         private static void DrawKeyPickerRow(string current, System.Action<string> onChanged)
         {
             GUILayout.BeginHorizontal();
@@ -3110,25 +3111,7 @@ namespace NovellaEngine.Editor
 
             if (GUILayout.Button("🔑", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
             {
-                var menu = new GenericMenu();
-                var table = NovellaEngine.Data.NovellaLocalizationManager.Table;
-                if (table == null || table.Entries == null || table.Entries.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Localization table empty or not set", "Таблица пуста или не назначена")));
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Open Settings → Open Translation Editor", "Открой Настройки → Открыть редактор переводов")));
-                }
-                else
-                {
-                    foreach (var e in table.Entries)
-                    {
-                        if (string.IsNullOrEmpty(e.Key)) continue;
-                        string key = e.Key;
-                        menu.AddItem(new GUIContent(key.Replace("/", "\\")), key == current, () => onChanged(key));
-                    }
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
-                }
-                menu.ShowAsContext();
+                NovellaEngine.Editor.UIBindings.NovellaLocKeyPickerWindow.Open(current, onChanged);
             }
             GUILayout.EndHorizontal();
         }
@@ -3413,36 +3396,29 @@ namespace NovellaEngine.Editor
             bool hasLocKey = binding != null && !string.IsNullOrEmpty(binding.LocalizationKey);
 
             GUILayout.Label(ToolLang.Get("Text", "Текст"), EditorStyles.miniBoldLabel);
+
             if (!hasLocKey)
             {
                 DrawFieldHint(ToolLang.Get(
-                    "What's actually written in the text element. Multi-line is allowed (Shift+Enter for new line). Use this for static texts that don't need translation. For dialogues / multilingual UI use the localization key in 'LINK TO STORY' below.",
-                    "Сам текст элемента. Поддерживает несколько строк (Shift+Enter для перевода строки). Используй для статичных текстов которые не нужно переводить. Для диалогов и мультиязычного UI — ключ локализации в «СВЯЗАТЬ С ИСТОРИЕЙ» ниже."));
+                    "What's actually written in the text element. Use this for static texts that don't need translation. For dialogues or multilingual UI use the localization key in 'LINK TO STORY' below.",
+                    "Сам текст элемента. Используй это поле для статичных текстов, которые не нужно переводить на другие языки. Для диалогов или мультиязычного UI — задавай ключ локализации в секции «СВЯЗАТЬ С ИСТОРИЕЙ» ниже."));
+
+                EditorGUI.BeginChangeCheck();
+                string newText = EditorGUILayout.TextArea(firstTxt.text ?? "", GUILayout.MinHeight(48));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    foreach (var rt in _selectedList)
+                    {
+                        var txt = rt.GetComponent<TMP_Text>();
+                        if (txt != null) { Undo.RecordObject(txt, "Edit Text"); txt.text = newText; EditorUtility.SetDirty(txt); }
+                    }
+                }
             }
             else
             {
-                var warnSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true, padding = new RectOffset(6, 6, 4, 4) };
-                warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
-                Rect r = GUILayoutUtility.GetRect(new GUIContent("⚠ " + ToolLang.Get(
-                    "Localization key is set on this element — this text will be overwritten by the localization table at runtime / on language switch. The text below is just a preview.",
-                    "На этом элементе стоит ключ локализации — этот текст будет перезаписан таблицей локализации при старте / смене языка. Текст ниже только для превью.")), warnSt);
-                EditorGUI.DrawRect(r, new Color(0.95f, 0.66f, 0.30f, 0.10f));
-                EditorGUI.DrawRect(new Rect(r.x, r.y, 2, r.height), new Color(0.95f, 0.66f, 0.30f, 0.85f));
-                GUI.Label(r, "⚠ " + ToolLang.Get(
-                    "Localization key is set on this element — this text will be overwritten by the localization table at runtime / on language switch. The text below is just a preview.",
-                    "На этом элементе стоит ключ локализации — этот текст будет перезаписан таблицей локализации при старте / смене языка. Текст ниже только для превью."), warnSt);
-                GUILayout.Space(2);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            string newText = EditorGUILayout.TextArea(firstTxt.text ?? "", GUILayout.MinHeight(48));
-            if (EditorGUI.EndChangeCheck())
-            {
-                foreach (var rt in _selectedList)
-                {
-                    var txt = rt.GetComponent<TMP_Text>();
-                    if (txt != null) { Undo.RecordObject(txt, "Edit Text"); txt.text = newText; EditorUtility.SetDirty(txt); }
-                }
+                // Loc-key стоит — текст НЕ редактируется отсюда. Вместо TextArea
+                // показываем превью переводов на всех языках + кнопку «В редактор».
+                DrawLocKeyPreview(binding.LocalizationKey);
             }
 
             GUILayout.Space(8);
@@ -3566,6 +3542,56 @@ namespace NovellaEngine.Editor
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
             GUILayout.Space(10);
+        }
+
+        // Превью переводов на всех языках для заданного ключа локализации.
+        // Заменяет TextArea когда у binding'а стоит LocalizationKey — текст
+        // редактируется только в таблице локализации, не здесь.
+        private void DrawLocKeyPreview(string locKey)
+        {
+            var table = NovellaEngine.Editor.NovellaUILocalizationEditor.GetOrCreateTable();
+            var settings = NovellaEngine.Data.NovellaLocalizationSettings.GetOrCreateSettings();
+            var entry = table != null ? table.FindEntry(locKey) : null;
+
+            // «Замок» + объяснение.
+            var lockSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(8, 8, 6, 6) };
+            lockSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
+            string lockMsg = "🔒  " + ToolLang.Get(
+                "Text is managed by localization key '{0}'. Edit translations in the localization table.",
+                "Текст управляется ключом локализации «{0}». Редактируй переводы в таблице локализации.");
+            lockMsg = lockMsg.Replace("{0}", locKey);
+            Rect lr = GUILayoutUtility.GetRect(new GUIContent(lockMsg), lockSt);
+            EditorGUI.DrawRect(lr, new Color(0.95f, 0.66f, 0.30f, 0.10f));
+            EditorGUI.DrawRect(new Rect(lr.x, lr.y, 3, lr.height), new Color(0.95f, 0.66f, 0.30f, 0.85f));
+            GUI.Label(lr, lockMsg, lockSt);
+            GUILayout.Space(4);
+
+            // Список языков с переводами.
+            if (settings != null && settings.Languages != null)
+            {
+                foreach (var lang in settings.Languages)
+                {
+                    string val = entry != null ? entry.Get(lang) : null;
+                    bool missing = string.IsNullOrEmpty(val);
+
+                    GUILayout.BeginHorizontal();
+                    var langSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 11 };
+                    langSt.normal.textColor = NovellaSettingsModule.GetTextSecondary();
+                    GUILayout.Label(lang, langSt, GUILayout.Width(40));
+
+                    var valSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true };
+                    valSt.normal.textColor = missing ? new Color(0.95f, 0.66f, 0.30f) : NovellaSettingsModule.GetTextColor();
+                    GUILayout.Label(missing ? "(перевода нет)" : val, valSt, GUILayout.ExpandWidth(true));
+                    GUILayout.EndHorizontal();
+                }
+            }
+
+            GUILayout.Space(6);
+            // Кнопка «открыть редактор переводов на этом ключе».
+            if (NovellaSettingsModule.AccentButton("✏  " + ToolLang.Get("Edit translations", "Редактировать переводы"), GUILayout.Height(26)))
+            {
+                NovellaEngine.Editor.NovellaUILocalizationEditor.ShowAtKey(locKey);
+            }
         }
 
         // Кнопки-toggle для текстовых стилей: жирный / курсив / Rich-теги.
@@ -3900,8 +3926,8 @@ namespace NovellaEngine.Editor
                         "Якорь — это точка родителя, к которой «прилипает» элемент.\n\nКликни в один из углов — элемент привяжется туда. При смене разрешения экрана он будет держать расстояние от этого угла.\n\n«Растянуть гор. / верт. / Заполнить» — заставит элемент расти вместе с родителем.");
                 case "image":
                     return ToolLang.Get(
-                        "Sprite — the picture itself. Click the field and pick from the project gallery.\nColor — tints the image (pure white means no tint).\n\nThe 'Type' dropdown controls how the sprite stretches:\n  • Simple — drawn 1:1 as-is\n  • Sliced — '9-slice' with fixed corners (perfect for buttons and panels)\n  • Tiled — repeats to fill the area\n  • Filled — partial fill (HP bar / progress; control via the Fill slider)",
-                        "Спрайт — сама картинка. Кликни поле и выбери изображение из галереи проекта.\nЦвет — окрашивает картинку (полностью белый = без оттенка).\n\nВыпадающий список «Тип» решает как картинка будет растягиваться:\n  • Simple — рисует 1:1, как есть\n  • Sliced — «9-slice» с фиксированными углами (идеально для кнопок и панелей)\n  • Tiled — повторяет картинку, заполняя площадь\n  • Filled — частичное заполнение (HP-бар / прогресс; настраивается ползунком «Заполн.»)");
+                        "Sprite — the picture itself. Click the field and pick from the project gallery.\nColor — tints the image (pure white means no tint).\n\nThe 'Type' dropdown controls how the sprite stretches:\n  • Simple — draws the picture 1:1, as-is\n  • Sliced — '9-slice' with fixed corners (perfect for buttons and panels — the corners stay sharp while the middle stretches)\n  • Tiled — repeats the picture to fill the area (good for textures / patterns)\n  • Filled — partial fill (HP bar / progress; control via the Fill slider)",
+                        "Спрайт — сама картинка. Кликни поле и выбери изображение из галереи проекта.\nЦвет — окрашивает картинку (полностью белый = без оттенка).\n\nВыпадающий список «Тип» решает как картинка будет растягиваться:\n  • Обычный — рисует картинку 1:1, как есть\n  • Нарезанный — «9-slice» с фиксированными углами (идеально для кнопок и панелей — углы остаются чёткими, а середина тянется)\n  • Замощенный — повторяет картинку как плитку (хорошо для текстур / узоров)\n  • Заполненный — частичное заполнение (HP-бар / прогресс; настраивается ползунком «Заполн.»)");
                 case "text":
                     return ToolLang.Get(
                         "Here you set only the LOOK: font, size, color, alignment, style (Bold / Italic / Underline / Rich-tags).\n\nThe actual TEXT CONTENT itself comes from one of two places:\n  • Localization key (in 'LINK TO STORY' below) — text auto-translates per language.\n  • Or a graph node — for example a Dialogue line writes into this text element if you target it via 'UI text target' in the dialogue editor.\n\nThe Style buttons (B / I / U / ‹›):\n  • B — Bold\n  • I — Italic\n  • U — Underline\n  • ‹› — Rich-tags (allow <b><color><size> markup inside the text).",

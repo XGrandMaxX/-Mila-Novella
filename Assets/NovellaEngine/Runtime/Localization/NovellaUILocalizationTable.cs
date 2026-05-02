@@ -27,6 +27,10 @@ namespace NovellaEngine.Data
         public class Entry
         {
             public string Key;
+            // Категория для группировки и фильтрации (например «menu», «dialog», «hud»).
+            // Пользователь задаёт сам в редакторе локализации; используется picker'ом
+            // чтобы быстро находить нужные ключи в больших проектах.
+            public string Category = "";
             public List<TranslationEntry> Values = new List<TranslationEntry>();
 
             public string Get(string lang)
