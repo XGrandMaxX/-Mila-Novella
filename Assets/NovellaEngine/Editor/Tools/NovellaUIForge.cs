@@ -2084,59 +2084,20 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorAnchorSection()
         {
-            // Layout helpers — выравнивание/распределение для multiselect.
-            // Идут ПЕРЕД якорем, как просил пользователь — стрелки иконками,
-            // активны только при множественном выборе. Тултипы поясняют действие.
-            DrawAlignDistributeStrip();
-
-            DrawSectionLabel(ToolLang.Get("ANCHOR", "ЯКОРЬ"));
+            DrawSectionLabel(ToolLang.Get("ANCHOR & STRETCH", "ЯКОРЬ И РАСТЯНУТЬ"));
             DrawInlineGuide("anchor");
 
+            // Две плашки 3×3 — Якорь и Растянуть — стоят бок-о-бок: пользователь
+            // их визуально сравнивает и видит «как заякорено» + «куда тянется» в одном ряду.
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
 
-            const float cell = 30f;
-            Rect grid = GUILayoutUtility.GetRect(cell * 3 + 8, cell * 3 + 8, GUILayout.Width(cell * 3 + 8));
-            EditorGUI.DrawRect(grid, C_BG_RAISED);
-            DrawRectBorder(grid, C_BORDER);
+            DrawAnchorGrid();
+            GUILayout.Space(10);
+            DrawStretchGrid();
 
-            (string name, Vector2 min, Vector2 max)[] presets = new (string, Vector2, Vector2)[]
-            {
-                ("↖", new Vector2(0,1), new Vector2(0,1)), ("↑", new Vector2(0.5f,1), new Vector2(0.5f,1)), ("↗", new Vector2(1,1), new Vector2(1,1)),
-                ("←", new Vector2(0,0.5f), new Vector2(0,0.5f)), ("●", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f)), ("→", new Vector2(1,0.5f), new Vector2(1,0.5f)),
-                ("↙", new Vector2(0,0), new Vector2(0,0)), ("↓", new Vector2(0.5f,0), new Vector2(0.5f,0)), ("↘", new Vector2(1,0), new Vector2(1,0)),
-            };
-
-            for (int i = 0; i < 9; i++)
-            {
-                int col = i % 3;
-                int row = i / 3;
-                Rect cellRect = new Rect(grid.x + 4 + col * cell, grid.y + 4 + row * cell, cell - 2, cell - 2);
-
-                bool isCurrent = Mathf.Approximately(FirstSelected.anchorMin.x, presets[i].min.x)
-                              && Mathf.Approximately(FirstSelected.anchorMin.y, presets[i].min.y)
-                              && Mathf.Approximately(FirstSelected.anchorMax.x, presets[i].max.x)
-                              && Mathf.Approximately(FirstSelected.anchorMax.y, presets[i].max.y);
-
-                Color bg = isCurrent ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.3f) : C_BG_PRIMARY;
-                if (cellRect.Contains(Event.current.mousePosition)) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f);
-                EditorGUI.DrawRect(cellRect, bg);
-                DrawRectBorder(cellRect, isCurrent ? C_ACCENT : C_BORDER);
-
-                var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
-                st.normal.textColor = isCurrent ? C_ACCENT : C_TEXT_2;
-                GUI.Label(cellRect, presets[i].name, st);
-
-                if (Event.current.type == EventType.MouseDown && cellRect.Contains(Event.current.mousePosition))
-                {
-                    foreach (var rt in _selectedList) SnapAnchorToCorner(rt, presets[i].min, presets[i].max);
-                    Event.current.Use();
-                }
-            }
-
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
-            // Текстовые «Растянуть гор/верт/Заполнить» убраны — их роль играет
-            // секция «ВЫРОВНЯТЬ / ЗАПОЛНИТЬ» (компактная плашка иконок) выше.
 
             // Smart Anchors — определяет зону экрана и расставляет якоря автоматически.
             GUILayout.Space(8);
@@ -2157,23 +2118,60 @@ namespace NovellaEngine.Editor
             GUILayout.Space(10);
         }
 
-        // ─── ALIGN & DISTRIBUTE strip ───────────────────────────────────────────
-        // Полоска иконок-стрелок над якорем. Активна только при multiselect:
-        // shows align (top/middle/bottom, left/center/right) и distribute (H/V).
-        // Иконка с тултипом — никаких текстовых кнопок чтобы не разорвало layout.
-
-        // 3×3 сетка растягиваний — внешне идентична якорной плашке. Каждая ячейка
-        // тянет соответствующую сторону/угол элемента к стороне/углу родителя:
-        //   ↖ ⤒ ↗     ⇤ ▣ ⇥     ↙ ⤓ ↘
-        // Центр (▣) — Fill (заполнить полностью). Активная ячейка подсвечивается
-        // акцентом — глаз сразу видит «к какому краю элемент сейчас прибит».
-        private void DrawAlignDistributeStrip()
+        // 3×3 плашка ЯКОРЕЙ — пресеты anchorMin/Max для одной точки или растяжки.
+        // Извлечена из DrawInspectorAnchorSection чтобы рисоваться рядом с
+        // плашкой РАСТЯНУТЬ.
+        private void DrawAnchorGrid()
         {
-            DrawSectionLabel(ToolLang.Get("STRETCH / FILL", "РАСТЯНУТЬ / ЗАПОЛНИТЬ"));
+            const float cell = 30f;
+            Rect grid = GUILayoutUtility.GetRect(cell * 3 + 8, cell * 3 + 8, GUILayout.Width(cell * 3 + 8));
+            EditorGUI.DrawRect(grid, C_BG_RAISED);
+            DrawRectBorder(grid, C_BORDER);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(12);
+            (string name, Vector2 min, Vector2 max)[] presets = new (string, Vector2, Vector2)[]
+            {
+                ("↖", new Vector2(0,1),     new Vector2(0,1)),     ("↑", new Vector2(0.5f,1),    new Vector2(0.5f,1)),    ("↗", new Vector2(1,1),    new Vector2(1,1)),
+                ("←", new Vector2(0,0.5f),  new Vector2(0,0.5f)),  ("●", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f)), ("→", new Vector2(1,0.5f), new Vector2(1,0.5f)),
+                ("↙", new Vector2(0,0),     new Vector2(0,0)),     ("↓", new Vector2(0.5f,0),    new Vector2(0.5f,0)),    ("↘", new Vector2(1,0),    new Vector2(1,0)),
+            };
 
+            for (int i = 0; i < 9; i++)
+            {
+                int col = i % 3, row = i / 3;
+                Rect cellRect = new Rect(grid.x + 4 + col * cell, grid.y + 4 + row * cell, cell - 2, cell - 2);
+                bool isCurrent = Mathf.Approximately(FirstSelected.anchorMin.x, presets[i].min.x)
+                              && Mathf.Approximately(FirstSelected.anchorMin.y, presets[i].min.y)
+                              && Mathf.Approximately(FirstSelected.anchorMax.x, presets[i].max.x)
+                              && Mathf.Approximately(FirstSelected.anchorMax.y, presets[i].max.y);
+
+                Color bg = isCurrent ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.3f) : C_BG_PRIMARY;
+                if (cellRect.Contains(Event.current.mousePosition)) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f);
+                EditorGUI.DrawRect(cellRect, bg);
+                DrawRectBorder(cellRect, isCurrent ? C_ACCENT : C_BORDER);
+
+                var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+                st.normal.textColor = isCurrent ? C_ACCENT : C_TEXT_2;
+                GUI.Label(cellRect, presets[i].name, st);
+
+                if (Event.current.type == EventType.MouseDown && cellRect.Contains(Event.current.mousePosition))
+                {
+                    foreach (var rt in _selectedList) SnapAnchorToCorner(rt, presets[i].min, presets[i].max);
+                    Event.current.Use();
+                }
+            }
+        }
+
+        // 3×3 плашка РАСТЯНУТЬ — внешне идентична якорной. Тянет сторону/угол
+        // элемента к соответствующей стороне/углу родителя. Активная ячейка
+        // подсвечивается акцентом.
+        //
+        // Иконки выбраны из Arrows-блока U+21xx (хорошо поддержано Liberation Sans):
+        //   ↖ ↥ ↗ — корнер-СЗ, стрелка-к-горизонтальной-планке, корнер-СВ
+        //   ⇤ ▣ ⇥ — стрелка-к-вертикальной-планке, fill, стрелка-к-вертикальной-планке
+        //   ↙ ↧ ↘ — корнер-ЮЗ, стрелка-к-горизонтальной-планке-снизу, корнер-ЮВ
+        // ↥/↧ заменили ⤒/⤓ (U+29xx) — те не входят в стандартный Unity-шрифт.
+        private void DrawStretchGrid()
+        {
             const float cell = 30f;
             Rect grid = GUILayoutUtility.GetRect(cell * 3 + 8, cell * 3 + 8, GUILayout.Width(cell * 3 + 8));
             EditorGUI.DrawRect(grid, C_BG_RAISED);
@@ -2182,20 +2180,19 @@ namespace NovellaEngine.Editor
             (string icon, string tip, StretchKind kind)[] presets = new (string, string, StretchKind)[]
             {
                 ("↖", ToolLang.Get("Stretch to top-left corner",     "Растянуть в верхний-левый угол"),  StretchKind.ToTopLeft),
-                ("⤒", ToolLang.Get("Stretch to top edge",            "Растянуть до верхнего края"),       StretchKind.ToTop),
+                ("↥", ToolLang.Get("Stretch to top edge",            "Растянуть до верхнего края"),       StretchKind.ToTop),
                 ("↗", ToolLang.Get("Stretch to top-right corner",    "Растянуть в верхний-правый угол"), StretchKind.ToTopRight),
                 ("⇤", ToolLang.Get("Stretch to left edge",           "Растянуть до левого края"),         StretchKind.ToLeft),
                 ("▣", ToolLang.Get("Fill — stretch to parent",       "Заполнить — растянуть на родителя"), StretchKind.FillAll),
                 ("⇥", ToolLang.Get("Stretch to right edge",          "Растянуть до правого края"),        StretchKind.ToRight),
                 ("↙", ToolLang.Get("Stretch to bottom-left corner",  "Растянуть в нижний-левый угол"),    StretchKind.ToBottomLeft),
-                ("⤓", ToolLang.Get("Stretch to bottom edge",         "Растянуть до нижнего края"),        StretchKind.ToBottom),
+                ("↧", ToolLang.Get("Stretch to bottom edge",         "Растянуть до нижнего края"),        StretchKind.ToBottom),
                 ("↘", ToolLang.Get("Stretch to bottom-right corner", "Растянуть в нижний-правый угол"),   StretchKind.ToBottomRight),
             };
 
             for (int i = 0; i < 9; i++)
             {
-                int col = i % 3;
-                int row = i / 3;
+                int col = i % 3, row = i / 3;
                 Rect cellRect = new Rect(grid.x + 4 + col * cell, grid.y + 4 + row * cell, cell - 2, cell - 2);
 
                 bool isCurrent = IsStretchActive(presets[i].kind);
@@ -2216,10 +2213,6 @@ namespace NovellaEngine.Editor
                     Event.current.Use();
                 }
             }
-
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            GUILayout.Space(8);
         }
 
         // Активна ли ячейка stretch-плашки для текущего FirstSelected.
