@@ -407,7 +407,7 @@ namespace NovellaEngine.Editor
                     ToolLang.Get("Performance warning", "Предупреждение по производительности"),
                     ToolLang.Get(
                         "You already have 5 root Canvases. Each Canvas is a separate draw call batch and a full hierarchy rebuild on any UI change — too many of them hurts FPS, especially on mobile.\n\nUsually 1–3 canvases are enough: one for the game UI, one for modals, one for HUD. Reuse panels inside an existing canvas where possible.\n\nMaximum is 10. Create one more?",
-                        "У тебя уже 5 корневых холстов. Каждый Canvas — это отдельный батч на отрисовку и полная перестройка иерархии при любом изменении UI. Большое количество холстов бьёт по FPS, особенно на мобилках.\n\nОбычно достаточно 1–3 канвасов: один на игровой UI, один на модалки, один на HUD. По возможности переиспользуй панели внутри существующего холста.\n\nМаксимум — 10. Всё-таки создать ещё один?"),
+                        "У тебя уже 5 корневых Холстов. Каждый Холст — это отдельный батч отрисовки и полная перестройка иерархии при любом изменении UI. Большое количество Холстов бьёт по FPS, особенно на мобилках.\n\nОбычно достаточно 1–3 Холстов: один на игровой UI, один на модалки, один на HUD. По возможности переиспользуй панели внутри существующего Холста.\n\nМаксимум — 10. Всё-таки создать ещё один?"),
                     ToolLang.Get("Create",  "Создать"),
                     ToolLang.Get("Cancel",  "Отмена"));
                 if (!ok) return;

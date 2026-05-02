@@ -230,6 +230,10 @@ namespace NovellaEngine.Editor
         // Бейджи на кнопке консоли в сайдбаре — три счётчика (logs / warnings / errors).
         // Обновляются по событию NovellaConsoleStore.OnChanged.
         private Label _consoleBadgeLog, _consoleBadgeWarn, _consoleBadgeErr;
+        private VisualElement _consoleButton; // ссылка на саму кнопку (для pulse-анимации).
+        // Прошлые значения счётчиков — нужны чтобы понять «появилось новое».
+        private int _prevLogCount, _prevWarnCount, _prevErrCount;
+        private IVisualElementScheduledItem _consolePulseTimer;
         private Label _crumbCurrent;
         private IMGUIContainer _moduleContainer;
         private IMGUIContainer _tutorialOverlay;
@@ -342,7 +346,10 @@ namespace NovellaEngine.Editor
             EditorApplication.projectChanged -= OnProjectChanged;
             NovellaSettingsModule.OnAppearanceChanged -= ApplyAppearance;
             NovellaConsoleStore.OnChanged -= OnConsoleStoreChanged;
+            _consolePulseTimer?.Pause();
+            _consolePulseTimer = null;
             _consoleBadgeLog = _consoleBadgeWarn = _consoleBadgeErr = null;
+            _consoleButton = null;
             if (_modules != null) foreach (var m in _modules) m.OnDisable();
             _tutorialPoll?.Pause();
             _tutorialPoll = null;
@@ -866,6 +873,8 @@ namespace NovellaEngine.Editor
         // Каждый показывается только если соответствующий счётчик > 0.
         private void AttachConsoleBadges(VisualElement btn)
         {
+            _consoleButton = btn;
+
             var box = new VisualElement();
             box.style.flexDirection = FlexDirection.Row;
             box.style.alignItems = Align.Center;
@@ -878,6 +887,11 @@ namespace NovellaEngine.Editor
             box.Add(_consoleBadgeWarn);
             box.Add(_consoleBadgeErr);
             btn.Add(box);
+
+            // Запоминаем стартовые значения чтобы НЕ пульсировать сразу при
+            // открытии Hub (там уже могут быть накопленные логи).
+            var c0 = NovellaConsoleStore.CountByType();
+            _prevLogCount = c0.log; _prevWarnCount = c0.warn; _prevErrCount = c0.error;
 
             // Подписываемся на изменения и сразу заполняем.
             NovellaConsoleStore.OnChanged -= OnConsoleStoreChanged;
@@ -916,6 +930,45 @@ namespace NovellaEngine.Editor
             SetBadge(_consoleBadgeLog,  c.log,   "ⓘ");
             SetBadge(_consoleBadgeWarn, c.warn,  "⚠");
             SetBadge(_consoleBadgeErr,  c.error, "✖");
+
+            // Если хотя бы один счётчик увеличился — это «новое сообщение
+            // прилетело», запускаем pulse-анимацию кнопки. Цвет вспышки берём
+            // самый «срочный»: error > warn > log.
+            bool gotNew = c.error > _prevErrCount || c.warn > _prevWarnCount || c.log > _prevLogCount;
+            if (gotNew)
+            {
+                Color flash =
+                    c.error > _prevErrCount  ? new Color(0.92f, 0.36f, 0.36f) :
+                    c.warn  > _prevWarnCount ? new Color(0.95f, 0.78f, 0.30f) :
+                                               new Color(0.62f, 0.70f, 0.78f);
+                PulseConsoleButton(flash);
+            }
+
+            _prevLogCount  = c.log;
+            _prevWarnCount = c.warn;
+            _prevErrCount  = c.error;
+        }
+
+        // Pulse-анимация на кнопке консоли в сайдбаре — кратковременная
+        // подсветка фоном цвета прилетевшего сообщения и лёгкое scale-up.
+        // Через 600мс возвращаем всё к норме. Так юзер замечает что в
+        // консоль что-то пришло, даже если Hub-вкладка скрыта на другом мониторе.
+        private void PulseConsoleButton(Color flash)
+        {
+            if (_consoleButton == null) return;
+
+            _consoleButton.style.backgroundColor = new StyleColor(new Color(flash.r, flash.g, flash.b, 0.30f));
+            _consoleButton.style.scale = new StyleScale(new Scale(new Vector3(1.04f, 1.04f, 1f)));
+
+            // Пауза прошлого таймера если был — иначе быстрая серия логов
+            // оставила бы кнопку в «вспышке» навсегда.
+            _consolePulseTimer?.Pause();
+            _consolePulseTimer = _consoleButton.schedule.Execute(() =>
+            {
+                if (_consoleButton == null) return;
+                _consoleButton.style.backgroundColor = StyleKeyword.Null;
+                _consoleButton.style.scale = new StyleScale(new Scale(Vector3.one));
+            }).StartingIn(600);
         }
 
         private static void SetBadge(Label l, int count, string icon)
