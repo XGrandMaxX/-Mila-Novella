@@ -165,11 +165,11 @@ namespace NovellaEngine.Editor.UIBindings
             GUILayout.BeginArea(r);
             _treeScroll = GUILayout.BeginScrollView(_treeScroll);
 
-            if (_canvas == null)
+            if (_canvas == null || !HasAnyCompatible())
             {
                 var st = new GUIStyle(EditorStyles.label) { wordWrap = true, fontSize = 11, padding = new RectOffset(10, 10, 14, 14) };
                 st.normal.textColor = C_TEXT_3;
-                GUILayout.Label("В сцене нет Canvas. Открой Кузницу UI и создай его, потом возвращайся сюда.", st);
+                GUILayout.Label("(пусто — все подсказки в превью →)", st);
                 GUILayout.EndScrollView();
                 GUILayout.EndArea();
                 return;
@@ -242,25 +242,34 @@ namespace NovellaEngine.Editor.UIBindings
             }
         }
 
-        // Решает попадает ли rt в отфильтрованную иерархию.
+        // Решает попадает ли rt в отфильтрованную иерархию. Мы показываем только
+        // элементы с NovellaUIBinding — потому что цель пикера ВСЕГДА binding.id,
+        // а у не-привязанных элементов его нет.
         private bool ShouldShowInTree(RectTransform rt)
         {
+            if (rt.GetComponent<NovellaUIBinding>() == null) return false;
             switch (_kind)
             {
-                case UIBindingKind.Button:
-                    return rt.GetComponent<Button>() != null;
-                case UIBindingKind.Text:
-                    return rt.GetComponent<TMP_Text>() != null;
-                default:
-                    // Any: показываем семантические элементы (текст / кнопка / картинка
-                    // / уже привязанный binding). Просто RectTransform без контента
-                    // тоже включаем — это могут быть панели/контейнеры для toggle.
-                    return rt.GetComponent<TMP_Text>() != null
-                        || rt.GetComponent<Button>()  != null
-                        || rt.GetComponent<Image>()   != null
-                        || rt.GetComponent<NovellaUIBinding>() != null
-                        || rt.childCount > 0; // контейнеры
+                case UIBindingKind.Button: return rt.GetComponent<Button>() != null;
+                case UIBindingKind.Text:   return rt.GetComponent<TMP_Text>() != null;
+                default:                   return true;
             }
+        }
+
+        // Есть ли в дереве хотя бы один совместимый binding-элемент. Используется
+        // чтобы показать заглушку «привяжи в Кузнице» когда дерево пустое.
+        private bool HasAnyCompatible()
+        {
+            if (_canvas == null) return false;
+            var all = _canvas.GetComponentsInChildren<NovellaUIBinding>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                if (_kind == UIBindingKind.Button && all[i].GetComponent<Button>() == null) continue;
+                if (_kind == UIBindingKind.Text   && all[i].GetComponent<TMP_Text>() == null) continue;
+                return true;
+            }
+            return false;
         }
 
         // ─── Preview ────────────────────────────────────────────────────────────
@@ -271,8 +280,19 @@ namespace NovellaEngine.Editor.UIBindings
 
             if (_canvas == null)
             {
-                var st = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { fontSize = 12 };
-                GUI.Label(r, "(нет canvas в сцене)", st);
+                DrawEmptyHint(r,
+                    "В сцене нет Canvas",
+                    "Открой Кузницу UI и создай Canvas, потом возвращайся.");
+                return;
+            }
+
+            // Если в сцене нет binding'ов нужного типа — превью пустое и подсказка.
+            if (!HasAnyCompatible())
+            {
+                string typeName = _kind == UIBindingKind.Button ? "кнопок" : _kind == UIBindingKind.Text ? "текстов" : "UI элементов";
+                DrawEmptyHint(r,
+                    $"Нет привязанных {typeName}",
+                    "Открой Кузницу UI → выбери элемент → нажми «➕ Сделать привязываемым», и он появится здесь.");
                 return;
             }
 
@@ -321,16 +341,15 @@ namespace NovellaEngine.Editor.UIBindings
                 if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
 
                 bool isButton = ch.GetComponent<Button>() != null;
-
-                // Превью фильтруем по тому же правилу что и иерархию:
-                //  • Button-фильтр — рисуем только кнопки. Внутрь не рекурсимся —
-                //    текст-надпись кнопки рисуем уже в её рамке.
-                //  • Text-фильтр   — рисуем только TMP-тексты.
-                //  • Any           — всё.
                 bool isText = ch.GetComponent<TMP_Text>() != null;
-                bool drawThis = _kind == UIBindingKind.Any
+                bool hasBinding = ch.GetComponent<NovellaUIBinding>() != null;
+
+                // Превью показывает ТОЛЬКО привязанные элементы — как и дерево.
+                // Не-binding'и в сцене существуют, но в пикере не имеют смысла:
+                // их нельзя выбрать (нет id для записи в ноду).
+                bool drawThis = hasBinding && (_kind == UIBindingKind.Any
                     || (_kind == UIBindingKind.Button && isButton)
-                    || (_kind == UIBindingKind.Text   && isText);
+                    || (_kind == UIBindingKind.Text   && isText));
 
                 if (drawThis)
                 {
@@ -340,19 +359,17 @@ namespace NovellaEngine.Editor.UIBindings
                     DrawBorder(screenRect, new Color(fill.r * 1.4f, fill.g * 1.4f, fill.b * 1.4f, 0.75f));
 
                     // Подпись: для текста — реальный текст, для кнопки — её inner-text
-                    // (если есть), для остального — DisplayName/имя GO.
-                    if (screenRect.width > 30 && screenRect.height > 12)
+                    // (TMP или legacy), иначе DisplayName/имя GO. Рендерим всегда —
+                    // даже у крошечных rect'ов, лучше тонкая надпись чем пустота.
+                    string label = ResolveLabel(ch, isButton, isText);
+                    if (!string.IsNullOrEmpty(label))
                     {
-                        string label = ResolveLabel(ch, isButton, isText);
-                        if (!string.IsNullOrEmpty(label))
-                        {
-                            var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = isButton ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, wordWrap = false };
-                            st.normal.textColor = NovellaSettingsModule.GetContrastingText(fill);
-                            var labelRect = isButton
-                                ? screenRect
-                                : new Rect(screenRect.x + 3, screenRect.y, screenRect.width - 6, screenRect.height);
-                            GUI.Label(labelRect, label, st);
-                        }
+                        var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = isButton ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, wordWrap = false, clipping = TextClipping.Clip };
+                        st.normal.textColor = NovellaSettingsModule.GetContrastingText(fill);
+                        var labelRect = isButton
+                            ? screenRect
+                            : new Rect(screenRect.x + 3, screenRect.y, screenRect.width - 6, screenRect.height);
+                        GUI.Label(labelRect, label, st);
                     }
                 }
 
@@ -373,12 +390,29 @@ namespace NovellaEngine.Editor.UIBindings
             }
             if (isButton)
             {
-                // Берём первый дочерний TMP_Text — это метка кнопки.
-                var inner = ch.GetComponentInChildren<TMP_Text>(true);
-                if (inner != null && !string.IsNullOrEmpty(inner.text)) return inner.text;
+                // Сначала TMP_Text внутри кнопки, потом legacy UnityEngine.UI.Text,
+                // потом DisplayName binding'а, потом имя GameObject — что-то да покажем.
+                var innerTmp = ch.GetComponentInChildren<TMP_Text>(true);
+                if (innerTmp != null && !string.IsNullOrEmpty(innerTmp.text)) return innerTmp.text;
+                var innerLegacy = ch.GetComponentInChildren<UnityEngine.UI.Text>(true);
+                if (innerLegacy != null && !string.IsNullOrEmpty(innerLegacy.text)) return innerLegacy.text;
             }
             var b = ch.GetComponent<NovellaUIBinding>();
             return b != null ? b.DisplayName : ch.gameObject.name;
+        }
+
+        // Центральная подсказка в превью когда нет данных.
+        private void DrawEmptyHint(Rect r, string title, string body)
+        {
+            var ts = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
+            ts.normal.textColor = C_TEXT_2;
+            var bs = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+            bs.normal.textColor = C_TEXT_3;
+
+            float cx = r.x + r.width * 0.5f;
+            float cy = r.y + r.height * 0.5f;
+            GUI.Label(new Rect(cx - 220, cy - 28, 440, 22), "🪝  " + title, ts);
+            GUI.Label(new Rect(cx - 240, cy + 0, 480, 50), body, bs);
         }
 
         // Hover — лёгкая полупрозрачная обводка 2px.
