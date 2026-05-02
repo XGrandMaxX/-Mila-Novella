@@ -329,101 +329,109 @@ namespace NovellaEngine.Editor
 
             if (_selectedList.Count == 1 && _selectedList[0] != null)
             {
-                var go = _selectedList[0].gameObject;
-                // Стандартный ping подсвечивает строку и делает scroll к ней
-                // (но не всегда раскрывает предков), плюс заставляет окно
-                // Hierarchy получить focus.
-                EditorGUIUtility.PingObject(go);
-                // Принудительно раскрываем все предки + сворачиваем другие
-                // root-канвасы, чтобы Hierarchy показывала именно тот контекст
-                // в котором юзер сейчас работает (особенно полезно когда
-                // канвасов 3+ и они все одновременно были раскрыты).
-                ExpandHierarchyToTarget(go);
+                var rt = _selectedList[0];
+                // Раскрываем всех предков выделенного в НАШЕМ дереве слева,
+                // сворачиваем посторонние root-канвасы (если их 2+),
+                // прокручиваем дерево к выделенной строке.
+                ExpandTreeToTarget(rt);
+
+                // Стандартный ping в Unity Hierarchy — побочный бонус,
+                // не обязательный для Кузницы.
+                EditorGUIUtility.PingObject(rt.gameObject);
             }
 
             _lastSyncedSelection = _selectedList.ToArray();
         }
 
-        // Раскрывает в окне Hierarchy всех предков целевого объекта и
-        // сворачивает все остальные root-канвасы (если их ≥ 2). Использует
-        // reflection во внутренний UnityEditor.SceneHierarchyWindow API —
-        // публичного способа управлять состоянием TreeView Hierarchy нет.
-        // Падать не должно — все обращения через TryCatch + null-проверки.
-        private static void ExpandHierarchyToTarget(GameObject target)
+        // Раскрывает в дереве UI Forge всех предков целевого объекта.
+        // Если в сцене 2+ root-канвасов — сворачивает все остальные, оставляя
+        // открытым только тот в котором сейчас выделение. Плюс прокручивает
+        // tree-scroll к выделенной строке если она вне viewport.
+        private void ExpandTreeToTarget(RectTransform target)
         {
             if (target == null) return;
-            try
+
+            // 1. Раскрываем всех предков (убираем их InstanceID из _collapsedNodes).
+            Transform t = target.parent;
+            while (t != null)
             {
-                // Список ID для раскрытия — все предки целевого объекта.
-                var idsToExpand = new List<int>();
-                Transform t = target.transform.parent;
-                while (t != null)
+                int id = t.gameObject.GetInstanceID();
+                _collapsedNodes.Remove(id);
+                // Останавливаемся на root-канвасе (он сам root, нет предков выше).
+                var c = t.GetComponent<Canvas>();
+                if (c != null && c.isRootCanvas) break;
+                t = t.parent;
+            }
+
+            // 2. Сворачиваем другие root-канвасы (если их в сцене 2+).
+            // Целевой root — определяем поднявшись до root-канваса.
+            Transform rootT = target;
+            while (rootT.parent != null) rootT = rootT.parent;
+            int targetRootId = rootT.gameObject.GetInstanceID();
+
+            // Считаем сколько всего root-канвасов в _allRects.
+            var rootCanvases = new List<RectTransform>();
+            foreach (var rt2 in _allRects)
+            {
+                if (rt2 == null) continue;
+                var c2 = rt2.GetComponent<Canvas>();
+                if (c2 != null && c2.isRootCanvas) rootCanvases.Add(rt2);
+            }
+
+            if (rootCanvases.Count >= 2)
+            {
+                foreach (var rc in rootCanvases)
                 {
-                    idsToExpand.Add(t.gameObject.GetInstanceID());
-                    t = t.parent;
-                }
-                if (idsToExpand.Count == 0) return; // целевой объект сам — root
-
-                // Тип SceneHierarchyWindow живёт в UnityEditor.dll.
-                var hwType = typeof(EditorWindow).Assembly.GetType("UnityEditor.SceneHierarchyWindow");
-                if (hwType == null) return;
-
-                // Все открытые окна Hierarchy (может быть несколько).
-                var windows = Resources.FindObjectsOfTypeAll(hwType);
-                if (windows == null || windows.Length == 0) return;
-
-                // Поле m_SceneHierarchy — внутренний компонент-логика.
-                var shField = hwType.GetField("m_SceneHierarchy",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-                // Корень целевого канваса (для определения «не сворачивать его»).
-                Transform rootT = target.transform;
-                while (rootT.parent != null) rootT = rootT.parent;
-                int keepRootId = rootT.gameObject.GetInstanceID();
-
-                // Список других root-канвасов для сворачивания (если их 2+).
-                var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                var rootIdsAll = new List<int>();
-                foreach (var c in allCanvases)
-                {
-                    if (c == null || !c.isRootCanvas) continue;
-                    rootIdsAll.Add(c.gameObject.GetInstanceID());
-                }
-
-                foreach (var win in windows)
-                {
-                    object sh = shField?.GetValue(win);
-                    if (sh == null) continue;
-
-                    var setExpanded = sh.GetType().GetMethod("SetExpanded",
-                        System.Reflection.BindingFlags.Public    | System.Reflection.BindingFlags.NonPublic |
-                        System.Reflection.BindingFlags.Instance,
-                        null, new[] { typeof(int), typeof(bool) }, null);
-                    if (setExpanded == null) continue;
-
-                    // 1. Раскрываем всех предков целевого объекта (от корня к листу,
-                    // чтобы каждый узел уже существовал в TreeView к моменту раскрытия).
-                    for (int i = idsToExpand.Count - 1; i >= 0; i--)
-                    {
-                        setExpanded.Invoke(sh, new object[] { idsToExpand[i], true });
-                    }
-
-                    // 2. Если в сцене 2+ root-канвасов — сворачиваем все кроме целевого.
-                    if (rootIdsAll.Count >= 2)
-                    {
-                        foreach (var rid in rootIdsAll)
-                        {
-                            if (rid == keepRootId) continue;
-                            setExpanded.Invoke(sh, new object[] { rid, false });
-                        }
-                    }
+                    int id = rc.gameObject.GetInstanceID();
+                    if (id == targetRootId) continue;
+                    _collapsedNodes.Add(id);
                 }
             }
-            catch
+
+            // 3. Прокручиваем tree к выделенной строке если она вне viewport.
+            ScrollTreeToTarget(target);
+
+            _window?.Repaint();
+        }
+
+        // Простой scroll-to-row для нашего tree. Считаем индекс target в
+        // визуально-видимой последовательности (с учётом сворачивания) и
+        // ставим _treeScroll.y чтобы строка попала в начало viewport.
+        // Высота строки = ROW_H_TREE (см. DrawTreeRow — там GetRect(0, 36)).
+        private const float ROW_H_TREE = 36f;
+        private void ScrollTreeToTarget(RectTransform target)
+        {
+            if (target == null) return;
+
+            int visibleIndex = -1;
+            int curr = 0;
+            RectTransform skipRoot = null;
+            for (int i = 0; i < _allRects.Count; i++)
             {
-                // Reflection-API в Unity нестабилен между версиями — если
-                // что-то поменялось, просто молча отключаем фичу. Базовый
-                // ping и Selection всё равно отработают.
+                var rt = _allRects[i];
+                if (rt == null) continue;
+                if (skipRoot != null)
+                {
+                    if (rt != skipRoot && rt.IsChildOf(skipRoot)) continue;
+                    skipRoot = null;
+                }
+                if (rt == target) { visibleIndex = curr; break; }
+                bool hasChildren = HasVisibleChildren(rt);
+                if (hasChildren && _collapsedNodes.Contains(rt.GetInstanceID()))
+                {
+                    skipRoot = rt;
+                }
+                curr++;
+            }
+            if (visibleIndex < 0) return;
+
+            // Без точной высоты viewport ставим target в верхнюю четверть
+            // прокрутки — это работает «достаточно хорошо» в большинстве
+            // случаев. Если строка близко к началу, не дёргаем scroll.
+            float targetY = visibleIndex * ROW_H_TREE;
+            if (targetY < _treeScroll.y || targetY > _treeScroll.y + 200f)
+            {
+                _treeScroll.y = Mathf.Max(0f, targetY - 60f);
             }
         }
 
