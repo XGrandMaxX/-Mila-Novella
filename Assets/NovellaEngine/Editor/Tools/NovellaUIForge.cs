@@ -80,7 +80,10 @@ namespace NovellaEngine.Editor
         // Линии-индикаторы snap'а в координатах canvas. Очищаются на MouseUp.
         private List<float> _snapLinesX = new List<float>();
         private List<float> _snapLinesY = new List<float>();
-        private bool _showGuideMode = false;
+        // Тоггл подсказок — общий по всему Studio (NovellaSettingsModule.ShowGuide,
+        // хранится в EditorPrefs). Локальной копии больше нет — везде используем
+        // NovellaSettingsModule.ShowGuide напрямую, чтобы один переключатель
+        // в любом модуле/окне управлял всеми хинтами разом.
         private float _gridStep = 20f;
 
         private int _resolutionPresetIndex = 0;
@@ -1162,8 +1165,12 @@ namespace NovellaEngine.Editor
             bx += snapW + gap;
 
             float guideW = 130f;
-            string guideText = _showGuideMode ? ToolLang.Get("Hints: On", "Подсказки: Вкл") : ToolLang.Get("Hints: Off", "Подсказки: Выкл");
-            DrawIconToggle(new Rect(bx, by, guideW, bh), "💡", guideText, ref _showGuideMode);
+            // Хинты — общий тоггл NovellaSettingsModule.ShowGuide (нельзя передать
+            // property по ref, поэтому копируем в локальную и пишем обратно).
+            bool guide = NovellaSettingsModule.ShowGuide;
+            string guideText = guide ? ToolLang.Get("Hints: On", "Подсказки: Вкл") : ToolLang.Get("Hints: Off", "Подсказки: Выкл");
+            DrawIconToggle(new Rect(bx, by, guideW, bh), "💡", guideText, ref guide);
+            if (guide != NovellaSettingsModule.ShowGuide) NovellaSettingsModule.ShowGuide = guide;
             bx += guideW + gap;
 
             if (_isMobileMode)
@@ -3155,7 +3162,7 @@ namespace NovellaEngine.Editor
 
         private void DrawInlineGuide(string helpKey)
         {
-            if (!_showGuideMode) return;
+            if (!NovellaSettingsModule.ShowGuide) return;
             var body = NovellaUIForgeHelpDB.Get(helpKey);
             if (string.IsNullOrEmpty(body)) return;
 
