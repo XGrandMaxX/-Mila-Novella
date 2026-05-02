@@ -84,6 +84,11 @@ namespace NovellaEngine.Editor
         // null если режим Prefabs пустой / только-что зашли.
         private GameObject _currentPrefabAsset;
         private Vector2 _prefabsListScroll;
+        // Кэш списка префабов в Gallery/Prefabs — обновляется при входе в режим
+        // и после действий create/delete.
+        private List<GameObject> _prefabsList = new List<GameObject>();
+        private string _prefabsFilter = "";
+        private double _lastPrefabsRefresh;
         private bool _showSafeArea;
         private bool _showGrid = true;
         private bool _smartGuides = true;
@@ -1153,20 +1158,46 @@ namespace NovellaEngine.Editor
 
             GUILayout.BeginArea(rect);
 
-            GUILayout.Space(12);
+            // Сегментированный переключатель Сцена/Префабы — в самом верху
+            // левой панели. Заменяет тот что был в тулбаре.
+            GUILayout.Space(8);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            Rect segR = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
+            GUILayout.Space(10);
+            GUILayout.EndHorizontal();
+            DrawSidebarModeSwitch(segR);
+
+            GUILayout.Space(10);
+
+            // Заголовок и подзаголовок зависят от режима.
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
             titleSt.normal.textColor = C_TEXT_1;
-            GUILayout.Label("🗂  " + ToolLang.Get("Scene Elements", "Элементы сцены"), titleSt);
+            string headerLabel = _mode == ForgeMode.Prefabs
+                ? "📦  " + ToolLang.Get("Prefabs library", "Библиотека префабов")
+                : "🗂  " + ToolLang.Get("Scene Elements", "Элементы сцены");
+            GUILayout.Label(headerLabel, titleSt);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(14);
             var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
             subSt.normal.textColor = C_TEXT_3;
-            GUILayout.Label(string.Format(ToolLang.Get("{0} elements found", "{0} элементов"), _allRects.Count), subSt);
+            string subLabel = _mode == ForgeMode.Prefabs
+                ? string.Format(ToolLang.Get("{0} prefabs", "{0} префабов"), _prefabsList.Count)
+                : string.Format(ToolLang.Get("{0} elements found", "{0} элементов"), _allRects.Count);
+            GUILayout.Label(subLabel, subSt);
             GUILayout.EndHorizontal();
+
+            // Если выбран Prefabs-режим — рисуем prefab-список вместо обычного дерева.
+            if (_mode == ForgeMode.Prefabs)
+            {
+                DrawPrefabsListInSidebar();
+                GUILayout.EndArea();
+                return;
+            }
 
             GUILayout.Space(8);
             GUILayout.BeginHorizontal();
@@ -1386,6 +1417,254 @@ namespace NovellaEngine.Editor
                     e.Use();
                 }
             }
+        }
+
+        // Сегментированный переключатель Сцена/Префабы в шапке левой панели.
+        // Заменил отдельный сегмент в тулбаре — теперь живёт там где логически
+        // относится: над списком элементов сцены / списком префабов.
+        private void DrawSidebarModeSwitch(Rect r)
+        {
+            float halfW = (r.width - 4f) * 0.5f;
+            Rect sceneR   = new Rect(r.x,                  r.y, halfW, r.height);
+            Rect prefabsR = new Rect(r.x + halfW + 4f,     r.y, halfW, r.height);
+
+            DrawModeBtn(sceneR,   _mode == ForgeMode.Scene,   "🎬",
+                ToolLang.Get("Scene",   "Сцена"),
+                () => SwitchMode(ForgeMode.Scene));
+            DrawModeBtn(prefabsR, _mode == ForgeMode.Prefabs, "📦",
+                ToolLang.Get("Prefabs", "Префабы"),
+                () => SwitchMode(ForgeMode.Prefabs));
+        }
+
+        // Список префабов в левой панели (Prefabs-режим).
+        // Сверху — кнопка «➕ Создать» + поле поиска.
+        // Дальше — карточки префабов с превью, имя, путь. Двойной клик
+        // / кнопка «Открыть» загружает в mock-сцену для редактирования.
+        private void DrawPrefabsListInSidebar()
+        {
+            // Refresh cache периодически (каждые 2с) или при первом входе.
+            double now = EditorApplication.timeSinceStartup;
+            if (_prefabsList.Count == 0 || (now - _lastPrefabsRefresh) > 2.0)
+            {
+                RefreshPrefabsList();
+                _lastPrefabsRefresh = now;
+            }
+
+            GUILayout.Space(8);
+            // Кнопки сверху: Создать / Сохранить (если открыт prefab) / История.
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            var addSt = new GUIStyle(EditorStyles.miniButton)
+            {
+                fontSize = 11, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter,
+                fixedHeight = 24, padding = new RectOffset(8, 8, 2, 2),
+            };
+            addSt.normal.textColor = C_TEXT_1;
+            var prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.22f);
+            if (GUILayout.Button("✨ " + ToolLang.Get("New", "Создать"), addSt))
+            {
+                NovellaPrefabCreateDialog.Open(prefab =>
+                {
+                    RefreshPrefabsList();
+                    OpenPrefabInMockScene(prefab);
+                });
+            }
+            GUI.backgroundColor = prevBg;
+
+            // Save Prefab — если есть открытый.
+            if (!string.IsNullOrEmpty(_currentPrefabAssetPath))
+            {
+                GUILayout.Space(4);
+                var saveSt = new GUIStyle(EditorStyles.miniButton)
+                {
+                    fontSize = 11, fontStyle = FontStyle.Bold, fixedHeight = 24,
+                    padding = new RectOffset(8, 8, 2, 2),
+                };
+                saveSt.normal.textColor = Color.white;
+                var prevSaveBg = GUI.backgroundColor;
+                GUI.backgroundColor = new Color(0.40f, 0.78f, 0.45f);
+                if (GUILayout.Button("💾", saveSt, GUILayout.Width(34)))
+                {
+                    SaveCurrentPrefabFromForge();
+                }
+                GUI.backgroundColor = prevSaveBg;
+            }
+
+            // История.
+            GUILayout.Space(4);
+            var histSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 11, fixedHeight = 24, padding = new RectOffset(8, 8, 2, 2) };
+            histSt.normal.textColor = C_TEXT_3;
+            if (GUILayout.Button("📜", histSt, GUILayout.Width(34)))
+            {
+                NovellaPrefabHistoryDialog.Open();
+            }
+
+            GUILayout.Space(10);
+            GUILayout.EndHorizontal();
+
+            // Поиск.
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            Rect searchR = GUILayoutUtility.GetRect(0, 22, GUILayout.ExpandWidth(true));
+            GUILayout.Space(10);
+            GUILayout.EndHorizontal();
+            EditorGUI.DrawRect(searchR, C_BG_PRIMARY);
+            DrawRectBorder(searchR, C_BORDER);
+            var searchSt = new GUIStyle(EditorStyles.textField) { fontSize = 11, padding = new RectOffset(6, 6, 4, 4) };
+            searchSt.normal.background = null; searchSt.focused.background = null;
+            searchSt.normal.textColor = C_TEXT_1; searchSt.focused.textColor = C_TEXT_1;
+            _prefabsFilter = GUI.TextField(searchR, _prefabsFilter, searchSt);
+            if (string.IsNullOrEmpty(_prefabsFilter))
+            {
+                var ph = new GUIStyle(EditorStyles.label) { fontSize = 11 };
+                ph.normal.textColor = C_TEXT_4;
+                GUI.Label(new Rect(searchR.x + 6, searchR.y, searchR.width, searchR.height),
+                    "🔍  " + ToolLang.Get("Search…", "Поиск…"), ph);
+            }
+
+            GUILayout.Space(8);
+
+            // Скролл-список префабов.
+            string filter = (_prefabsFilter ?? "").Trim().ToLowerInvariant();
+            _prefabsListScroll = GUILayout.BeginScrollView(_prefabsListScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
+
+            int shown = 0;
+            for (int i = 0; i < _prefabsList.Count; i++)
+            {
+                var p = _prefabsList[i];
+                if (p == null) continue;
+                if (filter.Length > 0 && !p.name.ToLowerInvariant().Contains(filter)) continue;
+                DrawPrefabSidebarRow(p, shown);
+                shown++;
+            }
+
+            if (shown == 0)
+            {
+                GUILayout.Space(40);
+                var emptySt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                emptySt.normal.textColor = C_TEXT_3;
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(10);
+                GUILayout.Label(string.IsNullOrEmpty(filter)
+                    ? ToolLang.Get("No prefabs yet.\nClick «✨ Create» to make one.",
+                                   "Префабов пока нет.\nКликни «✨ Создать» чтобы сделать первый.")
+                    : ToolLang.Get("No prefabs match.", "Ничего не найдено."), emptySt);
+                GUILayout.Space(10);
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.EndScrollView();
+        }
+
+        private void DrawPrefabSidebarRow(GameObject prefab, int index)
+        {
+            string path = AssetDatabase.GetAssetPath(prefab);
+            bool isCurrent = (path == _currentPrefabAssetPath);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(6);
+            Rect row = GUILayoutUtility.GetRect(0, 56, GUILayout.ExpandWidth(true));
+            GUILayout.Space(6);
+            GUILayout.EndHorizontal();
+
+            Color bg = isCurrent
+                ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.20f)
+                : (index % 2 == 0 ? new Color(1, 1, 1, 0.02f) : Color.clear);
+            EditorGUI.DrawRect(row, bg);
+            if (isCurrent) EditorGUI.DrawRect(new Rect(row.x, row.y, 3, row.height), C_ACCENT);
+
+            // Превью миниатюрой.
+            Rect thumbR = new Rect(row.x + 6, row.y + 4, 48, 48);
+            EditorGUI.DrawRect(thumbR, C_BG_PRIMARY);
+            var preview = AssetPreview.GetAssetPreview(prefab);
+            if (preview != null)
+            {
+                GUI.DrawTexture(thumbR, preview, ScaleMode.ScaleToFit, true);
+            }
+            else
+            {
+                var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 22, alignment = TextAnchor.MiddleCenter };
+                iconSt.normal.textColor = C_TEXT_3;
+                string ic = "▣";
+                if (prefab.GetComponent<UnityEngine.UI.Button>() != null) ic = "🔘";
+                else if (prefab.GetComponent<TMPro.TMP_Text>() != null) ic = "📝";
+                else if (prefab.GetComponent<UnityEngine.UI.Image>() != null) ic = "🖼";
+                GUI.Label(thumbR, ic, iconSt);
+            }
+
+            // Name + path.
+            var nameSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, clipping = TextClipping.Clip };
+            nameSt.normal.textColor = isCurrent ? C_TEXT_1 : C_TEXT_2;
+            GUI.Label(new Rect(row.x + 60, row.y + 6, row.width - 70, 18), prefab.name, nameSt);
+
+            var pathSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, clipping = TextClipping.Clip };
+            pathSt.normal.textColor = C_TEXT_4;
+            string shortPath = path.StartsWith(NovellaPrefabHistory.PREFABS_DIR)
+                ? path.Substring(NovellaPrefabHistory.PREFABS_DIR.Length).TrimStart('/')
+                : path;
+            GUI.Label(new Rect(row.x + 60, row.y + 24, row.width - 70, 14),
+                isCurrent ? "✓ " + ToolLang.Get("editing", "редактируется") : shortPath, pathSt);
+
+            // Click.
+            if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition))
+            {
+                if (Event.current.button == 0)
+                {
+                    OpenPrefabInMockScene(prefab);
+                    Event.current.Use();
+                }
+                else if (Event.current.button == 1)
+                {
+                    var menu = new GenericMenu();
+                    menu.AddItem(new GUIContent(ToolLang.Get("📂 Open", "📂 Открыть")), false, () => OpenPrefabInMockScene(prefab));
+                    menu.AddItem(new GUIContent(ToolLang.Get("Ping in Project", "Показать в Project")), false, () => EditorGUIUtility.PingObject(prefab));
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent(ToolLang.Get("🗑 Delete", "🗑 Удалить")), false, () =>
+                    {
+                        if (EditorUtility.DisplayDialog(
+                            ToolLang.Get("Delete prefab?", "Удалить префаб?"),
+                            string.Format(ToolLang.Get("Delete '{0}'?", "Удалить «{0}»?"), prefab.name),
+                            ToolLang.Get("Delete", "Удалить"),
+                            ToolLang.Get("Cancel", "Отмена")))
+                        {
+                            NovellaPrefabHistory.Log("delete", prefab.name, "", path);
+                            AssetDatabase.DeleteAsset(path);
+                            RefreshPrefabsList();
+                        }
+                    });
+                    menu.ShowAsContext();
+                    Event.current.Use();
+                }
+            }
+        }
+
+        private void RefreshPrefabsList()
+        {
+            _prefabsList.Clear();
+            string folder = NovellaPrefabHistory.PREFABS_DIR;
+            if (!AssetDatabase.IsValidFolder(folder)) return;
+            var guids = AssetDatabase.FindAssets("t:Prefab", new[] { folder });
+            foreach (var g in guids)
+            {
+                string p = AssetDatabase.GUIDToAssetPath(g);
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(p);
+                if (go != null) _prefabsList.Add(go);
+            }
+            _prefabsList.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void OpenPrefabInMockScene(GameObject prefab)
+        {
+            EditorApplication.delayCall += () =>
+            {
+                if (!NovellaPrefabSceneHelper.OpenMockScene()) return;
+                NovellaPrefabSceneHelper.InstantiatePrefabInMockScene(prefab);
+                FindReferences();
+                RefreshRectsCache();
+                _window?.Repaint();
+            };
         }
 
         private Transform GetCreationParent()
@@ -2140,16 +2419,8 @@ namespace NovellaEngine.Editor
             const float groupH = 32f;
             float yMid = topbar.y + (topbar.height - groupH) * 0.5f;
 
-            // Mode-switcher (Scene / Prefabs) — самый левый элемент тулбара.
-            // Видим что юзер сейчас редактирует, и быстро переключаемся.
-            const float modeW = 180f;
-            Rect modeR = new Rect(topbar.x + pad, yMid, modeW, groupH);
-            DrawTopbarGroupBg(modeR);
-            DrawModeSwitcher(modeR);
-
-            float g1Start = modeR.xMax + 8f;
             float g1W = (_resolutionPresetIndex == RESOLUTION_PRESETS.Length) ? 360f : 220f;
-            Rect g1 = new Rect(g1Start, yMid, g1W, groupH);
+            Rect g1 = new Rect(topbar.x + pad, yMid, g1W, groupH);
             DrawTopbarGroupBg(g1);
             DrawResolutionGroup(g1);
 
@@ -2187,25 +2458,6 @@ namespace NovellaEngine.Editor
         // Текущий путь к prefab-asset который сейчас открыт в mock-сцене.
         // Нужен для save-back через PrefabUtility.SaveAsPrefabAssetAndConnect.
         private string _currentPrefabAssetPath;
-
-        // ─── Mode switcher (Scene | Prefabs) ─────────────────────────────
-        private void DrawModeSwitcher(Rect r)
-        {
-            const float bh = 26f;
-            float by = r.y + (r.height - bh) * 0.5f;
-            float halfW = (r.width - 8f) * 0.5f;
-
-            Rect sceneR   = new Rect(r.x + 4,                by, halfW, bh);
-            Rect prefabsR = new Rect(r.x + 4 + halfW + 0,     by, halfW, bh);
-            // Можно ещё мелкий gap, но на 180px width два сегмента влезают плотно.
-
-            DrawModeBtn(sceneR,   _mode == ForgeMode.Scene,   "🎬",
-                ToolLang.Get("Scene",   "Сцена"),
-                () => SwitchMode(ForgeMode.Scene));
-            DrawModeBtn(prefabsR, _mode == ForgeMode.Prefabs, "📦",
-                ToolLang.Get("Prefabs", "Префабы"),
-                () => SwitchMode(ForgeMode.Prefabs));
-        }
 
         private void DrawModeBtn(Rect r, bool active, string icon, string label, System.Action onClick)
         {
@@ -2251,12 +2503,10 @@ namespace NovellaEngine.Editor
                     _mode = ForgeMode.Prefabs;
                     FindReferences();
                     RefreshRectsCache();
+                    RefreshPrefabsList();
                     _window?.Repaint();
-
-                    // Если в mock-сцене нет prefab-instance — открываем Browser.
-                    var canvasGo = GameObject.Find(NovellaPrefabSceneHelper.CANVAS_NAME);
-                    bool hasPrefabInside = canvasGo != null && canvasGo.transform.childCount > 0;
-                    if (!hasPrefabInside) NovellaPrefabBrowserWindow.Open();
+                    // Список префабов теперь в левой панели Кузницы — отдельное
+                    // окно браузера не нужно.
                 }
                 else // target == Scene
                 {
@@ -2381,40 +2631,6 @@ namespace NovellaEngine.Editor
                 compact ? "" : ToolLang.Get("Bindings", "Связи")))
             {
                 NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
-            }
-            bx += overviewW + gap;
-
-            // Кнопка открытия библиотеки префабов. Ставим сюда чтобы быстро
-            // переключаться из работы со сценой в работу с prefab'ами.
-            float prefabsW = compact ? 32f : 96f;
-            if (DrawIconButton(new Rect(bx, by, prefabsW, bh), "📦",
-                compact ? "" : ToolLang.Get("Prefabs", "Префабы")))
-            {
-                NovellaPrefabBrowserWindow.Open();
-            }
-
-            // Save Prefab — видна только в Prefabs-режиме когда есть открытый
-            // prefab-instance. Применяет изменения из mock-сцены обратно в asset.
-            if (_mode == ForgeMode.Prefabs && !string.IsNullOrEmpty(_currentPrefabAssetPath))
-            {
-                bx += prefabsW + gap;
-                float saveW = compact ? 32f : 110f;
-                var saveSt = new GUIStyle(EditorStyles.miniButton)
-                {
-                    fontSize = 11, fixedHeight = bh, padding = new RectOffset(8, 8, 2, 2),
-                    fontStyle = FontStyle.Bold,
-                };
-                saveSt.normal.textColor = Color.white;
-                var prevBg = GUI.backgroundColor;
-                GUI.backgroundColor = new Color(0.40f, 0.78f, 0.45f);
-                if (GUI.Button(new Rect(bx, by, saveW, bh),
-                    new GUIContent(compact ? "💾" : "💾 " + ToolLang.Get("Save", "Сохранить"),
-                                   ToolLang.Get("Save changes back to the prefab asset.",
-                                                "Сохранить изменения обратно в prefab-ассет.")), saveSt))
-                {
-                    SaveCurrentPrefabFromForge();
-                }
-                GUI.backgroundColor = prevBg;
             }
         }
 
