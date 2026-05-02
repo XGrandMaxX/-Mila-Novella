@@ -679,6 +679,9 @@ namespace NovellaEngine.Editor
 
         private void CreateButton()
         {
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Create Button");
+
             string locName = ToolLang.Get("Button", "Кнопка");
             var go = new GameObject(locName);
             var img = go.AddComponent<Image>();
@@ -703,6 +706,9 @@ namespace NovellaEngine.Editor
             trt.offsetMin = Vector2.zero;
             trt.offsetMax = Vector2.zero;
             trt.localScale = Vector3.one;
+            // Регистрируем дочерний text как часть той же undo-группы, чтобы один Ctrl+Z откатывал и кнопку и её label.
+            Undo.RegisterCreatedObjectUndo(textGo, "Create Button Label");
+            Undo.CollapseUndoOperations(undoGroup);
         }
 
         private void CreateImage()
@@ -903,6 +909,7 @@ namespace NovellaEngine.Editor
                 if (mode == DropMode.Inside)
                 {
                     Undo.SetTransformParent(dragRt, target, "Drop Inside");
+                    Undo.RegisterCompleteObjectUndo(dragRt.transform, "Drop Inside Sibling Order");
                     dragRt.SetAsLastSibling();
                 }
                 else
@@ -910,6 +917,7 @@ namespace NovellaEngine.Editor
                     var newParent = target.parent;
                     if (newParent == null) continue;
                     Undo.SetTransformParent(dragRt, newParent, "Drop Sibling");
+                    Undo.RegisterCompleteObjectUndo(dragRt.transform, "Drop Sibling Order");
                     int targetIdx = target.GetSiblingIndex();
                     int newIdx = mode == DropMode.Above ? targetIdx : targetIdx + 1;
                     // если drag из того же родителя и шёл сверху — компенсируем сдвиг индекса
