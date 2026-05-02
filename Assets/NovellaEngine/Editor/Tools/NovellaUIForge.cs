@@ -554,9 +554,11 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(20);
 
-            // Две карточки сценариев. «Пустой холст» убран — без Player/Launcher
-            // граф не воспроизводится, юзеру нет смысла начинать с пустого UI.
+            // Две карточки сценариев, центрированы по горизонтали через
+            // FlexibleSpace по краям. «Пустой холст» убран — без Player/Launcher
+            // граф не воспроизводится, отдельный путь только запутывает.
             GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
             DrawStartCard(
                 "📱",
                 ToolLang.Get("Main Menu",      "Главное Меню"),
@@ -578,7 +580,7 @@ namespace NovellaEngine.Editor
                     "Диалоговое окно, слой персонажей, контейнер выборов. Создаёт NovellaPlayer со всеми связями и стартовый NovellaTree если у тебя его нет."),
                 ToolLang.Get("Apply preset", "Применить шаблон"),
                 () => ApplyGameplayPresetFromForge());
-
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
             GUILayout.Space(20);

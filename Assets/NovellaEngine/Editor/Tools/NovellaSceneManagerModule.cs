@@ -2132,20 +2132,29 @@ namespace NovellaEngine.Editor
             avRT.anchoredPosition = new Vector2(0, 40);
 
             // Btn_PrevLook / Btn_NextLook — слева/справа от аватара.
-            var prev = CreateUIButton(panel, "Btn_PrevLook", "←", new Vector2(-360, 40));
+            // Якоря center-center, чтобы координаты были интуитивные (от центра
+            // экрана), а не относительно top-edge как у CreateUIButton по умолчанию.
+            // Раньше якорь был top-center → Y=40 значило 40px НИЖЕ верхнего края,
+            // но при кастомных размерах кнопок 80×80 + позиции -360 это выкидывало
+            // их «за экран». Теперь center-anchor: x=-420/+360, y=40 — кнопки
+            // ровно по бокам от аватара.
+            var prev = CreateUIButton(panel, "Btn_PrevLook", "←", Vector2.zero);
+            SetCenterAnchorPos(prev, new Vector2(-420, 40));
             prev.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 80);
-            var next = CreateUIButton(panel, "Btn_NextLook", "→", new Vector2( 360, 40));
+
+            var next = CreateUIButton(panel, "Btn_NextLook", "→", Vector2.zero);
+            SetCenterAnchorPos(next, new Vector2( 360, 40));
             next.GetComponent<RectTransform>().sizeDelta = new Vector2(80, 80);
 
             // MCNameInput (TMP_InputField).
             var nameGo = CreateUIInputField(panel, "MCNameInput",
                 ToolLang.Get("Your name", "Ваше имя"), new Vector2(0, -380));
 
-            // Btn_Confirm (нет авто-вайра по имени — просто декоративный
-            // ярлык, StoryLauncher.AutoWireButtons вешает его сам по ссылке
-            // MCConfirmButton).
+            // Btn_Confirm — нижняя кнопка «Готово». Center-anchor чтобы
+            // кнопка не «уплывала» при разных разрешениях.
             var confirm = CreateUIButton(panel, "Btn_Confirm",
-                ToolLang.Get("Confirm", "Готово"), new Vector2(0, -460));
+                ToolLang.Get("Confirm", "Готово"), Vector2.zero);
+            SetCenterAnchorPos(confirm, new Vector2(0, -440));
 
             panel.SetActive(active);
 

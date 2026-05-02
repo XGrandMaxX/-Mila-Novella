@@ -283,6 +283,10 @@ namespace NovellaEngine.Editor
         {
             Instance = this;
             titleContent = new GUIContent("Novella Studio");
+            // wantsMouseMove нужен чтобы IMGUIContainer'ы внутри получали
+            // MouseMove события — без этого hover-анимации в Кузнице
+            // (welcome-карточки) и других модулях не работают.
+            wantsMouseMove = true;
 
             _modules = new List<INovellaStudioModule>
             {
