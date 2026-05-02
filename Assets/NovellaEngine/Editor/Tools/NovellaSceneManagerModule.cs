@@ -2193,15 +2193,15 @@ namespace NovellaEngine.Editor
         {
             var go = new GameObject(name);
             var canvas = go.AddComponent<Canvas>();
-            // ScreenSpaceCamera + matchWidthOrHeight=0.5 + planeDistance — те же
-            // настройки что и в UI Forge (NovellaUIForge.CreateCanvasInScene).
-            // Раньше пресет создавал ScreenSpaceOverlay без match — Forge при
-            // открытии переписывал rendering на Camera, но resolution-match
-            // оставался дефолтным (0=match width), и канвас в превью получался
-            // меньше referenceResolution на типичном aspect-ratio 16:9 эдитора.
-            // Теперь геометрия идентична Forge-канвасам.
+            // ScreenSpaceCamera + matchWidthOrHeight=0.5 + planeDistance —
+            // те же настройки что и в UI Forge.
+            // ВАЖНО: Camera.main может вернуть null сразу после создания
+            // только что добавленной камеры (Unity кэширует тэг-поиск
+            // до следующего тика). Поэтому ищем камеру руками — через
+            // FindAnyObjectByType, а если ничего нет, оставляем worldCamera=null
+            // и Forge сам её подставит при FindReferences.
             canvas.renderMode   = RenderMode.ScreenSpaceCamera;
-            canvas.worldCamera  = Camera.main;
+            canvas.worldCamera  = ResolveActiveCamera();
             canvas.planeDistance = 5f;
 
             var scaler = go.AddComponent<UnityEngine.UI.CanvasScaler>();
@@ -2213,9 +2213,20 @@ namespace NovellaEngine.Editor
             return canvas;
         }
 
+        // Возвращает активную камеру для канваса. Сначала Camera.main, если он
+        // null — ищем любую через FindAnyObjectByType (Camera.main не успел
+        // обновиться после AddComponent + tag).
+        private static Camera ResolveActiveCamera()
+        {
+            var cam = Camera.main;
+            if (cam == null)
+                cam = Object.FindAnyObjectByType<Camera>(FindObjectsInactive.Include);
+            return cam;
+        }
+
         private void EnsureMainCamera()
         {
-            if (Camera.main == null)
+            if (ResolveActiveCamera() == null)
             {
                 var camGO = new GameObject("[Novella]_Camera");
                 var cam = camGO.AddComponent<Camera>();

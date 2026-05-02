@@ -1146,21 +1146,29 @@ namespace NovellaEngine.Editor
             bool isPresetManaged = rt.GetComponentInParent<NovellaEngine.Runtime.NovellaPresetMarker>(true) != null;
 
             var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            // Иконка: только selfDisabled серим. hiddenByParent оставляем
-            // обычным цветом — объект сам по себе нормально включён.
-            iconSt.normal.textColor = selfDisabled ? C_TEXT_4
-                                                   : (isSel ? C_ACCENT : C_TEXT_3);
+            // Три уровня приглушённости иконки:
+            //   selfDisabled    — самый приглушённый (C_TEXT_4),
+            //   hiddenByParent  — слегка приглушён  (C_TEXT_3 — между обычным и selfDisabled),
+            //   норма           — обычный.
+            iconSt.normal.textColor = selfDisabled
+                ? C_TEXT_4
+                : (hiddenByParent ? C_TEXT_3
+                                  : (isSel ? C_ACCENT : C_TEXT_3));
             GUI.Label(new Rect(iconStartX, row.y, 22, row.height), icon, iconSt);
 
             // Имя — верхняя строка ряда.
             var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 2) };
-            // selfDisabled — italic + приглушённый; hiddenByParent — без italic,
-            // обычный цвет (объект логически активен, просто временно скрыт);
-            // обычный — стандартный.
+            // selfDisabled  — italic + светлее (C_TEXT_4)
+            // hiddenByParent — чуть темнее обычного (C_TEXT_3), без italic
+            // норма         — стандартный (C_TEXT_2 / C_TEXT_1 при выделении)
             if (selfDisabled)
             {
                 nameSt.fontStyle = FontStyle.Italic;
                 nameSt.normal.textColor = C_TEXT_4;
+            }
+            else if (hiddenByParent)
+            {
+                nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_3;
             }
             else
             {
@@ -1172,26 +1180,36 @@ namespace NovellaEngine.Editor
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
             // Подпись типа — нижняя строка, мелким серым шрифтом. К ней
-            // дописываем индикатор статуса:
+            // дописываем КОРОТКИЙ индикатор статуса (длинный текст не влезает
+            // в узкую панель дерева):
             //   • selfDisabled  → «· выкл»     (юзер сам выключил)
-            //   • hiddenByParent→ «· скрыт»     (сам активен, но родитель выключен)
+            //   • hiddenByParent→ «· скрыт»    (сам активен, но родитель выключен)
+            // Полный смысл — в tooltip над подписью.
             string subtitle = GetElementSubtitle(rt);
+            string subtitleTip = null;
             if (selfDisabled)
             {
                 string offTag = ToolLang.Get("off", "выкл");
                 subtitle = string.IsNullOrEmpty(subtitle) ? offTag : subtitle + " · " + offTag;
+                subtitleTip = ToolLang.Get(
+                    "Object is disabled (activeSelf = false). Click ● next to it to enable.",
+                    "Объект выключен (activeSelf = false). Кликни ● справа чтобы включить.");
             }
             else if (hiddenByParent)
             {
-                string hidTag = ToolLang.Get("hidden by parent", "скрыт родителем");
+                string hidTag = ToolLang.Get("hidden", "скрыт");
                 subtitle = string.IsNullOrEmpty(subtitle) ? hidTag : subtitle + " · " + hidTag;
+                subtitleTip = ToolLang.Get(
+                    "This object is enabled but one of its parents is disabled, so it is not rendered.",
+                    "Сам объект включён, но один из его родителей выключен — поэтому он не отображается.");
             }
             if (!string.IsNullOrEmpty(subtitle))
             {
                 var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
                 subSt.normal.textColor = selfDisabled ? C_TEXT_4
                                                      : (isSel ? C_TEXT_3 : C_TEXT_4);
-                GUI.Label(new Rect(textX, row.y + 18, textW, 14), subtitle, subSt);
+                GUI.Label(new Rect(textX, row.y + 18, textW, 14),
+                          new GUIContent(subtitle, subtitleTip), subSt);
             }
 
             // Индикатор проблем — янтарный «!» справа от имени.

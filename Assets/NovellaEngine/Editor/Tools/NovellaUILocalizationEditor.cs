@@ -253,12 +253,70 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(8);
 
-            // Counter
+            // Counter + опасные кнопки массового удаления.
             var cnt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
             cnt.normal.textColor = C_TEXT_3;
             GUILayout.BeginHorizontal();
             GUILayout.Space(10);
             GUILayout.Label(string.Format(ToolLang.Get("{0} keys", "{0} ключей"), _table.Entries.Count), cnt);
+            GUILayout.FlexibleSpace();
+
+            // Кнопка «Очистить все категории» — оставляет ключи на месте,
+            // но снимает у каждого Category. Полезно при ребрендинге системы
+            // тегов (например после большого рефакторинга).
+            var nukeCatSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 9, fixedHeight = 18, padding = new RectOffset(6, 6, 1, 1) };
+            nukeCatSt.normal.textColor = C_WARN;
+            if (GUILayout.Button(new GUIContent(
+                    "🏷",
+                    ToolLang.Get(
+                        "Clear ALL categories. Keys themselves are kept, only Category field is wiped on every entry.",
+                        "Очистить ВСЕ категории. Сами ключи и переводы остаются, у каждой записи стирается только поле Category.")),
+                nukeCatSt, GUILayout.Width(24)))
+            {
+                if (EditorUtility.DisplayDialog(
+                        ToolLang.Get("Clear all categories", "Очистить все категории"),
+                        ToolLang.Get(
+                            "Remove the Category field from EVERY key in the table?\n\nKeys and translations themselves are NOT deleted.",
+                            "Снять поле Category у ВСЕХ ключей в таблице?\n\nСами ключи и переводы НЕ удаляются."),
+                        ToolLang.Get("Clear", "Очистить"),
+                        ToolLang.Get("Cancel", "Отмена")))
+                {
+                    Undo.RecordObject(_table, "Clear All Categories");
+                    foreach (var ent in _table.Entries)
+                    {
+                        if (ent != null) ent.Category = "";
+                    }
+                    EditorUtility.SetDirty(_table);
+                }
+            }
+            GUILayout.Space(4);
+
+            // Кнопка «Удалить все ключи» — обнуляет таблицу полностью.
+            var nukeAllSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 9, fixedHeight = 18, padding = new RectOffset(6, 6, 1, 1) };
+            nukeAllSt.normal.textColor = C_DANGER;
+            if (GUILayout.Button(new GUIContent(
+                    "🗑",
+                    ToolLang.Get(
+                        "Delete ALL keys and their translations. This cannot be undone except via Ctrl+Z.",
+                        "Удалить ВСЕ ключи вместе с переводами. Откатить можно только через Ctrl+Z.")),
+                nukeAllSt, GUILayout.Width(24)))
+            {
+                if (EditorUtility.DisplayDialog(
+                        ToolLang.Get("Delete all keys", "Удалить все ключи"),
+                        string.Format(ToolLang.Get(
+                            "Permanently delete ALL {0} keys and their translations?\n\nUse Ctrl+Z right after to undo.",
+                            "Действительно удалить ВСЕ {0} ключей и переводы к ним?\n\nCtrl+Z сразу после действия откатит."),
+                            _table.Entries.Count),
+                        ToolLang.Get("Delete all", "Удалить все"),
+                        ToolLang.Get("Cancel", "Отмена")))
+                {
+                    Undo.RecordObject(_table, "Delete All Keys");
+                    _table.Entries.Clear();
+                    _selectedKey = null;
+                    EditorUtility.SetDirty(_table);
+                }
+            }
+            GUILayout.Space(10);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);
