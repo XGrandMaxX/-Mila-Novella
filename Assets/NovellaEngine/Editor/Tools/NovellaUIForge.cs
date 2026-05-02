@@ -131,6 +131,11 @@ namespace NovellaEngine.Editor
         private Vector2 _treeScroll;
         private Vector2 _inspectorScroll;
 
+        // Свёрнутые ветки в дереве сцены — храним InstanceID, чтобы не держать
+        // ссылки на удалённые объекты. Сессионное состояние, пересоздание окна
+        // сбрасывает (намеренно — логика «по дефолту всё развернуто»).
+        private HashSet<int> _collapsedNodes = new HashSet<int>();
+
         // Активный экземпляр модуля — нужен внешним вызовам (Bindings overview
         // делает PingBinding и должен достучаться до текущего Forge).
         public static NovellaUIForge Instance { get; private set; }
@@ -345,7 +350,20 @@ namespace NovellaEngine.Editor
                 _camera = cam;
             }
 
-            var canvasGo = new GameObject(ToolLang.Get("Canvas", "Холст"));
+            // Уникальное имя — чтобы повторное нажатие «+ Холст» не создавало
+            // конфликтующие «Холст / Холст / Холст» с одинаковыми именами.
+            string canvasBase = ToolLang.Get("Canvas", "Холст");
+            string canvasName = canvasBase;
+            var existingRoots = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int n = 1; n < 9999; n++)
+            {
+                bool taken = false;
+                foreach (var c in existingRoots) { if (c != null && c.gameObject.name == canvasName) { taken = true; break; } }
+                if (!taken) break;
+                canvasName = $"{canvasBase} ({n})";
+            }
+
+            var canvasGo = new GameObject(canvasName);
             var canvas = canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = _camera;
@@ -367,6 +385,12 @@ namespace NovellaEngine.Editor
             }
 
             FindReferences();
+            // FindReferences отдаёт приоритет канвасу с Player/Launcher, поэтому
+            // только что созданный второй холст не выберется автоматически.
+            // Принудительно ставим фокус на новый — чтобы новые элементы клали под него.
+            _canvas = canvas;
+            _selectedList.Clear();
+            _selectedList.Add(canvas.GetComponent<RectTransform>());
             RefreshRectsCache();
         }
 
@@ -610,20 +634,90 @@ namespace NovellaEngine.Editor
                 GUI.Label(new Rect(searchRect.x + 6, searchRect.y, searchRect.width, searchRect.height), "🔍  " + ToolLang.Get("Search…", "Поиск…"), ph);
             }
 
-            GUILayout.Space(8);
+            // Кнопка «+ Холст» — добавить дополнительный канвас (например для
+            // модалок или для отдельного слоя HUD). До этого в инструменте
+            // подразумевался один канвас на сцену, но юзеры просили возможность
+            // строить многослойную сцену.
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            var addCanvasBg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f);
+            var addCanvasSt = new GUIStyle(EditorStyles.miniButton)
+            {
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                fixedHeight = 22,
+                padding = new RectOffset(10, 10, 2, 2)
+            };
+            addCanvasSt.normal.textColor = C_TEXT_1;
+            addCanvasSt.hover.textColor = C_ACCENT;
+            var prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = addCanvasBg;
+            if (GUILayout.Button(new GUIContent(
+                    "➕  " + ToolLang.Get("Canvas", "Холст"),
+                    ToolLang.Get(
+                        "Add another root Canvas (e.g. modal layer, HUD on top of game).",
+                        "Добавить ещё один root Canvas (например слой модалок или HUD над игровым).")),
+                addCanvasSt, GUILayout.MinWidth(120)))
+            {
+                CreateCanvasInScene();
+            }
+            GUI.backgroundColor = prevBg;
+            GUILayout.FlexibleSpace();
+            GUILayout.Space(10);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(6);
 
             _treeScroll = GUILayout.BeginScrollView(_treeScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
             string filter = _treeFilter?.Trim().ToLowerInvariant() ?? "";
+            bool useCollapse = filter.Length == 0;
+            // skipRoot — корень свёрнутой ветки. Все элементы которые являются
+            // его потомками — пропускаем. Используем ссылку на трансформ а не
+            // глубину, потому что ComputeDepth в этом проекте возвращает 0 и
+            // для root-canvas и для его прямых детей (логика «канвас не считается»).
+            // Из-за этого skipByDepth ломался — приходится сравнивать иерархию.
+            RectTransform skipRoot = null;
+            bool drewAnyCanvas = false;
 
             for (int i = 0; i < _allRects.Count; i++)
             {
                 var rt = _allRects[i];
                 if (rt == null) continue;
+
+                // Внутри свёрнутой ветки — пропускаем всё что под skipRoot.
+                // Как только встречаем элемент НЕ-потомок — снимаем skipRoot.
+                if (useCollapse && skipRoot != null)
+                {
+                    if (rt != skipRoot && rt.IsChildOf(skipRoot)) continue;
+                    skipRoot = null;
+                }
+
+                int depth = ComputeDepth(rt);
                 string name = GetDisplayName(rt);
                 if (filter.Length > 0 && !name.ToLowerInvariant().Contains(filter)) continue;
 
-                int depth = ComputeDepth(rt);
-                DrawTreeRow(rt, name, GetDisplayIcon(rt), depth, i);
+                bool isCanvasRoot = false;
+                var rootCanvasComp = rt.GetComponent<Canvas>();
+                if (rootCanvasComp != null && rootCanvasComp.isRootCanvas) isCanvasRoot = true;
+
+                // Разделитель между канвасами — визуально отделяет каждый
+                // следующий root Canvas, чтобы юзер видел границы слоёв.
+                if (isCanvasRoot && drewAnyCanvas)
+                {
+                    GUILayout.Space(8);
+                    Rect sep = GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true));
+                    EditorGUI.DrawRect(sep, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.45f));
+                    GUILayout.Space(8);
+                }
+
+                bool hasChildren = rt.childCount > 0;
+                bool collapsed = useCollapse && hasChildren && _collapsedNodes.Contains(rt.GetInstanceID());
+
+                DrawTreeRow(rt, name, GetDisplayIcon(rt), depth, i, hasChildren, collapsed);
+
+                if (isCanvasRoot) drewAnyCanvas = true;
+                if (collapsed) skipRoot = rt;
             }
 
             // Запасной "хвост" внизу — если бросить сюда, переносим в корень Canvas.
@@ -821,7 +915,7 @@ namespace NovellaEngine.Editor
             return d;
         }
 
-        private void DrawTreeRow(RectTransform rt, string name, string icon, int depth, int index)
+        private void DrawTreeRow(RectTransform rt, string name, string icon, int depth, int index, bool hasChildren, bool collapsed)
         {
             bool isSel = _selectedList.Contains(rt);
 
@@ -851,14 +945,30 @@ namespace NovellaEngine.Editor
 
             float iconX = baseX + depth * STEP;
 
+            // Шеврон ▼/▶ — только у строк с детьми. Клик по нему сворачивает
+            // ветку. Зона кликабельности 14×row, чтобы было удобно ткнуть.
+            // Резервируем место под шеврон ВСЕГДА (даже если детей нет), иначе
+            // при сворачивании/разворачивании текст «прыгает» на 14px.
+            Rect chevronRect = new Rect(iconX, row.y, 14, row.height);
+            if (hasChildren)
+            {
+                var chSt = new GUIStyle(EditorStyles.label) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
+                chSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_3;
+                GUI.Label(chevronRect, collapsed ? "▶" : "▼", chSt);
+            }
+
+            float iconStartX = iconX + 14;
+
             var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
             iconSt.normal.textColor = isSel ? C_ACCENT : C_TEXT_3;
-            GUI.Label(new Rect(iconX, row.y, 22, row.height), icon, iconSt);
+            GUI.Label(new Rect(iconStartX, row.y, 22, row.height), icon, iconSt);
 
             // Имя — верхняя строка ряда.
             var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 2) };
             nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
-            float textX = iconX + 24;
+            // textX теперь сдвинут на ширину шеврона (14px), потому что иконку
+            // мы сместили — иначе текст наезжал бы на иконку.
+            float textX = iconStartX + 24;
             float textW = row.width - (textX - row.x) - 60;
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
@@ -945,6 +1055,22 @@ namespace NovellaEngine.Editor
             }
 
             // ─── КЛИКИ ПО СТРОКЕ ──────────────────────────────────────────────────
+            // Клик по шеврону — сворачиваем/разворачиваем ветку и не пробрасываем
+            // событие дальше (иначе строка ещё и выделится, что неудобно).
+            if (hasChildren && e.type == EventType.MouseDown && e.button == 0 && chevronRect.Contains(e.mousePosition))
+            {
+                int id = rt.GetInstanceID();
+                // Используем _collapsedNodes напрямую, а не `collapsed`, потому что
+                // во время поиска collapse игнорируется (useCollapse=false), но
+                // юзер всё равно может тыкать шевроны — чтобы заранее настроить
+                // что будет свёрнуто после очистки поиска.
+                if (_collapsedNodes.Contains(id)) _collapsedNodes.Remove(id);
+                else _collapsedNodes.Add(id);
+                _window?.Repaint();
+                e.Use();
+                return;
+            }
+
             if (e.type == EventType.MouseDown && row.Contains(e.mousePosition))
             {
                 if (e.button == 0)
@@ -2604,7 +2730,7 @@ namespace NovellaEngine.Editor
             stateSt.normal.textColor = active ? C_TEXT_2 : new Color(0.95f, 0.66f, 0.30f);
             GUILayout.Label(active
                 ? ToolLang.Get("ON — UI is interactive", "ВКЛ — UI кликабелен")
-                : ToolLang.Get("OFF — UI is frozen (no clicks, dimmed)", "ВЫКЛ — UI заморожен (клики и интерактив выключены)"), stateSt);
+                : ToolLang.Get("OFF — UI is frozen", "ВЫКЛ — UI заморожен"), stateSt);
 
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
