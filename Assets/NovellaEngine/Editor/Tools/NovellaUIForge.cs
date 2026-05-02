@@ -592,6 +592,32 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(8);
             }
 
+            // Кнопки добавления Player / Launcher — показываем когда их в сцене
+            // нет. Так юзер может собрать сцену вручную, без применения пресета.
+            // GameObject создаётся в корне сцены (как и в пресете), компонент
+            // добавляется. Привязки придётся настроить в Unity-инспекторе самому
+            // (или через пресет — там они выставляются автоматически).
+            if (_player == null)
+            {
+                if (GUILayout.Button(ToolLang.Get(
+                    "➕ Add NovellaPlayer (for gameplay scenes)",
+                    "➕ Добавить NovellaPlayer (для игровых сцен)"), GUILayout.Height(28)))
+                {
+                    CreateNovellaPlayerInScene();
+                }
+                GUILayout.Space(6);
+            }
+            if (_launcher == null)
+            {
+                if (GUILayout.Button(ToolLang.Get(
+                    "➕ Add StoryLauncher (for menu scenes)",
+                    "➕ Добавить StoryLauncher (для меню)"), GUILayout.Height(28)))
+                {
+                    CreateStoryLauncherInScene();
+                }
+                GUILayout.Space(8);
+            }
+
             GUI.backgroundColor = C_ACCENT;
             if (GUILayout.Button(ToolLang.Get("🔄 Refresh", "🔄 Обновить"), GUILayout.Height(34)))
             {
@@ -707,6 +733,61 @@ namespace NovellaEngine.Editor
             _selectedList.Clear();
             _selectedList.Add(canvas.GetComponent<RectTransform>());
             RefreshRectsCache();
+        }
+
+        // Добавляет в сцену пустой NovellaPlayer GameObject. Привязки полей
+        // (DialoguePanel, SpeakerNameText и т.п.) НЕ выставляются — юзер
+        // настраивает их в Unity-инспекторе вручную, или применяет
+        // готовый Gameplay-пресет.
+        // Пытаемся подобрать NovellaTree из проекта если есть.
+        private void CreateNovellaPlayerInScene()
+        {
+            if (UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Already exists", "Уже существует"),
+                    ToolLang.Get("A NovellaPlayer is already present in the scene.",
+                                 "В сцене уже есть NovellaPlayer."),
+                    "OK");
+                return;
+            }
+            var go = new GameObject("[Novella]_Player");
+            var p  = go.AddComponent<NovellaEngine.Runtime.NovellaPlayer>();
+
+            // Если в проекте есть NovellaTree — подцепим первый. Без этого
+            // NovellaPlayer всё равно не запустит ничего, лучше уж подсунуть.
+            var guids = AssetDatabase.FindAssets("t:NovellaTree");
+            if (guids != null && guids.Length > 0)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                var tree = AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaTree>(path);
+                if (tree != null) p.StoryTree = tree;
+            }
+
+            Undo.RegisterCreatedObjectUndo(go, "Create NovellaPlayer");
+            FindReferences();
+            _window?.Repaint();
+        }
+
+        // Добавляет в сцену пустой StoryLauncher GameObject. Auto-find в
+        // самом StoryLauncher.Start() сам найдёт Stories/MC панели по именам
+        // в сцене (если они есть).
+        private void CreateStoryLauncherInScene()
+        {
+            if (UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Already exists", "Уже существует"),
+                    ToolLang.Get("A StoryLauncher is already present in the scene.",
+                                 "В сцене уже есть StoryLauncher."),
+                    "OK");
+                return;
+            }
+            var go = new GameObject("[Novella]_StoryLauncher");
+            go.AddComponent<NovellaEngine.Runtime.StoryLauncher>();
+            Undo.RegisterCreatedObjectUndo(go, "Create StoryLauncher");
+            FindReferences();
+            _window?.Repaint();
         }
 
         private void FindReferences()
