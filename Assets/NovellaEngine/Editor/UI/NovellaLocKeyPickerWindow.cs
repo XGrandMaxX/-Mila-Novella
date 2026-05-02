@@ -46,11 +46,11 @@ namespace NovellaEngine.Editor.UIBindings
             win._search = "";
             win._categoryFilter = "";
             _callback = onPick;
-            win.minSize = new Vector2(640, 600);
+            win.minSize = new Vector2(720, 640);
             win.maxSize = new Vector2(1200, 1000);
             win.position = new Rect(
-                EditorGUIUtility.GetMainWindowPosition().center - new Vector2(320, 300),
-                new Vector2(640, 600));
+                EditorGUIUtility.GetMainWindowPosition().center - new Vector2(360, 320),
+                new Vector2(720, 640));
             win._table = NovellaEngine.Editor.NovellaUILocalizationEditor.GetOrCreateTable();
             win.ShowUtility();
         }
@@ -67,7 +67,9 @@ namespace NovellaEngine.Editor.UIBindings
 
             DrawHeader(new Rect(0, 0, position.width, 90));
 
-            float footerH = 50;
+            // Footer состоит из двух строк (создание ключа + кнопки подтверждения),
+            // каждая 36px + 8px отступ — всё помещается без обрезки.
+            float footerH = 84;
             DrawBody(new Rect(0, 90, position.width, position.height - 90 - footerH));
             DrawFooter(new Rect(0, position.height - footerH, position.width, footerH));
 
@@ -257,7 +259,7 @@ namespace NovellaEngine.Editor.UIBindings
 
             float cx = r.x + r.width * 0.5f;
             float cy = r.y + r.height * 0.5f;
-            GUI.Label(new Rect(cx - 240, cy - 32, 480, 22), "🪝  В таблице нет ключей", ts);
+            GUI.Label(new Rect(cx - 240, cy - 32, 480, 22), "🔑  В таблице нет ключей", ts);
             GUI.Label(new Rect(cx - 240, cy, 480, 60), "Открой Settings → Локализация и заведи хотя бы один перевод, либо нажми «Создать ключ» внизу — будет добавлен новый ключ с указанным именем.", bs);
         }
 
@@ -354,38 +356,81 @@ namespace NovellaEngine.Editor.UIBindings
             EditorGUI.DrawRect(r, C_BG_SIDE);
             EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), C_BORDER);
 
-            GUILayout.BeginArea(new Rect(r.x + 12, r.y + 8, r.width - 24, r.height - 16));
-            GUILayout.BeginHorizontal();
+            // Row 1: новый ключ + создать + в редактор.
+            Rect row1 = new Rect(r.x + 12, r.y + 10, r.width - 24, 28);
+            DrawNewKeyRow(row1);
 
-            // Левая часть: ввод нового ключа + кнопка «Создать».
-            var newKeyW = 200f;
-            _selected = EditorGUILayout.TextField(_selected, GUILayout.Width(newKeyW), GUILayout.Height(28));
+            // Row 2: cancel / confirm справа.
+            Rect row2 = new Rect(r.x + 12, r.y + 46, r.width - 24, 28);
+            DrawConfirmRow(row2);
+        }
 
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_selected) || (_table != null && _table.FindEntry(_selected) != null)))
+        private void DrawNewKeyRow(Rect row)
+        {
+            // TextField (с placeholder'ом).
+            float textW = row.width - 280;
+            Rect textRect = new Rect(row.x, row.y, textW, row.height);
+            string newSel = EditorGUI.TextField(textRect, _selected ?? "");
+            if (newSel != (_selected ?? "")) _selected = newSel;
+            if (string.IsNullOrEmpty(_selected))
             {
-                if (NovellaSettingsModule.NeutralButton("➕  Создать ключ", GUILayout.Width(140), GUILayout.Height(28)))
+                var ph = new GUIStyle(EditorStyles.label) { fontSize = 11 };
+                ph.normal.textColor = C_TEXT_4;
+                GUI.Label(new Rect(textRect.x + 6, textRect.y + 4, textRect.width - 12, textRect.height), "название ключа (например ui.menu.play)", ph);
+            }
+
+            // Создать ключ.
+            Rect createRect = new Rect(row.x + textW + 6, row.y, 140, row.height);
+            bool canCreate = !string.IsNullOrEmpty(_selected) && _table != null && _table.FindEntry(_selected) == null;
+            using (new EditorGUI.DisabledScope(!canCreate))
+            {
+                if (GUI.Button(createRect, "➕  Создать ключ"))
                 {
                     if (_table != null) { _table.AddKey(_selected); UnityEditor.EditorUtility.SetDirty(_table); }
                     Repaint();
                 }
             }
-            GUILayout.Space(6);
-            if (NovellaSettingsModule.NeutralButton("✏  В редактор", GUILayout.Width(120), GUILayout.Height(28)))
-            {
-                NovellaEngine.Editor.NovellaUILocalizationEditor.ShowAtKey(_selected);
-            }
 
-            GUILayout.FlexibleSpace();
-
-            if (NovellaSettingsModule.NeutralButton("Отмена", GUILayout.Width(90), GUILayout.Height(28))) Close();
-            GUILayout.Space(6);
+            // В редактор.
+            Rect editRect = new Rect(row.x + textW + 6 + 140 + 6, row.y, 122, row.height);
             using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_selected)))
             {
-                if (NovellaSettingsModule.AccentButton("Выбрать", GUILayout.Width(110), GUILayout.Height(28))) Confirm();
+                if (GUI.Button(editRect, "✏  В редактор"))
+                {
+                    NovellaEngine.Editor.NovellaUILocalizationEditor.ShowAtKey(_selected);
+                }
             }
+        }
 
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
+        private void DrawConfirmRow(Rect row)
+        {
+            var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            hint.normal.textColor = C_TEXT_3;
+            GUI.Label(new Rect(row.x, row.y + 6, row.width - 220, 18),
+                "⏎ — выбрать  ·  ESC — отмена", hint);
+
+            float btnW = 100f;
+            float spacing = 6f;
+            Rect cancelRect = new Rect(row.xMax - btnW * 2 - spacing, row.y, btnW, row.height);
+            Rect okRect     = new Rect(row.xMax - btnW, row.y, btnW, row.height);
+
+            // Cancel
+            Color prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = NovellaSettingsModule.GetButtonNeutralBg();
+            if (GUI.Button(cancelRect, NovellaSettingsModule.ButtonStyleFor(GUI.skin.button, GUI.backgroundColor) != null
+                ? new GUIContent("Отмена") : new GUIContent("Отмена")))
+            {
+                Close();
+            }
+            GUI.backgroundColor = prevBg;
+
+            // Confirm
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_selected)))
+            {
+                GUI.backgroundColor = C_ACCENT;
+                if (GUI.Button(okRect, "Выбрать")) Confirm();
+                GUI.backgroundColor = prevBg;
+            }
         }
 
         private void Confirm() { _callback?.Invoke(_selected); Close(); }
