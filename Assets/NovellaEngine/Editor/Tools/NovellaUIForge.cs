@@ -327,15 +327,104 @@ namespace NovellaEngine.Editor
             }
             Selection.objects = objs.ToArray();
 
-            // Раскрываем родителей в Hierarchy — ping подсвечивает строку и
-            // автоматически разворачивает свёрнутые предки. Делаем только при
-            // выделении одного объекта, иначе Unity «прыгает» по списку.
             if (_selectedList.Count == 1 && _selectedList[0] != null)
             {
-                EditorGUIUtility.PingObject(_selectedList[0].gameObject);
+                var go = _selectedList[0].gameObject;
+                // Стандартный ping подсвечивает строку и делает scroll к ней
+                // (но не всегда раскрывает предков), плюс заставляет окно
+                // Hierarchy получить focus.
+                EditorGUIUtility.PingObject(go);
+                // Принудительно раскрываем все предки + сворачиваем другие
+                // root-канвасы, чтобы Hierarchy показывала именно тот контекст
+                // в котором юзер сейчас работает (особенно полезно когда
+                // канвасов 3+ и они все одновременно были раскрыты).
+                ExpandHierarchyToTarget(go);
             }
 
             _lastSyncedSelection = _selectedList.ToArray();
+        }
+
+        // Раскрывает в окне Hierarchy всех предков целевого объекта и
+        // сворачивает все остальные root-канвасы (если их ≥ 2). Использует
+        // reflection во внутренний UnityEditor.SceneHierarchyWindow API —
+        // публичного способа управлять состоянием TreeView Hierarchy нет.
+        // Падать не должно — все обращения через TryCatch + null-проверки.
+        private static void ExpandHierarchyToTarget(GameObject target)
+        {
+            if (target == null) return;
+            try
+            {
+                // Список ID для раскрытия — все предки целевого объекта.
+                var idsToExpand = new List<int>();
+                Transform t = target.transform.parent;
+                while (t != null)
+                {
+                    idsToExpand.Add(t.gameObject.GetInstanceID());
+                    t = t.parent;
+                }
+                if (idsToExpand.Count == 0) return; // целевой объект сам — root
+
+                // Тип SceneHierarchyWindow живёт в UnityEditor.dll.
+                var hwType = typeof(EditorWindow).Assembly.GetType("UnityEditor.SceneHierarchyWindow");
+                if (hwType == null) return;
+
+                // Все открытые окна Hierarchy (может быть несколько).
+                var windows = Resources.FindObjectsOfTypeAll(hwType);
+                if (windows == null || windows.Length == 0) return;
+
+                // Поле m_SceneHierarchy — внутренний компонент-логика.
+                var shField = hwType.GetField("m_SceneHierarchy",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+                // Корень целевого канваса (для определения «не сворачивать его»).
+                Transform rootT = target.transform;
+                while (rootT.parent != null) rootT = rootT.parent;
+                int keepRootId = rootT.gameObject.GetInstanceID();
+
+                // Список других root-канвасов для сворачивания (если их 2+).
+                var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                var rootIdsAll = new List<int>();
+                foreach (var c in allCanvases)
+                {
+                    if (c == null || !c.isRootCanvas) continue;
+                    rootIdsAll.Add(c.gameObject.GetInstanceID());
+                }
+
+                foreach (var win in windows)
+                {
+                    object sh = shField?.GetValue(win);
+                    if (sh == null) continue;
+
+                    var setExpanded = sh.GetType().GetMethod("SetExpanded",
+                        System.Reflection.BindingFlags.Public    | System.Reflection.BindingFlags.NonPublic |
+                        System.Reflection.BindingFlags.Instance,
+                        null, new[] { typeof(int), typeof(bool) }, null);
+                    if (setExpanded == null) continue;
+
+                    // 1. Раскрываем всех предков целевого объекта (от корня к листу,
+                    // чтобы каждый узел уже существовал в TreeView к моменту раскрытия).
+                    for (int i = idsToExpand.Count - 1; i >= 0; i--)
+                    {
+                        setExpanded.Invoke(sh, new object[] { idsToExpand[i], true });
+                    }
+
+                    // 2. Если в сцене 2+ root-канвасов — сворачиваем все кроме целевого.
+                    if (rootIdsAll.Count >= 2)
+                    {
+                        foreach (var rid in rootIdsAll)
+                        {
+                            if (rid == keepRootId) continue;
+                            setExpanded.Invoke(sh, new object[] { rid, false });
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Reflection-API в Unity нестабилен между версиями — если
+                // что-то поменялось, просто молча отключаем фичу. Базовый
+                // ping и Selection всё равно отработают.
+            }
         }
 
         private void DrawNoCanvasState(Rect position)

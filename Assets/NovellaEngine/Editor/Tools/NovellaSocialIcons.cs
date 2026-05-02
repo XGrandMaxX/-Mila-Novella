@@ -60,13 +60,14 @@ namespace NovellaEngine.Editor
             _discord  = null;
         }
 
-        // Пытается загрузить PNG/JPG-файл иконки. Принимает имя без расширения.
-        // Внутри пробует .png и .jpg. Возвращает null если ничего нет.
-        // При первой загрузке проверяет TextureImporter — если настройки «не
-        // наши» (например стоит compression / нет alpha), правит на лету
-        // через AssetDatabase.ImportAsset. Это ленивая альтернатива
-        // AssetPostprocessor'у — НЕ заставляет Unity реимпортировать все
-        // текстуры в проекте, а только нашу иконку при первом обращении.
+        // Пытается загрузить PNG/JPG-файл иконки.
+        // 1. AssetDatabase.LoadAssetAtPath — стандартный способ.
+        // 2. EnsureCorrectImportSettings правит настройки через TextureImporter
+        //    если они не наши, и при правке вызывает SaveAndReimport().
+        // 3. После SaveAndReimport старая ссылка Texture2D становится
+        //    «destroyed companion» — поэтому, если настройки были изменены,
+        //    мы СНОВА вызываем LoadAssetAtPath чтобы получить свежий валидный
+        //    объект. Иначе DrawTexture рисует пустоту, и юзер видит fallback.
         private static Texture2D LoadIcon(string baseName)
         {
             string[] extensions = { ".png", ".jpg", ".jpeg" };
@@ -74,26 +75,30 @@ namespace NovellaEngine.Editor
             {
                 string path = ICON_DIR + baseName + ext;
                 var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (tex != null)
+                if (tex == null) continue;
+
+                bool changed = EnsureCorrectImportSettings(path);
+                if (changed)
                 {
-                    EnsureCorrectImportSettings(path);
-                    return tex;
+                    // Старый tex может быть инвалидирован после SaveAndReimport.
+                    tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 }
+                return tex;
             }
             return null;
         }
 
-        // Чинит настройки импорта на конкретном файле. Дешёвая no-op если
-        // всё уже настроено правильно. Срабатывает только при первой загрузке
-        // иконки за сессию + при изменении файла.
-        private static void EnsureCorrectImportSettings(string path)
+        // Чинит настройки импорта на конкретном файле. Возвращает true если
+        // настройки реально были изменены и SaveAndReimport отработал
+        // (тогда вызывающему стоит перечитать ассет).
+        private static bool EnsureCorrectImportSettings(string path)
         {
             var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-            if (importer == null) return;
+            if (importer == null) return false;
 
             bool dirty = false;
-            if (importer.textureType        != TextureImporterType.Default)        { importer.textureType        = TextureImporterType.Default;          dirty = true; }
-            if (importer.alphaSource        != TextureImporterAlphaSource.FromInput) { importer.alphaSource      = TextureImporterAlphaSource.FromInput;  dirty = true; }
+            if (importer.textureType        != TextureImporterType.Default)         { importer.textureType        = TextureImporterType.Default;         dirty = true; }
+            if (importer.alphaSource        != TextureImporterAlphaSource.FromInput){ importer.alphaSource        = TextureImporterAlphaSource.FromInput; dirty = true; }
             if (!importer.alphaIsTransparency)                                       { importer.alphaIsTransparency = true;                                dirty = true; }
             if (importer.mipmapEnabled)                                              { importer.mipmapEnabled    = false;                                  dirty = true; }
             if (importer.npotScale          != TextureImporterNPOTScale.None)        { importer.npotScale        = TextureImporterNPOTScale.None;          dirty = true; }
@@ -115,6 +120,7 @@ namespace NovellaEngine.Editor
             {
                 importer.SaveAndReimport();
             }
+            return dirty;
         }
 
         // ─── Telegram ──────────────────────────────────────────────────
