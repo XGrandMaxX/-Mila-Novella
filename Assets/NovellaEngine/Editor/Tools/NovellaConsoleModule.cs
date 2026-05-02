@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using NovellaEngine.Data;
 using UnityEditor;
 using UnityEngine;
 
