@@ -1616,9 +1616,11 @@ namespace NovellaEngine.Editor
             var canvasRT = _canvas.GetComponent<RectTransform>();
             if (canvasRT == null) return deltaCanvas;
 
-            // Порог snap'а в canvas-единицах (~6 пикселей превью).
+            // Порог snap'а — 12 пикселей превью; subjectively ощутимое
+            // «прилипание» а не лёгкая дрожь. В canvas-юнитах конвертируем
+            // через текущий зум превью.
             float pxPerUnit = drawRect.width > 0 ? drawRect.width / canvasRT.rect.width : 1f;
-            float threshold = 6f / Mathf.Max(0.001f, pxPerUnit);
+            float threshold = 12f / Mathf.Max(0.001f, pxPerUnit);
 
             // Текущие planned-границы dragged-элемента в локальных координатах
             // его родителя (после применения deltaCanvas).
@@ -2089,12 +2091,12 @@ namespace NovellaEngine.Editor
 
             (string icon, string tip, System.Action act)[] actions = new (string, string, System.Action)[]
             {
-                ("⇤", ToolLang.Get("Align left",     "По левому краю"),       () => AlignEdges(AlignKind.Left)),
-                ("⇔", ToolLang.Get("Center horizontally", "По центру (гор.)"), () => AlignEdges(AlignKind.CenterH)),
-                ("⇥", ToolLang.Get("Align right",    "По правому краю"),      () => AlignEdges(AlignKind.Right)),
-                ("⤒", ToolLang.Get("Align top",      "По верхнему краю"),     () => AlignEdges(AlignKind.Top)),
-                ("⇕", ToolLang.Get("Center vertically", "По центру (верт.)"), () => AlignEdges(AlignKind.CenterV)),
-                ("⤓", ToolLang.Get("Align bottom",   "По нижнему краю"),      () => AlignEdges(AlignKind.Bottom)),
+                ("⇤", ToolLang.Get("Stretch to left edge",     "Растянуть до левого края"),    () => StretchEdge(StretchKind.ToLeft)),
+                ("⇔", ToolLang.Get("Stretch horizontally",     "Растянуть по горизонтали"),    () => StretchEdge(StretchKind.FillH)),
+                ("⇥", ToolLang.Get("Stretch to right edge",    "Растянуть до правого края"),   () => StretchEdge(StretchKind.ToRight)),
+                ("⤒", ToolLang.Get("Stretch to top edge",      "Растянуть до верхнего края"),  () => StretchEdge(StretchKind.ToTop)),
+                ("⇕", ToolLang.Get("Stretch vertically",       "Растянуть по вертикали"),      () => StretchEdge(StretchKind.FillV)),
+                ("⤓", ToolLang.Get("Stretch to bottom edge",   "Растянуть до нижнего края"),   () => StretchEdge(StretchKind.ToBottom)),
                 ("▣", ToolLang.Get("Fill — stretch to parent", "Заполнить — растянуть на родителя"), FillStretch),
             };
 
@@ -2127,83 +2129,70 @@ namespace NovellaEngine.Editor
         // количестве выделенных, включая один.
         private void FillStretch()
         {
-            if (_selectedList == null || _selectedList.Count == 0) return;
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Fill Parent");
-            foreach (var rt in _selectedList)
-            {
-                if (rt == null) continue;
-                Undo.RecordObject(rt, "Fill");
-                rt.anchorMin = Vector2.zero;
-                rt.anchorMax = Vector2.one;
-                rt.offsetMin = Vector2.zero;
-                rt.offsetMax = Vector2.zero;
-                EditorUtility.SetDirty(rt);
-            }
-            Undo.CollapseUndoOperations(undoGroup);
+            StretchEdge(StretchKind.FillAll);
         }
 
-        private enum AlignKind { Left, CenterH, Right, Top, CenterV, Bottom }
+        private enum StretchKind { ToLeft, FillH, ToRight, ToTop, FillV, ToBottom, FillAll }
 
-        // Выравнивает выделенные RectTransform'ы:
-        //   • Single-select — по краю/центру родителя (canvas или parent панели).
-        //   • Multi-select  — по краю самого крайнего из выбранных, или общий
-        //     центр.
-        // Работает в WORLD-space: bounds считаем по углам, потом двигаем
-        // anchoredPosition с делением на parent.lossyScale.
-        private void AlignEdges(AlignKind kind)
+        // Растягивает элемент: указанный край дотягивается до края родителя,
+        // противоположный край ОСТАЁТСЯ на текущей мировой позиции.
+        // Реализация — через переустановку anchorMin/Max на новые ratio'ы +
+        // обнуление offsetMin/Max. Работает с любого начального anchor-режима
+        // (точечного / стретча / смешанного).
+        private void StretchEdge(StretchKind kind)
         {
             if (_selectedList == null || _selectedList.Count == 0) return;
 
-            var infos = new List<(RectTransform rt, Rect world)>();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Stretch " + kind);
+
             foreach (var rt in _selectedList)
             {
                 if (rt == null) continue;
-                infos.Add((rt, GetWorldRect(rt)));
-            }
-            if (infos.Count == 0) return;
+                if (!(rt.parent is RectTransform pRT)) continue;
+                Undo.RecordObject(rt, "Stretch");
 
-            // Откуда берём «целевую» координату.
-            Rect targetBounds;
-            if (infos.Count == 1)
-            {
-                var rt = infos[0].rt;
-                if (!(rt.parent is RectTransform pRT)) return;
-                targetBounds = GetWorldRect(pRT);
-            }
-            else
-            {
-                float xMin = infos.Min(i => i.world.xMin);
-                float xMax = infos.Max(i => i.world.xMax);
-                float yMin = infos.Min(i => i.world.yMin);
-                float yMax = infos.Max(i => i.world.yMax);
-                targetBounds = new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
-            }
+                Rect rtW = GetWorldRect(rt);
+                Rect pW  = GetWorldRect(pRT);
+                if (pW.width <= 0.0001f || pW.height <= 0.0001f) continue;
 
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName("Align " + kind);
+                // Новые мировые границы — стартуем с текущих, тянем нужный край.
+                float left   = rtW.xMin;
+                float right  = rtW.xMax;
+                float bottom = rtW.yMin;
+                float top    = rtW.yMax;
 
-            foreach (var (rt, world) in infos)
-            {
-                Undo.RecordObject(rt, "Align");
-                Vector2 delta = Vector2.zero;
                 switch (kind)
                 {
-                    case AlignKind.Left:    delta.x = targetBounds.xMin    - world.xMin; break;
-                    case AlignKind.Right:   delta.x = targetBounds.xMax    - world.xMax; break;
-                    case AlignKind.CenterH: delta.x = targetBounds.center.x - world.center.x; break;
-                    case AlignKind.Top:     delta.y = targetBounds.yMax    - world.yMax; break;
-                    case AlignKind.Bottom:  delta.y = targetBounds.yMin    - world.yMin; break;
-                    case AlignKind.CenterV: delta.y = targetBounds.center.y - world.center.y; break;
+                    case StretchKind.ToLeft:   left   = pW.xMin; break;
+                    case StretchKind.ToRight:  right  = pW.xMax; break;
+                    case StretchKind.ToTop:    top    = pW.yMax; break;
+                    case StretchKind.ToBottom: bottom = pW.yMin; break;
+                    case StretchKind.FillH:    left   = pW.xMin; right  = pW.xMax; break;
+                    case StretchKind.FillV:    top    = pW.yMax; bottom = pW.yMin; break;
+                    case StretchKind.FillAll:  left = pW.xMin; right = pW.xMax; top = pW.yMax; bottom = pW.yMin; break;
                 }
-                Vector2 lossy = rt.parent != null ? (Vector2)((RectTransform)rt.parent).lossyScale : Vector2.one;
-                if (lossy.x == 0) lossy.x = 1; if (lossy.y == 0) lossy.y = 1;
-                rt.anchoredPosition += new Vector2(delta.x / lossy.x, delta.y / lossy.y);
+
+                // Конвертируем мировые границы в anchorMin/Max (доли от родителя)
+                // и зануляем offset'ы — так получается точно нужный rect, и при
+                // ресайзе родителя элемент будет масштабироваться правильно.
+                float lx = (left   - pW.xMin) / pW.width;
+                float rx = (right  - pW.xMin) / pW.width;
+                float by = (bottom - pW.yMin) / pW.height;
+                float ty = (top    - pW.yMin) / pW.height;
+
+                rt.anchorMin = new Vector2(lx, by);
+                rt.anchorMax = new Vector2(rx, ty);
+                rt.offsetMin = Vector2.zero;
+                rt.offsetMax = Vector2.zero;
+
                 EditorUtility.SetDirty(rt);
             }
-
             Undo.CollapseUndoOperations(undoGroup);
         }
+
+        // (AlignEdges/AlignKind убраны — все 7 кнопок плашки теперь делают
+        //  растягивание через StretchEdge, а не выравнивание позиции.)
 
         private static readonly Vector3[] _bboxBuf = new Vector3[4];
         private static Rect GetWorldRect(RectTransform rt)

@@ -159,12 +159,46 @@ namespace NovellaEngine.Editor.UIBindings
         {
             EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), C_BG_PRIMARY);
 
-            DrawHeader(new Rect(0, 0, position.width, 56));
-            DrawTableHeader(new Rect(0, 56, position.width, 24));
+            float headerH = 56;
+            float guideH = NovellaSettingsModule.ShowGuide ? 92 : 0;
+
+            DrawHeader(new Rect(0, 0, position.width, headerH));
+
+            if (guideH > 0) DrawGuideTip(new Rect(8, headerH + 4, position.width - 16, guideH - 8));
+
+            float tableHeaderY = headerH + guideH;
+            DrawTableHeader(new Rect(0, tableHeaderY, position.width, 24));
 
             float footerH = 36;
-            DrawTable(new Rect(0, 80, position.width, position.height - 80 - footerH));
+            float tableY = tableHeaderY + 24;
+            DrawTable(new Rect(0, tableY, position.width, position.height - tableY - footerH));
             DrawFooter(new Rect(0, position.height - footerH, position.width, footerH));
+        }
+
+        // Объясняющая плашка зачем эта таблица и что в ней. Включается
+        // глобальным тогглом «💡 Подсказки» в любом из модулей Studio.
+        private void DrawGuideTip(Rect r)
+        {
+            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10f));
+            DrawBorder(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), C_ACCENT);
+
+            var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
+            st.normal.textColor = NovellaSettingsModule.GetHintColor();
+            string text =
+                "💡  Здесь видны все UI-элементы сцены, которые ты «привязал» в Кузнице UI " +
+                "(значит ноды графа могут писать в них текст / ставить переходы по клику / показывать-скрывать). " +
+                "Колонка «Использован» считает сколько нод сослалось на этот элемент: 0 = мёртвая привязка, " +
+                "которую можно убрать кнопкой «🗑 Удалить неиспользуемые». Клик по строке — пингует элемент в иерархии Unity.";
+            GUI.Label(r, text, st);
+        }
+
+        private static void DrawBorder(Rect r, Color c)
+        {
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), c);
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), c);
         }
 
         private void DrawHeader(Rect r)
