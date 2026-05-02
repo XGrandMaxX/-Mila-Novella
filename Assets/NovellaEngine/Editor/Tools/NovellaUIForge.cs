@@ -522,6 +522,25 @@ namespace NovellaEngine.Editor
             return IconFor("", rt.gameObject);
         }
 
+        // Возвращает текст предупреждения для элемента дерева (или null если ОК).
+        // Используется для отрисовки «!» индикатора рядом с именем элемента
+        // в дереве + tooltip объясняющий что не так.
+        private string GetElementWarning(RectTransform rt)
+        {
+            if (rt == null) return null;
+            var go = rt.gameObject;
+
+            // Legacy UnityEngine.UI.Text без TMP — устаревший компонент,
+            // плохо рендерится на больших экранах. Открой инспектор и
+            // конвертируй в TextMeshPro.
+            if (go.GetComponent<UnityEngine.UI.Text>() != null && go.GetComponent<TMPro.TMP_Text>() == null)
+                return ToolLang.Get(
+                    "Legacy UI Text — convert to TextMeshPro for sharper rendering. Open the inspector and click 'Convert to TextMeshPro'.",
+                    "Устаревший UI Text — конвертируй в TextMeshPro для чёткого рендера. Открой инспектор и нажми «Преобразовать в TextMeshPro».");
+
+            return null;
+        }
+
         private void DrawElementsTree(Rect rect)
         {
             EditorGUI.DrawRect(rect, C_BG_SIDE);
@@ -801,6 +820,18 @@ namespace NovellaEngine.Editor
             var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
             nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
             GUI.Label(new Rect(iconX + 20, row.y, row.width - (iconX - row.x) - 60, row.height), name, nameSt);
+
+            // Индикатор проблем — янтарный «!» справа от имени, с tooltip
+            // о причине. Сейчас только legacy UnityEngine.UI.Text, но точка
+            // расширения на любые проблемные компоненты в будущем.
+            string warning = GetElementWarning(rt);
+            if (!string.IsNullOrEmpty(warning))
+            {
+                Rect warnRect = new Rect(row.xMax - 40, row.y, 22, row.height);
+                var warnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+                warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
+                GUI.Label(warnRect, new GUIContent("!", warning), warnSt);
+            }
 
             Event e = Event.current;
 
