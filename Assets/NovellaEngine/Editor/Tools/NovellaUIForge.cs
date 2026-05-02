@@ -335,6 +335,51 @@ namespace NovellaEngine.Editor
             GUILayout.EndArea();
         }
 
+        // Лимит на количество корневых канвасов в сцене.
+        // SOFT — после него подтверждение, HARD — после него вообще нельзя.
+        private const int CANVAS_SOFT_LIMIT = 5;
+        private const int CANVAS_HARD_LIMIT = 10;
+
+        private static int CountRootCanvasesInScene()
+        {
+            int n = 0;
+            var all = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in all) { if (c != null && c.isRootCanvas) n++; }
+            return n;
+        }
+
+        // Обёртка над CreateCanvasInScene с проверкой лимита.
+        // 5+ — подтверждение, 10+ — отказ.
+        private void TryCreateAdditionalCanvas()
+        {
+            int count = CountRootCanvasesInScene();
+            if (count >= CANVAS_HARD_LIMIT)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Canvas limit", "Лимит холстов"),
+                    string.Format(ToolLang.Get(
+                        "Maximum {0} root canvases per scene. Reorganize existing canvases instead of adding more.",
+                        "Максимум {0} корневых холстов в сцене. Переорганизуй существующие, не плоди новые."),
+                        CANVAS_HARD_LIMIT),
+                    "OK");
+                return;
+            }
+            if (count >= CANVAS_SOFT_LIMIT)
+            {
+                bool ok = EditorUtility.DisplayDialog(
+                    string.Format(ToolLang.Get(
+                        "Already {0} canvases",
+                        "Уже {0} холстов"), count),
+                    string.Format(ToolLang.Get(
+                        "Create one more? Hard limit is {0}.",
+                        "Создать ещё один? Жёсткий лимит — {0}."), CANVAS_HARD_LIMIT),
+                    ToolLang.Get("Create", "Создать"),
+                    ToolLang.Get("Cancel",  "Отмена"));
+                if (!ok) return;
+            }
+            CreateCanvasInScene();
+        }
+
         private void CreateCanvasInScene()
         {
             if (_camera == null && Camera.main == null)
@@ -498,15 +543,24 @@ namespace NovellaEngine.Editor
         private void RefreshRectsCache()
         {
             _allRects.Clear();
-            // Раньше: брали ТОЛЬКО _canvas. Если в сцене дубликат канваса
-            // (например после Duplicate), его дочерние элементы не отображались
-            // в дереве, хотя камера их рендерила. Теперь собираем все root-канвасы.
-            var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            foreach (var c in allCanvases)
+            // Канвасы перебираем в порядке сцены (через GetRootGameObjects),
+            // а не как FindObjectsByType вернёт — у того порядок не гарантирован
+            // и канвасы прыгали в дереве при каждом рефреше.
+            var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            if (!scene.IsValid()) return;
+            var roots = scene.GetRootGameObjects();
+            foreach (var rg in roots)
             {
-                if (c == null || !c.isRootCanvas) continue;
-                var rt = c.GetComponent<RectTransform>();
-                if (rt != null) CollectRectsRecursive(rt, _allRects, 0);
+                if (rg == null) continue;
+                // Канвас может быть и сам root-объект и где-то глубже (редко, но бывает).
+                // Берём всю иерархию, фильтруем только root-канвасы.
+                var canvases = rg.GetComponentsInChildren<Canvas>(true);
+                foreach (var c in canvases)
+                {
+                    if (c == null || !c.isRootCanvas) continue;
+                    var rt = c.GetComponent<RectTransform>();
+                    if (rt != null) CollectRectsRecursive(rt, _allRects, 0);
+                }
             }
         }
 
@@ -532,6 +586,20 @@ namespace NovellaEngine.Editor
             return false;
         }
 
+        // Учитывает только «видимых» детей — без TMP-сабмешей, которые TMP_Text
+        // плодит автоматически при использовании fallback-шрифтов. Раньше у текстов
+        // показывался шеврон ▶ хотя «настоящих» детей у них нет.
+        private static bool HasVisibleChildren(RectTransform rt)
+        {
+            if (rt == null) return false;
+            for (int i = 0; i < rt.childCount; i++)
+            {
+                var ch = rt.GetChild(i) as RectTransform;
+                if (ch != null && !IsHiddenInternal(ch)) return true;
+            }
+            return false;
+        }
+
         private string GetDisplayName(RectTransform rt)
         {
             if (rt == null) return "?";
@@ -552,7 +620,11 @@ namespace NovellaEngine.Editor
         private string GetElementSubtitle(RectTransform rt)
         {
             if (rt == null) return "";
-            if (_canvas != null && rt == _canvas.GetComponent<RectTransform>())
+            // Любой root Canvas — это «Холст». Раньше сравнивали только с _canvas
+            // (тем что Forge выбрал «активным»), и все остальные канвасы
+            // отображались как «Пустая группа».
+            var canvas = rt.GetComponent<Canvas>();
+            if (canvas != null && canvas.isRootCanvas)
                 return ToolLang.Get("Canvas",        "Холст");
             var go = rt.gameObject;
             if (go.GetComponent<UnityEngine.UI.Button>() != null)
@@ -661,7 +733,7 @@ namespace NovellaEngine.Editor
                         "Добавить ещё один root Canvas (например слой модалок или HUD над игровым).")),
                 addCanvasSt, GUILayout.MinWidth(120)))
             {
-                CreateCanvasInScene();
+                TryCreateAdditionalCanvas();
             }
             GUI.backgroundColor = prevBg;
             GUILayout.FlexibleSpace();
@@ -711,7 +783,7 @@ namespace NovellaEngine.Editor
                     GUILayout.Space(8);
                 }
 
-                bool hasChildren = rt.childCount > 0;
+                bool hasChildren = HasVisibleChildren(rt);
                 bool collapsed = useCollapse && hasChildren && _collapsedNodes.Contains(rt.GetInstanceID());
 
                 DrawTreeRow(rt, name, GetDisplayIcon(rt), depth, i, hasChildren, collapsed);
@@ -901,14 +973,17 @@ namespace NovellaEngine.Editor
         private int ComputeDepth(RectTransform rt)
         {
             if (rt == null) return 0;
-            // Глубина = количество родителей до root-canvas элемента (любого).
+            // Глубина считается ВКЛЮЧАЯ сам канвас как уровень-родитель.
+            // Прямой ребёнок канваса → depth 1 (а не 0 как было раньше),
+            // иначе ветка-линия от канваса к ребёнку не рисуется и визуально
+            // непонятно что элемент закреплён за канвасом.
             int d = 0;
             var t = rt.parent;
             while (t != null)
             {
+                d++;
                 var c = t.GetComponent<Canvas>();
                 if (c != null && c.isRootCanvas) break;
-                d++;
                 if (d > 16) break;
                 t = t.parent;
             }
@@ -1141,14 +1216,32 @@ namespace NovellaEngine.Editor
                 }
                 else
                 {
+                    // Спец-кейс: оба элемента — корневые канвасы. Меняем порядок
+                    // на уровне сцены через SetSiblingIndex (parent у обоих null).
+                    bool dragIsRootCanvas = dragRt.parent == null
+                        && dragRt.GetComponent<Canvas>() != null
+                        && dragRt.GetComponent<Canvas>().isRootCanvas;
+                    bool targetIsRootCanvas = target.parent == null
+                        && target.GetComponent<Canvas>() != null
+                        && target.GetComponent<Canvas>().isRootCanvas;
+
+                    if (dragIsRootCanvas && targetIsRootCanvas)
+                    {
+                        Undo.RegisterCompleteObjectUndo(dragRt.transform, "Reorder Root Canvases");
+                        int tIdx = target.GetSiblingIndex();
+                        int newIdx = mode == DropMode.Above ? tIdx : tIdx + 1;
+                        dragRt.SetSiblingIndex(newIdx);
+                        continue;
+                    }
+
                     var newParent = target.parent;
                     if (newParent == null) continue;
                     Undo.SetTransformParent(dragRt, newParent, "Drop Sibling");
                     Undo.RegisterCompleteObjectUndo(dragRt.transform, "Drop Sibling Order");
                     int targetIdx = target.GetSiblingIndex();
-                    int newIdx = mode == DropMode.Above ? targetIdx : targetIdx + 1;
+                    int dropIdx = mode == DropMode.Above ? targetIdx : targetIdx + 1;
                     // если drag из того же родителя и шёл сверху — компенсируем сдвиг индекса
-                    dragRt.SetSiblingIndex(Mathf.Clamp(newIdx, 0, newParent.childCount - 1));
+                    dragRt.SetSiblingIndex(Mathf.Clamp(dropIdx, 0, newParent.childCount - 1));
                 }
             }
         }
@@ -2101,14 +2194,25 @@ namespace NovellaEngine.Editor
 
             DrawInspectorHeader();
 
-            bool isCanvas = FirstSelected.GetComponent<Canvas>() != null && _selectedList.Count == 1;
+            // isCanvas теперь срабатывает и при множественном выделении —
+            // если ВСЕ выбранные элементы это root-канвасы, мы прячем
+            // position/якоря (которые для канваса не редактируются — Canvas сам
+            // тянет размер от рендера) и оставляем только глобальный RT тоггл
+            // и кнопки удаления/действий.
+            bool isCanvas = _selectedList.Count > 0 && _selectedList.All(rt =>
+                rt != null
+                && rt.GetComponent<Canvas>() != null
+                && rt.GetComponent<Canvas>().isRootCanvas);
             bool isMixed = !AreSelectedTypesHomogeneous();
 
             if (isCanvas)
             {
                 DrawSectionLabel(ToolLang.Get("CANVAS", "ХОЛСТ (CANVAS)"));
                 DrawInlineGuide("canvas");
-                DrawCanvasGlobalRTSection(FirstSelected.GetComponent<Canvas>());
+                // RT-секцию рисуем только при единичном выделении — иначе
+                // непонятно к какому канвасу относится переключатель.
+                if (_selectedList.Count == 1)
+                    DrawCanvasGlobalRTSection(FirstSelected.GetComponent<Canvas>());
             }
             else if (isMixed)
             {
