@@ -2234,6 +2234,24 @@ namespace NovellaEngine.Editor
                 cam.backgroundColor = new Color(0.05f, 0.05f, 0.08f);
                 camGO.tag = "MainCamera";
                 camGO.AddComponent<AudioListener>();
+                AttachUrpAdditionalCameraData(camGO);
+            }
+        }
+
+        // Если в проекте используется URP, у каждой Camera должен быть
+        // компонент UniversalAdditionalCameraData. Без него URP сыпет в
+        // консоль warning «Camera ... does not contain an additional camera
+        // data component».
+        // Используем рефлексию, чтобы код корректно собирался и в проектах
+        // на Built-in pipeline (там этого типа нет).
+        private static void AttachUrpAdditionalCameraData(GameObject camGO)
+        {
+            if (camGO == null) return;
+            var urpType = System.Type.GetType(
+                "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
+            if (urpType != null && camGO.GetComponent(urpType) == null)
+            {
+                camGO.AddComponent(urpType);
             }
         }
 

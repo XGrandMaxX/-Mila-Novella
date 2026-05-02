@@ -172,6 +172,25 @@ namespace NovellaEngine.Editor
                 GUILayout.Space(6);
             }
 
+            // Кнопка-меню «Тест» — кидает в консоль образцы каждого типа лога.
+            // Удобно проверять что фильтры/счётчики/жалоба работают, без
+            // необходимости запускать игру или искать живой Debug.Log в коде.
+            var testSt = new GUIStyle(EditorStyles.miniButton)
+            {
+                fontSize = 11,
+                fixedHeight = 22,
+                padding = new RectOffset(10, 10, 2, 2),
+            };
+            testSt.normal.textColor = C_TEXT_3;
+            if (GUILayout.Button(new GUIContent("🧪  " + ToolLang.Get("Test", "Тест") + "  ▾",
+                ToolLang.Get("Generate sample log entries to verify filters, counters and the «Report» flow.",
+                             "Сгенерировать тестовые записи в консоль, чтобы проверить фильтры, счётчики и кнопку «Жалоба».")),
+                testSt))
+            {
+                ShowTestMenu();
+            }
+            GUILayout.Space(6);
+
             // Кнопка очистки.
             var clrSt = new GUIStyle(EditorStyles.miniButton)
             {
@@ -194,6 +213,30 @@ namespace NovellaEngine.Editor
             GUILayout.EndArea();
         }
 
+        // ─── Test logs ─────────────────────────────────────────────────────
+        // Простые тестовые сообщения для проверки UI консоли. Все идут через
+        // Debug.Log/Warning/LogError — благодаря этому они появляются и в
+        // Studio-консоли (через Application.logMessageReceived), и в стандартной
+        // Unity Console.
+        private void ShowTestMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent(ToolLang.Get("ⓘ  Add a test log",     "ⓘ  Добавить тестовый лог")),     false, () =>
+                Debug.Log("[Novella Test] Hello from Studio console — this is an info log."));
+            menu.AddItem(new GUIContent(ToolLang.Get("⚠  Add a test warning", "⚠  Добавить тестовое предупреждение")), false, () =>
+                Debug.LogWarning("[Novella Test] This is a warning — useful to verify the ⚠ counter and pulse animation."));
+            menu.AddItem(new GUIContent(ToolLang.Get("✖  Add a test error",   "✖  Добавить тестовую ошибку")), false, () =>
+                Debug.LogError("[Novella Test] This is a fake error — try the «Report» button below to send it via Telegram/Discord."));
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get("Burst: 1 of each",  "Серия: по одному каждого")), false, () =>
+            {
+                Debug.Log     ("[Novella Test] Burst log");
+                Debug.LogWarning("[Novella Test] Burst warning");
+                Debug.LogError("[Novella Test] Burst error");
+            });
+            menu.ShowAsContext();
+        }
+
         // ─── Жалоба автору ─────────────────────────────────────────────────
         // Контактные ссылки автора инструментария — захардкожены сознательно.
         // Это публичные адреса (как email на сайте), не секреты. Меняются
@@ -201,7 +244,7 @@ namespace NovellaEngine.Editor
         // Discord User ID можно получить так: Settings → Advanced → Developer
         // Mode → ПКМ по своему имени в чате → Copy User ID.
         private const string AUTHOR_TELEGRAM_USERNAME = "PBGJ241";
-        private const string AUTHOR_DISCORD_USER_ID  = ""; // TODO: вставить свой Discord User ID
+        private const string AUTHOR_DISCORD_USER_ID  = "384220331188944896";
 
         private void ShowReportMenu()
         {

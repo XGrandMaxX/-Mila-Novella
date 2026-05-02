@@ -460,6 +460,12 @@ namespace NovellaEngine.Editor
                 cam.backgroundColor = new Color(0.05f, 0.05f, 0.07f);
                 cam.orthographic = false;
                 camGo.AddComponent<AudioListener>();
+                // URP требует UniversalAdditionalCameraData на каждой камере,
+                // иначе консоль засоряется warning'ами. Через рефлексию —
+                // чтобы код собирался и на Built-in pipeline.
+                var urpType = System.Type.GetType(
+                    "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData, Unity.RenderPipelines.Universal.Runtime");
+                if (urpType != null && camGo.GetComponent(urpType) == null) camGo.AddComponent(urpType);
                 Undo.RegisterCreatedObjectUndo(camGo, "Create Camera");
                 _camera = cam;
             }
