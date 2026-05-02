@@ -2550,13 +2550,23 @@ namespace NovellaEngine.Editor
 
         // Редактор «что делает кнопка по клику» — компактный «выбор действия»
         // открывает большое окно NovellaActionPickerWindow с группами (Навигация /
-        // Окна UI / Система). Под кнопкой — описание + контекстный параметр.
+        // Окна UI / Система). Всё содержимое обёрнуто в карточку с рамкой и
+        // лёгкой акцентной подложкой — визуально отделяется от других секций
+        // инспектора, чтобы пользователь сразу видел границы блока.
         private static void DrawClickActionEditor(NovellaEngine.Runtime.UI.NovellaUIBinding b)
         {
+            // Запоминаем стартовый rect, чтобы потом нарисовать рамку поверх
+            // (фон уже не успеем — IMGUI рисует контент в порядке вызовов).
+            Rect cardStart = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true));
+            GUILayout.Space(8);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8);
+            GUILayout.BeginVertical();
+
             var (icon, name) = ActionIconAndName(b.ClickAction);
             string label = $"{icon}    {name}    ▾";
 
-            // Кнопка-«выбор действия» — большая, с акцентной подсветкой если действие задано.
             bool hasAction = b.ClickAction != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None;
             Color prevBg = GUI.backgroundColor;
             if (hasAction) GUI.backgroundColor = new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.55f);
@@ -2572,7 +2582,6 @@ namespace NovellaEngine.Editor
             }
             GUI.backgroundColor = prevBg;
 
-            // Описание выбранного действия — мелким текстом под кнопкой.
             if (hasAction)
             {
                 var descSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
@@ -2580,7 +2589,7 @@ namespace NovellaEngine.Editor
                 GUILayout.Label(ActionDescription(b.ClickAction), descSt);
             }
 
-            GUILayout.Space(4);
+            GUILayout.Space(6);
 
             // Параметр(ы) для конкретного действия.
             switch (b.ClickAction)
@@ -2620,6 +2629,19 @@ namespace NovellaEngine.Editor
                     if (newUrl != b.URL) { b.URL = newUrl; EditorUtility.SetDirty(b); }
                     break;
             }
+
+            GUILayout.EndVertical();
+            GUILayout.Space(8);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+
+            // Рамка вокруг всей карточки click-action — рисуем после контента
+            // border-only (без overlay-фона, чтобы не «замывать» содержимое).
+            Rect cardEnd = GUILayoutUtility.GetLastRect();
+            Rect cardRect = new Rect(cardStart.x, cardStart.y, cardStart.width, cardEnd.yMax - cardStart.y);
+            DrawRectBorder(cardRect, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.55f));
+            // Тонкая акцентная полоса слева — добавляет ощущение «карточки».
+            EditorGUI.DrawRect(new Rect(cardRect.x, cardRect.y, 3, cardRect.height), NovellaSettingsModule.GetAccentColor());
         }
 
         private static (string icon, string name) ActionIconAndName(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction a)
