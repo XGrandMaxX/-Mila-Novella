@@ -17,6 +17,14 @@ namespace NovellaEngine.Runtime
     public class NovellaPlayer : MonoBehaviour
     {
         public static event Action<string, string> OnNovellaEvent;
+
+        // Внешний хук — даёт NovellaUIBinding и любым другим интеграторам послать
+        // именованное событие в общую шину OnNovellaEvent. Игровая логика
+        // подписывается на это событие чтобы реагировать на UI-нажатия / ачивки / и т.п.
+        public static void RaiseNovellaEvent(string eventName, string param)
+        {
+            OnNovellaEvent?.Invoke(eventName ?? "", param ?? "");
+        }
         public static event Action<NovellaPlayer, NovellaNodeBase> OnExecuteDLCNode;
 
         // Глобальный доступ для кнопок/UI binding'ов которые должны

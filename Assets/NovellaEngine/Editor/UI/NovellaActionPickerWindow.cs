@@ -108,6 +108,7 @@ namespace NovellaEngine.Editor.UIBindings
                 NovellaUIBinding.BindingAction.GoToNode,
                 NovellaUIBinding.BindingAction.StartNewGame,
                 NovellaUIBinding.BindingAction.LoadLastSave,
+                NovellaUIBinding.BindingAction.RestartChapter,
             });
 
             DrawGroup("ОКНА UI", new[]
@@ -115,6 +116,18 @@ namespace NovellaEngine.Editor.UIBindings
                 NovellaUIBinding.BindingAction.ShowPanel,
                 NovellaUIBinding.BindingAction.HidePanel,
                 NovellaUIBinding.BindingAction.TogglePanel,
+            });
+
+            DrawGroup("ИГРОВАЯ ЛОГИКА", new[]
+            {
+                NovellaUIBinding.BindingAction.SetVariable,
+                NovellaUIBinding.BindingAction.TriggerEvent,
+                NovellaUIBinding.BindingAction.UnlockAchievement,
+            });
+
+            DrawGroup("ЭФФЕКТЫ", new[]
+            {
+                NovellaUIBinding.BindingAction.PlaySFX,
             });
 
             DrawGroup("СИСТЕМА", new[]
@@ -255,16 +268,21 @@ namespace NovellaEngine.Editor.UIBindings
         {
             switch (a)
             {
-                case NovellaUIBinding.BindingAction.None:           return ("—",  "Без действия");
-                case NovellaUIBinding.BindingAction.GoToNode:       return ("🎯", "Перейти к ноде графа");
-                case NovellaUIBinding.BindingAction.StartNewGame:   return ("▶",  "Начать новую игру");
-                case NovellaUIBinding.BindingAction.LoadLastSave:   return ("📥", "Загрузить сохранение");
-                case NovellaUIBinding.BindingAction.QuitGame:       return ("🚪", "Выйти из игры");
-                case NovellaUIBinding.BindingAction.ShowPanel:      return ("👁", "Показать UI элемент");
-                case NovellaUIBinding.BindingAction.HidePanel:      return ("🚫", "Скрыть UI элемент");
-                case NovellaUIBinding.BindingAction.TogglePanel:    return ("🔁", "Переключить UI элемент");
-                case NovellaUIBinding.BindingAction.ChangeLanguage: return ("🌐", "Сменить язык");
-                case NovellaUIBinding.BindingAction.OpenURL:        return ("🔗", "Открыть ссылку");
+                case NovellaUIBinding.BindingAction.None:              return ("—",  "Без действия");
+                case NovellaUIBinding.BindingAction.GoToNode:          return ("🎯", "Перейти к ноде графа");
+                case NovellaUIBinding.BindingAction.StartNewGame:      return ("▶",  "Начать новую игру");
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return ("📥", "Загрузить сохранение");
+                case NovellaUIBinding.BindingAction.RestartChapter:    return ("↻",  "Перезапустить главу");
+                case NovellaUIBinding.BindingAction.QuitGame:          return ("🚪", "Выйти из игры");
+                case NovellaUIBinding.BindingAction.ShowPanel:         return ("👁", "Показать UI элемент");
+                case NovellaUIBinding.BindingAction.HidePanel:         return ("🚫", "Скрыть UI элемент");
+                case NovellaUIBinding.BindingAction.TogglePanel:       return ("🔁", "Переключить UI элемент");
+                case NovellaUIBinding.BindingAction.SetVariable:       return ("🔧", "Установить переменную");
+                case NovellaUIBinding.BindingAction.TriggerEvent:      return ("📡", "Послать событие");
+                case NovellaUIBinding.BindingAction.UnlockAchievement: return ("🏆", "Разблокировать ачивку");
+                case NovellaUIBinding.BindingAction.PlaySFX:           return ("🎵", "Проиграть звук");
+                case NovellaUIBinding.BindingAction.ChangeLanguage:    return ("🌐", "Сменить язык");
+                case NovellaUIBinding.BindingAction.OpenURL:           return ("🔗", "Открыть ссылку");
             }
             return ("?", a.ToString());
         }
@@ -279,16 +297,21 @@ namespace NovellaEngine.Editor.UIBindings
         {
             switch (a)
             {
-                case NovellaUIBinding.BindingAction.None:           return "Кнопка ничего не делает по клику.";
-                case NovellaUIBinding.BindingAction.GoToNode:       return "Player переходит на выбранную ноду графа — для диалоговых выборов и переходов между сценами истории.";
-                case NovellaUIBinding.BindingAction.StartNewGame:   return "Стирает сохранение выбранной истории и запускает её с самого начала.";
-                case NovellaUIBinding.BindingAction.LoadLastSave:   return "Открывает последнюю запущенную историю с её сохранения. Идеально для кнопки «Продолжить».";
-                case NovellaUIBinding.BindingAction.QuitGame:       return "Закрывает игру (или останавливает Play Mode в редакторе).";
-                case NovellaUIBinding.BindingAction.ShowPanel:      return "Включает (показывает) выбранный UI-элемент сцены. Например — панель настроек.";
-                case NovellaUIBinding.BindingAction.HidePanel:      return "Выключает (скрывает) выбранный UI-элемент. Например — закрыть текущую панель.";
-                case NovellaUIBinding.BindingAction.TogglePanel:    return "Переключает видимость UI-элемента: показывает если скрыт, скрывает если виден.";
-                case NovellaUIBinding.BindingAction.ChangeLanguage: return "Меняет язык игры. Все тексты NovellaUIBinding и диалоги обновятся автоматически.";
-                case NovellaUIBinding.BindingAction.OpenURL:        return "Открывает указанную ссылку в системном браузере.";
+                case NovellaUIBinding.BindingAction.None:              return "Кнопка ничего не делает по клику.";
+                case NovellaUIBinding.BindingAction.GoToNode:          return "Player переходит на выбранную ноду графа — для диалоговых выборов и переходов между сценами истории.";
+                case NovellaUIBinding.BindingAction.StartNewGame:      return "Стирает сохранение выбранной истории и запускает её с самого начала.";
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return "Открывает последнюю запущенную историю с её сохранения. Идеально для кнопки «Продолжить».";
+                case NovellaUIBinding.BindingAction.RestartChapter:    return "Перезапускает текущую главу с нуля — стирает её сохранение и сбрасывает локальные переменные.";
+                case NovellaUIBinding.BindingAction.QuitGame:          return "Закрывает игру (или останавливает Play Mode в редакторе).";
+                case NovellaUIBinding.BindingAction.ShowPanel:         return "Включает (показывает) выбранный UI-элемент сцены. Например — панель настроек.";
+                case NovellaUIBinding.BindingAction.HidePanel:         return "Выключает (скрывает) выбранный UI-элемент. Например — закрыть текущую панель.";
+                case NovellaUIBinding.BindingAction.TogglePanel:       return "Переключает видимость UI-элемента: показывает если скрыт, скрывает если виден.";
+                case NovellaUIBinding.BindingAction.SetVariable:       return "Устанавливает значение игровой переменной (NovellaVariables). Удобно для кнопок «Лайкнуть», «Выбрать имя», ...";
+                case NovellaUIBinding.BindingAction.TriggerEvent:      return "👨‍💻 Для кодеров: посылает именованное событие в NovellaPlayer.OnNovellaEvent — игровая логика подписывается через C#.";
+                case NovellaUIBinding.BindingAction.UnlockAchievement: return "👨‍💻 Для кодеров: посылает событие 'Achievement.Unlock' — подключи свою платформу (Steam / Google Play) через NovellaPlayer.OnNovellaEvent.";
+                case NovellaUIBinding.BindingAction.PlaySFX:           return "Проигрывает звуковой эффект (одноразово, без повторов). Полезно для click-feedback кнопок и переходов.";
+                case NovellaUIBinding.BindingAction.ChangeLanguage:    return "Меняет язык игры. Все тексты NovellaUIBinding и диалоги обновятся автоматически.";
+                case NovellaUIBinding.BindingAction.OpenURL:           return "Открывает указанную ссылку в системном браузере.";
             }
             return "";
         }

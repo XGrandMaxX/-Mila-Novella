@@ -55,39 +55,83 @@ namespace NovellaEngine.Runtime.UI
         // ─── Click-action ────────────────────────────────────────────────────
         // Что делает кнопка по клику. Все действия настраиваются полностью из
         // Кузницы UI — без захода в Unity-инспектор и без UnityEvent'ов.
-        // Когда добавляешь новое действие сюда: 1) расширь enum; 2) обработай
-        // в HandleClick(); 3) дай ему имя/иконку в Forge-инспекторе.
+        // Когда добавляешь новое действие: 1) расширь enum; 2) обработай в
+        // ExecuteStep(); 3) дай ему имя/иконку/описание в Forge.
         public enum BindingAction
         {
             None,
-            GoToNode,        // перейти к ноде графа (использует OnClickGotoNodeId)
-            StartNewGame,    // запустить историю с начала (StoryToStart)
-            LoadLastSave,    // загрузить последнее сохранение (SelectedStoryID из PlayerPrefs)
-            QuitGame,        // выйти из игры / выйти из Play-режима в editor'е
-            ShowPanel,       // показать UI-элемент (TargetBindingId)
-            HidePanel,       // скрыть UI-элемент (TargetBindingId)
-            TogglePanel,     // переключить видимость UI-элемента (TargetBindingId)
-            ChangeLanguage,  // сменить язык интерфейса (LanguageCode)
-            OpenURL,         // открыть ссылку в браузере (URL)
+            GoToNode,            // перейти к ноде графа
+            StartNewGame,        // запустить историю с начала
+            LoadLastSave,        // загрузить последнее сохранение
+            QuitGame,            // выйти из игры
+            ShowPanel,           // показать UI-элемент
+            HidePanel,           // скрыть UI-элемент
+            TogglePanel,         // переключить видимость UI-элемента
+            ChangeLanguage,      // сменить язык интерфейса
+            OpenURL,             // открыть ссылку в браузере
+            SetVariable,         // установить значение NovellaVariables
+            TriggerEvent,        // послать NovellaPlayer.OnNovellaEvent
+            PlaySFX,             // проиграть AudioClip как SFX
+            RestartChapter,      // перезапустить активную главу с нуля
+            UnlockAchievement,   // выдать ачивку (хук, требует интеграции платформы)
         }
 
-        [Tooltip("Что произойдёт при клике по кнопке. Настраивается в Кузнице UI.")]
-        public BindingAction ClickAction = BindingAction.None;
+        // Один шаг последовательности кликов. Список таких шагов на кнопке
+        // выполняется сверху вниз; каждый шаг ждёт DelayBefore перед собой.
+        // Параметры разные у разных Action — лежат в одной структуре, читается
+        // только то что нужно конкретному действию (зависимости explicit
+        // прописаны в ExecuteStep).
+        [System.Serializable]
+        public class ClickActionStep
+        {
+            public BindingAction Action = BindingAction.None;
+            [Tooltip("Сколько секунд ждать перед выполнением этого шага. Полезно чтобы дать SFX доиграть до загрузки сцены.")]
+            public float DelayBefore = 0f;
 
-        [Tooltip("Для GoToNode — id ноды графа куда прыгнуть.")]
-        public string OnClickGotoNodeId;
+            // GoToNode
+            public string OnClickGotoNodeId;
+            // StartNewGame
+            public NovellaEngine.Data.NovellaStory StoryToStart;
+            // ShowPanel / HidePanel / TogglePanel
+            public string TargetBindingId;
+            // ChangeLanguage
+            public string LanguageCode = "EN";
+            // OpenURL
+            public string URL = "https://";
+            // SetVariable
+            public string VariableName;
+            public int VariableInt;
+            public bool VariableBool;
+            public string VariableString = "";
+            // TriggerEvent
+            public string EventName = "MyEvent";
+            public string EventParam = "";
+            // PlaySFX
+            public AudioClip SfxClip;
+            [Range(0f, 1f)] public float SfxVolume = 1f;
+            // UnlockAchievement
+            public string AchievementId;
+        }
 
-        [Tooltip("Для StartNewGame — какую историю запускать.")]
-        public NovellaEngine.Data.NovellaStory StoryToStart;
+        [Tooltip("Последовательность действий по клику. Выполняются сверху вниз с задержкой DelayBefore у каждого.")]
+        public System.Collections.Generic.List<ClickActionStep> ClickSequence = new System.Collections.Generic.List<ClickActionStep>();
 
-        [Tooltip("Для ShowPanel/HidePanel/TogglePanel — id целевого binding'а UI-элемента.")]
-        public string TargetBindingId;
+        // ─── Legacy fields (back-compat — мигрируются в ClickSequence) ───────
+        [HideInInspector] public BindingAction ClickAction = BindingAction.None;
+        [HideInInspector] public string OnClickGotoNodeId;
+        [HideInInspector] public NovellaEngine.Data.NovellaStory StoryToStart;
+        [HideInInspector] public string TargetBindingId;
+        [HideInInspector] public string LanguageCode = "EN";
+        [HideInInspector] public string URL = "https://";
 
-        [Tooltip("Для ChangeLanguage — код языка (RU, EN, ES, ...).")]
-        public string LanguageCode = "EN";
-
-        [Tooltip("Для OpenURL — адрес ссылки.")]
-        public string URL = "https://";
+        // Какие действия «терминальные» (после них дальше не выполнится — они
+        // меняют сцену, выходят из игры и т.п.). Используется и в инспекторе
+        // (warning на следующих шагах), и при логировании в рантайме.
+        public static bool IsTerminalAction(BindingAction a) =>
+            a == BindingAction.StartNewGame ||
+            a == BindingAction.LoadLastSave ||
+            a == BindingAction.RestartChapter ||
+            a == BindingAction.QuitGame;
 
         // Категория компонента — для группировки в пикерах (Text / Button / Other).
         public enum BindingKind { Other, Text, Button, Image }
@@ -159,10 +203,33 @@ namespace NovellaEngine.Runtime.UI
             if (string.IsNullOrEmpty(_id)) EnsureId();
             if (!string.IsNullOrEmpty(_id)) _registry[_id] = this;
 
-            // Back-compat: старые binding'и без явного ClickAction, но с заполненным
-            // OnClickGotoNodeId — автоматически считаем GoToNode.
-            if (ClickAction == BindingAction.None && !string.IsNullOrEmpty(OnClickGotoNodeId))
-                ClickAction = BindingAction.GoToNode;
+            // Миграция legacy single-action → ClickSequence. Если list пустой и
+            // на binding'е был выставлен ClickAction (или OnClickGotoNodeId) —
+            // создаём первый шаг из legacy-полей и обнуляем legacy. Так старые
+            // ассеты конвертируются в новый формат при первой загрузке.
+            if (ClickSequence == null) ClickSequence = new System.Collections.Generic.List<ClickActionStep>();
+            if (ClickSequence.Count == 0)
+            {
+                BindingAction legacy = ClickAction;
+                if (legacy == BindingAction.None && !string.IsNullOrEmpty(OnClickGotoNodeId))
+                    legacy = BindingAction.GoToNode;
+                if (legacy != BindingAction.None)
+                {
+                    ClickSequence.Add(new ClickActionStep
+                    {
+                        Action = legacy,
+                        OnClickGotoNodeId = OnClickGotoNodeId,
+                        StoryToStart = StoryToStart,
+                        TargetBindingId = TargetBindingId,
+                        LanguageCode = LanguageCode,
+                        URL = URL,
+                    });
+                    ClickAction = BindingAction.None;
+                    OnClickGotoNodeId = null;
+                    StoryToStart = null;
+                    TargetBindingId = null;
+                }
+            }
 
             if (!_subscribedLocale)
             {
@@ -170,10 +237,9 @@ namespace NovellaEngine.Runtime.UI
                 _subscribedLocale = true;
             }
 
-            // Подписка на клик — только для статических кнопок с заданным действием.
-            // NovellaChoice сам подключает свой обработчик отдельно (см. NovellaPlayer).
-            bool hasAction = ClickAction != BindingAction.None
-                          && !(ClickAction == BindingAction.GoToNode && string.IsNullOrEmpty(OnClickGotoNodeId));
+            // Подписка на клик — для статических кнопок c непустой
+            // ClickSequence. NovellaChoice сам подключает свой обработчик.
+            bool hasAction = ClickSequence != null && ClickSequence.Count > 0;
             if (_button != null && hasAction)
             {
                 _clickHandler = HandleClick;
@@ -203,47 +269,60 @@ namespace NovellaEngine.Runtime.UI
 
         private void InvokeClickHandler() => _clickHandler?.Invoke();
 
-        // Диспетчер клика — выбирает что делать по `ClickAction`. Каждое действие
-        // изолировано: если что-то требует runtime-сервиса (Player, Launcher),
-        // мягко падает, если его нет в сцене.
+        // Запускает последовательность шагов как корутину.
         private void HandleClick()
         {
-            switch (ClickAction)
+            if (ClickSequence == null || ClickSequence.Count == 0) return;
+            if (!isActiveAndEnabled) return;
+            StartCoroutine(RunSequence());
+        }
+
+        private System.Collections.IEnumerator RunSequence()
+        {
+            // Снимок списка — пользователь может нажать кнопку повторно во
+            // время задержки и пересобрать sequence; мы выполняем именно ту
+            // версию что была на момент клика.
+            var snapshot = new System.Collections.Generic.List<ClickActionStep>(ClickSequence);
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                var step = snapshot[i];
+                if (step == null) continue;
+                if (step.DelayBefore > 0f) yield return new WaitForSeconds(step.DelayBefore);
+                ExecuteStep(step);
+            }
+        }
+
+        // Выполняет один шаг. Изолирован от остальной последовательности —
+        // если runtime-сервис (Player/Launcher) отсутствует, шаг тихо
+        // пропускается с warning'ом, остальные продолжают выполнение.
+        private void ExecuteStep(ClickActionStep step)
+        {
+            switch (step.Action)
             {
                 case BindingAction.GoToNode:
-                    if (NovellaPlayer.Instance != null && !string.IsNullOrEmpty(OnClickGotoNodeId))
-                        NovellaPlayer.Instance.JumpToNode(OnClickGotoNodeId);
+                    if (NovellaPlayer.Instance != null && !string.IsNullOrEmpty(step.OnClickGotoNodeId))
+                        NovellaPlayer.Instance.JumpToNode(step.OnClickGotoNodeId);
                     break;
 
                 case BindingAction.StartNewGame:
-                    if (StoryToStart == null)
-                    {
-                        Debug.LogWarning("[NovellaUIBinding] StartNewGame: история не выбрана.");
-                        break;
-                    }
-                    var launcherStart = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
-                    if (launcherStart != null)
-                    {
-                        // Свежий старт — стираем сохранение этой истории, чтобы не «продолжалось».
-                        PlayerPrefs.DeleteKey($"NovellaSave_{StoryToStart.name}_Node");
-                        launcherStart.TryLaunchStory(StoryToStart);
-                    }
-                    else Debug.LogWarning("[NovellaUIBinding] StartNewGame: StoryLauncher не найден в сцене.");
+                {
+                    if (step.StoryToStart == null) { Debug.LogWarning("[NovellaUIBinding] StartNewGame: история не выбрана."); break; }
+                    var launcher = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
+                    if (launcher == null) { Debug.LogWarning("[NovellaUIBinding] StartNewGame: StoryLauncher не найден."); break; }
+                    PlayerPrefs.DeleteKey($"NovellaSave_{step.StoryToStart.name}_Node");
+                    launcher.TryLaunchStory(step.StoryToStart);
                     break;
+                }
 
                 case BindingAction.LoadLastSave:
                 {
                     string lastStoryName = PlayerPrefs.GetString("SelectedStoryID", "");
-                    if (string.IsNullOrEmpty(lastStoryName))
-                    {
-                        Debug.LogWarning("[NovellaUIBinding] LoadLastSave: нет последнего сохранения.");
-                        break;
-                    }
+                    if (string.IsNullOrEmpty(lastStoryName)) { Debug.LogWarning("[NovellaUIBinding] LoadLastSave: нет последнего сохранения."); break; }
                     var stories = Resources.LoadAll<NovellaEngine.Data.NovellaStory>("");
                     NovellaEngine.Data.NovellaStory match = null;
                     foreach (var s in stories) if (s != null && s.name == lastStoryName) { match = s; break; }
-                    var launcherLoad = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
-                    if (match != null && launcherLoad != null) launcherLoad.TryLaunchStory(match);
+                    var launcher = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
+                    if (match != null && launcher != null) launcher.TryLaunchStory(match);
                     else Debug.LogWarning($"[NovellaUIBinding] LoadLastSave: история '{lastStoryName}' или StoryLauncher не найдены.");
                     break;
                 }
@@ -260,22 +339,62 @@ namespace NovellaEngine.Runtime.UI
                 case BindingAction.HidePanel:
                 case BindingAction.TogglePanel:
                 {
-                    var target = NovellaUIBinding.Find(TargetBindingId);
+                    var target = NovellaUIBinding.Find(step.TargetBindingId);
                     if (target == null) break;
-                    bool show = ClickAction == BindingAction.ShowPanel ? true
-                              : ClickAction == BindingAction.HidePanel ? false
+                    bool show = step.Action == BindingAction.ShowPanel ? true
+                              : step.Action == BindingAction.HidePanel ? false
                               : !target.gameObject.activeSelf;
                     target.gameObject.SetActive(show);
                     break;
                 }
 
                 case BindingAction.ChangeLanguage:
-                    if (!string.IsNullOrEmpty(LanguageCode))
-                        NovellaLocalizationManager.SetLanguage(LanguageCode);
+                    if (!string.IsNullOrEmpty(step.LanguageCode))
+                        NovellaLocalizationManager.SetLanguage(step.LanguageCode);
                     break;
 
                 case BindingAction.OpenURL:
-                    if (!string.IsNullOrEmpty(URL) && URL != "https://") Application.OpenURL(URL);
+                    if (!string.IsNullOrEmpty(step.URL) && step.URL != "https://")
+                        Application.OpenURL(step.URL);
+                    break;
+
+                case BindingAction.SetVariable:
+                {
+                    if (string.IsNullOrEmpty(step.VariableName)) break;
+                    var settings = NovellaEngine.Data.NovellaVariableSettings.Instance;
+                    var def = settings != null ? settings.Variables.Find(v => v.Name == step.VariableName) : null;
+                    // Тип переменной берём из настроек (если есть), иначе пишем во все три словаря — runtime разберётся.
+                    if (def == null || def.Type == NovellaEngine.Data.EVarType.Integer) NovellaVariables.SetInt(step.VariableName, step.VariableInt);
+                    if (def != null && def.Type == NovellaEngine.Data.EVarType.Boolean) NovellaVariables.SetBool(step.VariableName, step.VariableBool);
+                    if (def != null && def.Type == NovellaEngine.Data.EVarType.String)  NovellaVariables.SetString(step.VariableName, step.VariableString ?? "");
+                    break;
+                }
+
+                case BindingAction.TriggerEvent:
+                    NovellaPlayer.RaiseNovellaEvent(step.EventName ?? "", step.EventParam ?? "");
+                    break;
+
+                case BindingAction.PlaySFX:
+                    if (step.SfxClip != null)
+                    {
+                        var src = NovellaPlayer.Instance != null ? NovellaPlayer.Instance.gameObject : gameObject;
+                        AudioSource.PlayClipAtPoint(step.SfxClip, src.transform.position, step.SfxVolume);
+                    }
+                    break;
+
+                case BindingAction.RestartChapter:
+                {
+                    var p = NovellaPlayer.Instance;
+                    if (p == null || p.StoryTree == null) { Debug.LogWarning("[NovellaUIBinding] RestartChapter: Player или StoryTree не найдены."); break; }
+                    PlayerPrefs.DeleteKey($"NovellaSave_{p.StoryTree.name}_Node");
+                    NovellaVariables.ResetLocalVariables();
+                    p.PlayNode(p.StoryTree.RootNodeID);
+                    break;
+                }
+
+                case BindingAction.UnlockAchievement:
+                    NovellaPlayer.RaiseNovellaEvent("Achievement.Unlock", step.AchievementId ?? "");
+                    Debug.Log($"[NovellaUIBinding] Achievement unlock requested: '{step.AchievementId}'. Подключи свою платформенную интеграцию через NovellaPlayer.OnNovellaEvent (event = 'Achievement.Unlock').");
                     break;
             }
         }

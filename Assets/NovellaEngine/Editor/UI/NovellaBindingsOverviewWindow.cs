@@ -360,26 +360,73 @@ namespace NovellaEngine.Editor.UIBindings
 
         private static string Or(string s) => string.IsNullOrEmpty(s) ? "—" : s;
 
-        // Текст для колонки OnClick→ — формат «иконка действия + параметр».
-        // Дублируется по логике с DrawClickActionEditor в Forge, но даёт компактный
-        // single-line вид для таблицы.
+        // Текст для колонки OnClick→. Если на binding'е ОДИН шаг — показываем
+        // его иконку + параметр; если несколько — сокращённо «🎯 ▶ 🎵 +2 шага»
+        // чтобы пользователь видел и порядок и количество. Multi-step совершенно
+        // нормальный кейс для меню-кнопок.
         private static string ActionLabel(NovellaUIBinding b)
         {
-            if (b == null) return "";
-            switch (b.ClickAction)
+            if (b == null || b.ClickSequence == null || b.ClickSequence.Count == 0) return "";
+            if (b.ClickSequence.Count == 1)
             {
-                case NovellaUIBinding.BindingAction.None:           return "";
-                case NovellaUIBinding.BindingAction.GoToNode:       return "🎯  " + (string.IsNullOrEmpty(b.OnClickGotoNodeId) ? "(?)" : NodeLabel(b.OnClickGotoNodeId));
-                case NovellaUIBinding.BindingAction.StartNewGame:   return "▶  " + (b.StoryToStart != null ? b.StoryToStart.name : "(?)");
-                case NovellaUIBinding.BindingAction.LoadLastSave:   return "📥  Last save";
-                case NovellaUIBinding.BindingAction.QuitGame:       return "🚪  Quit";
-                case NovellaUIBinding.BindingAction.ShowPanel:      return "👁  " + TargetLabel(b.TargetBindingId);
-                case NovellaUIBinding.BindingAction.HidePanel:      return "🚫  " + TargetLabel(b.TargetBindingId);
-                case NovellaUIBinding.BindingAction.TogglePanel:    return "🔁  " + TargetLabel(b.TargetBindingId);
-                case NovellaUIBinding.BindingAction.ChangeLanguage: return "🌐  " + (string.IsNullOrEmpty(b.LanguageCode) ? "(?)" : b.LanguageCode);
-                case NovellaUIBinding.BindingAction.OpenURL:        return "🔗  " + (string.IsNullOrEmpty(b.URL) ? "(?)" : b.URL);
+                return StepShortLabel(b.ClickSequence[0]);
             }
-            return "";
+            // Multi-step — иконки подряд.
+            string s = "";
+            int max = System.Math.Min(4, b.ClickSequence.Count);
+            for (int i = 0; i < max; i++)
+            {
+                var step = b.ClickSequence[i];
+                s += StepIcon(step.Action) + " ";
+            }
+            if (b.ClickSequence.Count > max) s += "+" + (b.ClickSequence.Count - max);
+            return s.Trim();
+        }
+
+        private static string StepShortLabel(NovellaUIBinding.ClickActionStep step)
+        {
+            string ic = StepIcon(step.Action);
+            switch (step.Action)
+            {
+                case NovellaUIBinding.BindingAction.None:              return "";
+                case NovellaUIBinding.BindingAction.GoToNode:          return ic + "  " + (string.IsNullOrEmpty(step.OnClickGotoNodeId) ? "(?)" : NodeLabel(step.OnClickGotoNodeId));
+                case NovellaUIBinding.BindingAction.StartNewGame:      return ic + "  " + (step.StoryToStart != null ? step.StoryToStart.name : "(?)");
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return ic + "  Last save";
+                case NovellaUIBinding.BindingAction.RestartChapter:    return ic + "  Restart chapter";
+                case NovellaUIBinding.BindingAction.QuitGame:          return ic + "  Quit";
+                case NovellaUIBinding.BindingAction.ShowPanel:         return ic + "  " + TargetLabel(step.TargetBindingId);
+                case NovellaUIBinding.BindingAction.HidePanel:         return ic + "  " + TargetLabel(step.TargetBindingId);
+                case NovellaUIBinding.BindingAction.TogglePanel:       return ic + "  " + TargetLabel(step.TargetBindingId);
+                case NovellaUIBinding.BindingAction.SetVariable:       return ic + "  " + (string.IsNullOrEmpty(step.VariableName) ? "(?)" : step.VariableName);
+                case NovellaUIBinding.BindingAction.TriggerEvent:      return ic + "  " + (string.IsNullOrEmpty(step.EventName) ? "(?)" : step.EventName);
+                case NovellaUIBinding.BindingAction.UnlockAchievement: return ic + "  " + (string.IsNullOrEmpty(step.AchievementId) ? "(?)" : step.AchievementId);
+                case NovellaUIBinding.BindingAction.PlaySFX:           return ic + "  " + (step.SfxClip != null ? step.SfxClip.name : "(?)");
+                case NovellaUIBinding.BindingAction.ChangeLanguage:    return ic + "  " + (string.IsNullOrEmpty(step.LanguageCode) ? "(?)" : step.LanguageCode);
+                case NovellaUIBinding.BindingAction.OpenURL:           return ic + "  " + (string.IsNullOrEmpty(step.URL) ? "(?)" : step.URL);
+            }
+            return ic;
+        }
+
+        private static string StepIcon(NovellaUIBinding.BindingAction a)
+        {
+            switch (a)
+            {
+                case NovellaUIBinding.BindingAction.GoToNode:          return "🎯";
+                case NovellaUIBinding.BindingAction.StartNewGame:      return "▶";
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return "📥";
+                case NovellaUIBinding.BindingAction.RestartChapter:    return "↻";
+                case NovellaUIBinding.BindingAction.QuitGame:          return "🚪";
+                case NovellaUIBinding.BindingAction.ShowPanel:         return "👁";
+                case NovellaUIBinding.BindingAction.HidePanel:         return "🚫";
+                case NovellaUIBinding.BindingAction.TogglePanel:       return "🔁";
+                case NovellaUIBinding.BindingAction.SetVariable:       return "🔧";
+                case NovellaUIBinding.BindingAction.TriggerEvent:      return "📡";
+                case NovellaUIBinding.BindingAction.UnlockAchievement: return "🏆";
+                case NovellaUIBinding.BindingAction.PlaySFX:           return "🎵";
+                case NovellaUIBinding.BindingAction.ChangeLanguage:    return "🌐";
+                case NovellaUIBinding.BindingAction.OpenURL:           return "🔗";
+            }
+            return "—";
         }
 
         private static string TargetLabel(string id)
@@ -463,6 +510,10 @@ namespace NovellaEngine.Editor.UIBindings
             if (row.Binding == null) return true;
             if (row.Uses != 0) return false;
             var b = row.Binding;
+            // Если задана хотя бы одна step-action — binding активен.
+            if (b.ClickSequence != null)
+                foreach (var s in b.ClickSequence)
+                    if (s != null && s.Action != NovellaUIBinding.BindingAction.None) return false;
             if (b.ClickAction != NovellaUIBinding.BindingAction.None) return false;
             if (!string.IsNullOrEmpty(b.LocalizationKey)) return false;
             if (!string.IsNullOrEmpty(b.BoundVariable)) return false;
