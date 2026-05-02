@@ -2548,32 +2548,33 @@ namespace NovellaEngine.Editor
             GUILayout.Space(8);
         }
 
-        // Редактор «что делает кнопка по клику» — Action enum + контекстный
-        // параметр под выбранное действие. Заменяет ручную правку
-        // OnClickGotoNodeId/StoryToStart/etc. в Unity-инспекторе.
+        // Редактор «что делает кнопка по клику» — список карточек действий.
+        // Каждое действие — собственная строка с иконкой и названием; у выбранной
+        // подсвечивается акцентом и показывается описание + контекстный параметр.
+        // Нет dropdown'а — всё видно сразу, без вложенных меню, по-человечески.
         private static void DrawClickActionEditor(NovellaEngine.Runtime.UI.NovellaUIBinding b)
         {
-            // Action picker
-            var actions = (NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction[])System.Enum.GetValues(typeof(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction));
-            string[] labels = new string[actions.Length];
-            for (int i = 0; i < actions.Length; i++) labels[i] = ActionLabel(actions[i]);
-
-            int curIdx = System.Array.IndexOf(actions, b.ClickAction);
-            if (curIdx < 0) curIdx = 0;
-
-            EditorGUI.BeginChangeCheck();
-            int newIdx = EditorGUILayout.Popup(curIdx, labels);
-            if (EditorGUI.EndChangeCheck() && newIdx != curIdx)
+            var actions = new[]
             {
-                b.ClickAction = actions[newIdx];
-                EditorUtility.SetDirty(b);
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.GoToNode,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.StartNewGame,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.LoadLastSave,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ShowPanel,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.HidePanel,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.QuitGame,
+                NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None,
+            };
+
+            for (int i = 0; i < actions.Length; i++)
+            {
+                DrawActionCard(b, actions[i]);
+                GUILayout.Space(2);
             }
 
-            // Подсказка с описанием действия.
-            var hintSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-            hintSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-            string desc = ActionDescription(b.ClickAction);
-            if (!string.IsNullOrEmpty(desc)) GUILayout.Label(desc, hintSt);
+            GUILayout.Space(4);
 
             // Параметр(ы) для конкретного действия.
             switch (b.ClickAction)
@@ -2613,6 +2614,82 @@ namespace NovellaEngine.Editor
                     if (newUrl != b.URL) { b.URL = newUrl; EditorUtility.SetDirty(b); }
                     break;
             }
+        }
+
+        // Одна карточка-строка action picker'а: иконка + название + описание
+        // (при выборе). Целевой rect занимает всю ширину инспектора, чтобы
+        // было хорошо читаемо и удобно тапать.
+        private static void DrawActionCard(NovellaEngine.Runtime.UI.NovellaUIBinding b, NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction action)
+        {
+            bool selected = b.ClickAction == action;
+
+            float h = selected ? 46f : 28f;
+            Rect row = GUILayoutUtility.GetRect(0, h, GUILayout.ExpandWidth(true), GUILayout.Height(h));
+            bool hover = row.Contains(Event.current.mousePosition);
+
+            // Фон. Selected — акцентный с прозрачностью, hover — лёгкий highlight.
+            Color bg = selected ? new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.18f)
+                                : hover ? new Color(1f, 1f, 1f, 0.04f)
+                                        : NovellaSettingsModule.GetBgRaisedColor();
+            EditorGUI.DrawRect(row, bg);
+            DrawRectBorder(row, selected ? NovellaSettingsModule.GetAccentColor() : new Color(NovellaSettingsModule.GetBorderColor().r, NovellaSettingsModule.GetBorderColor().g, NovellaSettingsModule.GetBorderColor().b, 0.5f));
+
+            // Левая «полоса» акцента у выбранной — как в Apple Settings selected row.
+            if (selected) EditorGUI.DrawRect(new Rect(row.x, row.y, 3, row.height), NovellaSettingsModule.GetAccentColor());
+
+            // Иконка + Название первой строкой.
+            string icon, name;
+            (icon, name) = ActionIconAndName(action);
+
+            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+            iconSt.normal.textColor = selected ? NovellaSettingsModule.GetAccentColor() : C_TEXT_2;
+            GUI.Label(new Rect(row.x + 8, row.y, 24, 26), icon, iconSt);
+
+            var nameSt = new GUIStyle(selected ? EditorStyles.boldLabel : EditorStyles.label) { fontSize = 11 };
+            nameSt.normal.textColor = selected ? C_TEXT_1 : C_TEXT_2;
+            GUI.Label(new Rect(row.x + 36, row.y + (selected ? 4 : 5), row.width - 44, 18), name, nameSt);
+
+            // Описание — только для выбранного.
+            if (selected)
+            {
+                var descSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
+                descSt.normal.textColor = C_TEXT_3;
+                string desc = ActionDescription(action);
+                GUI.Label(new Rect(row.x + 36, row.y + 22, row.width - 44, row.height - 22), desc, descSt);
+            }
+
+            // Маркер «выбрано» справа.
+            var markSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleRight };
+            markSt.normal.textColor = selected ? NovellaSettingsModule.GetAccentColor() : new Color(1, 1, 1, 0.15f);
+            GUI.Label(new Rect(row.x + row.width - 26, row.y, 18, 26), selected ? "●" : "○", markSt);
+
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                if (b.ClickAction != action)
+                {
+                    b.ClickAction = action;
+                    UnityEditor.EditorUtility.SetDirty(b);
+                }
+                Event.current.Use();
+            }
+        }
+
+        private static (string icon, string name) ActionIconAndName(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction a)
+        {
+            switch (a)
+            {
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None:           return ("—",  ToolLang.Get("No action",         "Без действия"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.GoToNode:       return ("🎯", ToolLang.Get("Go to graph node",  "Перейти к ноде графа"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.StartNewGame:   return ("▶",  ToolLang.Get("Start new game",    "Начать новую игру"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.LoadLastSave:   return ("📥", ToolLang.Get("Load last save",    "Загрузить сохранение"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.QuitGame:       return ("🚪", ToolLang.Get("Quit game",          "Выйти из игры"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ShowPanel:      return ("👁", ToolLang.Get("Show UI element",   "Показать UI элемент"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.HidePanel:      return ("🚫", ToolLang.Get("Hide UI element",   "Скрыть UI элемент"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel:    return ("🔁", ToolLang.Get("Toggle UI element", "Переключить UI элемент"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage: return ("🌐", ToolLang.Get("Change language",   "Сменить язык"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:        return ("🔗", ToolLang.Get("Open URL",          "Открыть ссылку"));
+            }
+            return ("?", a.ToString());
         }
 
         private static string ActionLabel(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction a)
@@ -2682,19 +2759,24 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
         }
 
+        // Дружелюбный picker языка: показывает «Русский (RU)» в кнопке, по клику
+        // открывается popup со всеми сконфигурированными языками + их именами.
+        // Internally хранит код (RU, EN, ...).
         private static void DrawLanguagePickerRow(string current, System.Action<string> onChanged)
         {
             GUILayout.BeginHorizontal();
-            string newCurrent = EditorGUILayout.TextField(current ?? "");
-            if (newCurrent != current) onChanged(newCurrent);
 
-            if (GUILayout.Button("🌐", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+            string label = string.IsNullOrEmpty(current)
+                ? ToolLang.Get("— pick a language —", "— выбери язык —")
+                : LanguageDisplayName(current);
+
+            if (GUILayout.Button(label, EditorStyles.popup))
             {
                 var menu = new GenericMenu();
                 var settings = NovellaEngine.Data.NovellaLocalizationSettings.GetOrCreateSettings();
                 if (settings == null || settings.Languages == null || settings.Languages.Count == 0)
                 {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No languages configured", "Языки не настроены")));
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No languages configured — open Settings → UI Localization", "Языки не настроены — открой Настройки → Локализация UI")));
                 }
                 else
                 {
@@ -2702,12 +2784,41 @@ namespace NovellaEngine.Editor
                     {
                         if (string.IsNullOrEmpty(lang)) continue;
                         string code = lang;
-                        menu.AddItem(new GUIContent(code), code == current, () => onChanged(code));
+                        menu.AddItem(new GUIContent(LanguageDisplayName(code)), code == current, () => onChanged(code));
                     }
                 }
                 menu.ShowAsContext();
             }
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
+            {
+                if (GUILayout.Button("✖", GUILayout.Width(22))) onChanged("");
+            }
             GUILayout.EndHorizontal();
+        }
+
+        // Имя языка для UI: «Русский (RU)». Код в скобках чтобы пользователь
+        // видел и читаемое имя, и техническую сторону.
+        private static string LanguageDisplayName(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return "";
+            string name = code switch
+            {
+                "EN" => "English",
+                "RU" => "Русский",
+                "ES" => "Español",
+                "FR" => "Français",
+                "DE" => "Deutsch",
+                "ZH" => "中文",
+                "JA" => "日本語",
+                "PT" => "Português",
+                "IT" => "Italiano",
+                "PL" => "Polski",
+                "TR" => "Türkçe",
+                "KO" => "한국어",
+                "AR" => "العربية",
+                _ => null
+            };
+            return name != null ? $"{name} ({code})" : code;
         }
 
         // Поле «ключ + кнопка пикера» для локализации.
