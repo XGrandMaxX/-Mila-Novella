@@ -146,6 +146,10 @@ namespace NovellaEngine.Editor
             Instance = this;
             EditorApplication.hierarchyChanged += OnHierarchyChange;
             EditorApplication.update += OnEditorUpdate;
+            // Реакция на выделение в Unity Hierarchy — чтобы дерево Кузницы
+            // тоже раскрывало путь к объекту, выбранному снаружи (например в
+            // стандартной Unity-иерархии).
+            Selection.selectionChanged += OnUnitySelectionChanged;
             EditorApplication.delayCall += () =>
             {
                 FindReferences();
@@ -153,11 +157,19 @@ namespace NovellaEngine.Editor
             };
         }
 
+        private void OnUnitySelectionChanged()
+        {
+            // Просто триггерим Repaint — дальнейшая логика синка живёт в
+            // PullSelectionFromUnityIfNeeded, она вызывается из DrawGUI.
+            _window?.Repaint();
+        }
+
         public void OnDisable()
         {
             if (Instance == this) Instance = null;
             EditorApplication.hierarchyChanged -= OnHierarchyChange;
             EditorApplication.update -= OnEditorUpdate;
+            Selection.selectionChanged -= OnUnitySelectionChanged;
             if (_previewTexture != null)
             {
                 _previewTexture.Release();
@@ -237,6 +249,12 @@ namespace NovellaEngine.Editor
             // GetComponent<> бросает MissingReferenceException — что в IMGUI
             // ломает GUIClip-стек («pushing more clips than popping»).
             PruneSelection();
+
+            // Если юзер выделил объект СНАРУЖИ Кузницы (например в Unity
+            // Hierarchy) — подхватываем это выделение в _selectedList и
+            // раскрываем путь в нашем дереве. Без этого после клика в Unity
+            // Hierarchy наше дерево не реагировало.
+            PullSelectionFromUnityIfNeeded();
 
             Event ev = Event.current;
             if (ev != null && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Delete && _selectedList.Count > 0)
@@ -341,6 +359,62 @@ namespace NovellaEngine.Editor
             }
 
             _lastSyncedSelection = _selectedList.ToArray();
+        }
+
+        // Если Unity Selection.objects содержит RectTransform'ы которые
+        // ОТЛИЧАЮТСЯ от текущего _selectedList, переносим их в _selectedList
+        // и раскрываем путь в нашем дереве. Срабатывает когда юзер кликает
+        // в стандартной Unity Hierarchy на UI-объект — Кузница теперь
+        // сразу подсвечивает его в своём списке.
+        private void PullSelectionFromUnityIfNeeded()
+        {
+            var sel = Selection.objects;
+            if (sel == null) return;
+
+            var unityRects = new List<RectTransform>();
+            for (int i = 0; i < sel.Length; i++)
+            {
+                var go = sel[i] as GameObject;
+                if (go == null) continue;
+                var rt = go.GetComponent<RectTransform>();
+                if (rt != null) unityRects.Add(rt);
+            }
+
+            // Совпадает с тем что у нас уже выделено? — ничего не делаем.
+            if (unityRects.Count == _selectedList.Count)
+            {
+                bool same = true;
+                for (int i = 0; i < unityRects.Count; i++)
+                {
+                    if (unityRects[i] != _selectedList[i]) { same = false; break; }
+                }
+                if (same) return;
+            }
+
+            // Совпадает с тем что мы только что отправили в Unity? — это эхо
+            // нашего же sync, не реагируем (иначе будет feedback loop).
+            if (_lastSyncedSelection != null && _lastSyncedSelection.Length == unityRects.Count)
+            {
+                bool echo = true;
+                for (int i = 0; i < unityRects.Count; i++)
+                {
+                    if (_lastSyncedSelection[i] != unityRects[i]) { echo = false; break; }
+                }
+                if (echo) return;
+            }
+
+            // Принимаем Unity Selection как наше — обновляем _selectedList и
+            // раскрываем дерево к выделенному объекту.
+            _selectedList.Clear();
+            foreach (var rt in unityRects)
+            {
+                if (rt != null) _selectedList.Add(rt);
+            }
+
+            if (_selectedList.Count == 1 && _selectedList[0] != null)
+            {
+                ExpandTreeToTarget(_selectedList[0]);
+            }
         }
 
         // Раскрывает в дереве UI Forge всех предков целевого объекта.
