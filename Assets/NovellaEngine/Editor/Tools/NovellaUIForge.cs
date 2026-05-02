@@ -1805,6 +1805,11 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorAnchorSection()
         {
+            // Layout helpers — выравнивание/распределение для multiselect.
+            // Идут ПЕРЕД якорем, как просил пользователь — стрелки иконками,
+            // активны только при множественном выборе. Тултипы поясняют действие.
+            DrawAlignDistributeStrip();
+
             DrawSectionLabel(ToolLang.Get("ANCHOR", "ЯКОРЬ"));
             DrawInlineGuide("anchor");
 
@@ -1877,6 +1882,189 @@ namespace NovellaEngine.Editor
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
             GUILayout.Space(10);
+        }
+
+        // ─── ALIGN & DISTRIBUTE strip ───────────────────────────────────────────
+        // Полоска иконок-стрелок над якорем. Активна только при multiselect:
+        // shows align (top/middle/bottom, left/center/right) и distribute (H/V).
+        // Иконка с тултипом — никаких текстовых кнопок чтобы не разорвало layout.
+
+        private void DrawAlignDistributeStrip()
+        {
+            DrawSectionLabel(ToolLang.Get("ALIGN & DISTRIBUTE", "ВЫРОВНЯТЬ / РАСПРЕДЕЛИТЬ"));
+
+            bool multi = _selectedList != null && _selectedList.Count >= 2;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+
+            using (new EditorGUI.DisabledScope(!multi))
+            {
+                AlignBtn("⇤", ToolLang.Get("Align left edges to the leftmost selection",
+                                            "Выровнять по левому краю самого левого"),
+                    () => AlignEdges(AlignKind.Left));
+                AlignBtn("⇔", ToolLang.Get("Align horizontal centers",
+                                            "Выровнять по центру (горизонталь)"),
+                    () => AlignEdges(AlignKind.CenterH));
+                AlignBtn("⇥", ToolLang.Get("Align right edges to the rightmost selection",
+                                            "Выровнять по правому краю самого правого"),
+                    () => AlignEdges(AlignKind.Right));
+
+                GUILayout.Space(8);
+
+                AlignBtn("⤒", ToolLang.Get("Align top edges to the topmost selection",
+                                            "Выровнять по верхнему краю самого верхнего"),
+                    () => AlignEdges(AlignKind.Top));
+                AlignBtn("⇕", ToolLang.Get("Align vertical centers",
+                                            "Выровнять по центру (вертикаль)"),
+                    () => AlignEdges(AlignKind.CenterV));
+                AlignBtn("⤓", ToolLang.Get("Align bottom edges to the bottommost selection",
+                                            "Выровнять по нижнему краю самого нижнего"),
+                    () => AlignEdges(AlignKind.Bottom));
+
+                GUILayout.Space(8);
+
+                AlignBtn("⇿", ToolLang.Get("Distribute horizontally — equal gaps between elements",
+                                            "Распределить по горизонтали — равные промежутки"),
+                    () => Distribute(true));
+                AlignBtn("⇳", ToolLang.Get("Distribute vertically — equal gaps between elements",
+                                            "Распределить по вертикали — равные промежутки"),
+                    () => Distribute(false));
+            }
+
+            if (!multi)
+            {
+                GUILayout.Space(10);
+                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
+                st.normal.textColor = C_TEXT_4;
+                GUILayout.Label(ToolLang.Get("Select 2+ elements to enable", "Выбери 2+ элементов чтобы активировать"), st);
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+        }
+
+        private void AlignBtn(string icon, string tooltip, System.Action onClick)
+        {
+            var st = new GUIStyle(EditorStyles.miniButton) { fontSize = 14, fixedWidth = 28, fixedHeight = 24 };
+            if (GUILayout.Button(new GUIContent(icon, tooltip), st))
+            {
+                onClick?.Invoke();
+            }
+        }
+
+        private enum AlignKind { Left, CenterH, Right, Top, CenterV, Bottom }
+
+        // Выравнивает выделенные RectTransform'ы по краю самого крайнего, или по
+        // их общему центру. Работает в WORLD-space: вычисляем bounds по углам, потом
+        // двигаем anchoredPosition так, чтобы попасть в нужное X/Y.
+        private void AlignEdges(AlignKind kind)
+        {
+            if (_selectedList == null || _selectedList.Count < 2) return;
+
+            // Сначала собираем мировые bbox'ы.
+            var infos = new List<(RectTransform rt, Rect world)>();
+            foreach (var rt in _selectedList)
+            {
+                if (rt == null) continue;
+                infos.Add((rt, GetWorldRect(rt)));
+            }
+            if (infos.Count < 2) return;
+
+            float targetX = 0, targetY = 0;
+            switch (kind)
+            {
+                case AlignKind.Left:    targetX = infos.Min(i => i.world.xMin); break;
+                case AlignKind.Right:   targetX = infos.Max(i => i.world.xMax); break;
+                case AlignKind.CenterH: targetX = infos.Average(i => i.world.center.x); break;
+                case AlignKind.Top:     targetY = infos.Max(i => i.world.yMax); break;
+                case AlignKind.Bottom:  targetY = infos.Min(i => i.world.yMin); break;
+                case AlignKind.CenterV: targetY = infos.Average(i => i.world.center.y); break;
+            }
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Align " + kind);
+
+            foreach (var (rt, world) in infos)
+            {
+                Undo.RecordObject(rt, "Align");
+                Vector2 delta = Vector2.zero;
+                switch (kind)
+                {
+                    case AlignKind.Left:    delta.x = targetX - world.xMin; break;
+                    case AlignKind.Right:   delta.x = targetX - world.xMax; break;
+                    case AlignKind.CenterH: delta.x = targetX - world.center.x; break;
+                    case AlignKind.Top:     delta.y = targetY - world.yMax; break;
+                    case AlignKind.Bottom:  delta.y = targetY - world.yMin; break;
+                    case AlignKind.CenterV: delta.y = targetY - world.center.y; break;
+                }
+                // Делим на parent.lossyScale, чтобы дельта в мировых пикселях
+                // конвертировалась в локальные anchored-units.
+                Vector2 lossy = rt.parent != null ? (Vector2)((RectTransform)rt.parent).lossyScale : Vector2.one;
+                if (lossy.x == 0) lossy.x = 1; if (lossy.y == 0) lossy.y = 1;
+                rt.anchoredPosition += new Vector2(delta.x / lossy.x, delta.y / lossy.y);
+                EditorUtility.SetDirty(rt);
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+        }
+
+        // Распределяет элементы — между крайними оставляет одинаковые промежутки.
+        // Min — самый левый/нижний, Max — самый правый/верхний; они не двигаются.
+        private void Distribute(bool horizontal)
+        {
+            if (_selectedList == null || _selectedList.Count < 3) return;
+            var infos = new List<(RectTransform rt, Rect world)>();
+            foreach (var rt in _selectedList)
+            {
+                if (rt == null) continue;
+                infos.Add((rt, GetWorldRect(rt)));
+            }
+            if (infos.Count < 3) return;
+
+            // Сортируем по нужной оси и считаем равный gap.
+            infos.Sort((a, b) => horizontal
+                ? a.world.center.x.CompareTo(b.world.center.x)
+                : a.world.center.y.CompareTo(b.world.center.y));
+
+            float minPos = horizontal ? infos[0].world.center.x : infos[0].world.center.y;
+            float maxPos = horizontal ? infos[infos.Count - 1].world.center.x : infos[infos.Count - 1].world.center.y;
+            float step = (maxPos - minPos) / (infos.Count - 1);
+
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Distribute");
+
+            for (int i = 1; i < infos.Count - 1; i++)
+            {
+                var (rt, world) = infos[i];
+                Undo.RecordObject(rt, "Distribute");
+                float target = minPos + step * i;
+                Vector2 delta = horizontal
+                    ? new Vector2(target - world.center.x, 0)
+                    : new Vector2(0, target - world.center.y);
+                Vector2 lossy = rt.parent != null ? (Vector2)((RectTransform)rt.parent).lossyScale : Vector2.one;
+                if (lossy.x == 0) lossy.x = 1; if (lossy.y == 0) lossy.y = 1;
+                rt.anchoredPosition += new Vector2(delta.x / lossy.x, delta.y / lossy.y);
+                EditorUtility.SetDirty(rt);
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+        }
+
+        private static readonly Vector3[] _bboxBuf = new Vector3[4];
+        private static Rect GetWorldRect(RectTransform rt)
+        {
+            rt.GetWorldCorners(_bboxBuf);
+            float xMin = float.MaxValue, yMin = float.MaxValue, xMax = float.MinValue, yMax = float.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                if (_bboxBuf[i].x < xMin) xMin = _bboxBuf[i].x;
+                if (_bboxBuf[i].x > xMax) xMax = _bboxBuf[i].x;
+                if (_bboxBuf[i].y < yMin) yMin = _bboxBuf[i].y;
+                if (_bboxBuf[i].y > yMax) yMax = _bboxBuf[i].y;
+            }
+            return new Rect(xMin, yMin, xMax - xMin, yMax - yMin);
         }
 
         // "Зональный" авто-якорь: смотрим где центр элемента в канвасе (3×3 зон), и ставим
@@ -2559,6 +2747,26 @@ namespace NovellaEngine.Editor
             }
             GUILayout.EndHorizontal();
 
+            // Rich Text — позволяет TMP-тегам в тексте (<b>, <color>, <size>, ...).
+            // По умолчанию TMP включает rich text; даём явный тоггл, чтобы юзер
+            // мог отключить и видеть теги как обычный текст (полезно для UGC).
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent(ToolLang.Get("Rich Text", "Rich-теги"),
+                ToolLang.Get("Allow <b>, <color>, <size> and other TMP tags inside the text.",
+                             "Разрешить теги <b>, <color>, <size> и другие TMP-теги внутри текста.")),
+                GUILayout.Width(72));
+            EditorGUI.BeginChangeCheck();
+            bool rt2 = EditorGUILayout.Toggle(firstTxt.richText);
+            if (EditorGUI.EndChangeCheck())
+            {
+                foreach (var rtSel in _selectedList)
+                {
+                    var txt = rtSel.GetComponent<TMP_Text>();
+                    if (txt != null) { Undo.RecordObject(txt, "Rich Text"); txt.richText = rt2; EditorUtility.SetDirty(txt); }
+                }
+            }
+            GUILayout.EndHorizontal();
+
             GUILayout.EndVertical();
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
@@ -2627,6 +2835,20 @@ namespace NovellaEngine.Editor
                 {
                     var btn = rt.GetComponent<Button>();
                     if (btn != null) { var bc = btn.colors; bc.pressedColor = pc; Undo.RecordObject(btn, "Btn Pressed"); btn.colors = bc; EditorUtility.SetDirty(btn); }
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Disabled", "Неактивна"), GUILayout.Width(80));
+            EditorGUI.BeginChangeCheck();
+            var dc = EditorGUILayout.ColorField(c.disabledColor);
+            if (EditorGUI.EndChangeCheck())
+            {
+                foreach (var rt in _selectedList)
+                {
+                    var btn = rt.GetComponent<Button>();
+                    if (btn != null) { var bc = btn.colors; bc.disabledColor = dc; Undo.RecordObject(btn, "Btn Disabled"); btn.colors = bc; EditorUtility.SetDirty(btn); }
                 }
             }
             GUILayout.EndHorizontal();
