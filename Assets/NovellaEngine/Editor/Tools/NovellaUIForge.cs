@@ -2071,6 +2071,9 @@ namespace NovellaEngine.Editor
         // shows align (top/middle/bottom, left/center/right) и distribute (H/V).
         // Иконка с тултипом — никаких текстовых кнопок чтобы не разорвало layout.
 
+        // Иконки выравнивания. 8 кнопок 26×22 + минимальные паузы — точно влезают
+        // в 340-пиксельный инспектор. Хинт под кнопками отдельной строкой, чтобы
+        // не пытался влезть рядом и не растягивал layout.
         private void DrawAlignDistributeStrip()
         {
             DrawSectionLabel(ToolLang.Get("ALIGN & DISTRIBUTE", "ВЫРОВНЯТЬ / РАСПРЕДЕЛИТЬ"));
@@ -2092,7 +2095,7 @@ namespace NovellaEngine.Editor
                                             "Выровнять по правому краю самого правого"),
                     () => AlignEdges(AlignKind.Right));
 
-                GUILayout.Space(8);
+                GUILayout.Space(6);
 
                 AlignBtn("⤒", ToolLang.Get("Align top edges to the topmost selection",
                                             "Выровнять по верхнему краю самого верхнего"),
@@ -2104,7 +2107,7 @@ namespace NovellaEngine.Editor
                                             "Выровнять по нижнему краю самого нижнего"),
                     () => AlignEdges(AlignKind.Bottom));
 
-                GUILayout.Space(8);
+                GUILayout.Space(6);
 
                 AlignBtn("⇿", ToolLang.Get("Distribute horizontally — equal gaps between elements",
                                             "Распределить по горизонтали — равные промежутки"),
@@ -2114,22 +2117,24 @@ namespace NovellaEngine.Editor
                     () => Distribute(false));
             }
 
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
             if (!multi)
             {
-                GUILayout.Space(10);
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(12);
                 var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
                 st.normal.textColor = C_TEXT_4;
                 GUILayout.Label(ToolLang.Get("Select 2+ elements to enable", "Выбери 2+ элементов чтобы активировать"), st);
+                GUILayout.EndHorizontal();
             }
-
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
             GUILayout.Space(8);
         }
 
         private void AlignBtn(string icon, string tooltip, System.Action onClick)
         {
-            var st = new GUIStyle(EditorStyles.miniButton) { fontSize = 14, fixedWidth = 28, fixedHeight = 24 };
+            var st = new GUIStyle(EditorStyles.miniButton) { fontSize = 13, fixedWidth = 26, fixedHeight = 22 };
             if (GUILayout.Button(new GUIContent(icon, tooltip), st))
             {
                 onClick?.Invoke();
