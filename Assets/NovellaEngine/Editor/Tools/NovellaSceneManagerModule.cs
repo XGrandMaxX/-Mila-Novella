@@ -2193,9 +2193,22 @@ namespace NovellaEngine.Editor
         {
             var go = new GameObject(name);
             var canvas = go.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            go.AddComponent<UnityEngine.UI.CanvasScaler>().uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            go.GetComponent<UnityEngine.UI.CanvasScaler>().referenceResolution = new Vector2(1920, 1080);
+            // ScreenSpaceCamera + matchWidthOrHeight=0.5 + planeDistance — те же
+            // настройки что и в UI Forge (NovellaUIForge.CreateCanvasInScene).
+            // Раньше пресет создавал ScreenSpaceOverlay без match — Forge при
+            // открытии переписывал rendering на Camera, но resolution-match
+            // оставался дефолтным (0=match width), и канвас в превью получался
+            // меньше referenceResolution на типичном aspect-ratio 16:9 эдитора.
+            // Теперь геометрия идентична Forge-канвасам.
+            canvas.renderMode   = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera  = Camera.main;
+            canvas.planeDistance = 5f;
+
+            var scaler = go.AddComponent<UnityEngine.UI.CanvasScaler>();
+            scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+
             go.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             return canvas;
         }

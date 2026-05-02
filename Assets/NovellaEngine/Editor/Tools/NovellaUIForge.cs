@@ -1131,25 +1131,33 @@ namespace NovellaEngine.Editor
 
             float iconStartX = iconX + 14;
 
-            // Активность объекта (включён/выключен) — определяет цвет имени и
-            // подпись «выкл». activeSelf — то что юзер сам поставил, без учёта
-            // родителей; activeInHierarchy дополнительно показывает «реально
-            // невидимый из-за выключенного предка». Серим оба случая.
-            bool selfActive = rt.gameObject.activeSelf;
-            bool actuallyVisible = rt.gameObject.activeInHierarchy;
-            bool isInactive = !actuallyVisible || !selfActive;
+            // Активность объекта. Различаем три состояния:
+            //  • selfActive=true,  visible=true   → норма
+            //  • selfActive=false                  → юзер сам выключил, метка «выкл»
+            //  • selfActive=true,  visible=false   → сам включён, но скрыт неактивным предком (метка «скрыт»)
+            // Серим только первый и второй случай по-разному, чтобы было сразу
+            // видно «это я выключил» vs «это родитель скрыл».
+            bool selfActive       = rt.gameObject.activeSelf;
+            bool actuallyVisible  = rt.gameObject.activeInHierarchy;
+            bool selfDisabled     = !selfActive;
+            bool hiddenByParent   = selfActive && !actuallyVisible;
+            bool isInactive       = selfDisabled || hiddenByParent;
             // Создан ли пресетом — нельзя ли трогать активность вручную.
             bool isPresetManaged = rt.GetComponentInParent<NovellaEngine.Runtime.NovellaPresetMarker>(true) != null;
 
             var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = isInactive ? C_TEXT_4
-                                                 : (isSel ? C_ACCENT : C_TEXT_3);
+            // Иконка: только selfDisabled серим. hiddenByParent оставляем
+            // обычным цветом — объект сам по себе нормально включён.
+            iconSt.normal.textColor = selfDisabled ? C_TEXT_4
+                                                   : (isSel ? C_ACCENT : C_TEXT_3);
             GUI.Label(new Rect(iconStartX, row.y, 22, row.height), icon, iconSt);
 
             // Имя — верхняя строка ряда.
             var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 2) };
-            // Серость + italic для отключённых, чтобы их сразу было видно.
-            if (isInactive)
+            // selfDisabled — italic + приглушённый; hiddenByParent — без italic,
+            // обычный цвет (объект логически активен, просто временно скрыт);
+            // обычный — стандартный.
+            if (selfDisabled)
             {
                 nameSt.fontStyle = FontStyle.Italic;
                 nameSt.normal.textColor = C_TEXT_4;
@@ -1163,19 +1171,26 @@ namespace NovellaEngine.Editor
             float textW = row.width - (textX - row.x) - 70;
             GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
 
-            // Подпись типа — нижняя строка, мелким серым шрифтом. Если объект
-            // выключен — добавляем «· выкл» в конец подписи.
+            // Подпись типа — нижняя строка, мелким серым шрифтом. К ней
+            // дописываем индикатор статуса:
+            //   • selfDisabled  → «· выкл»     (юзер сам выключил)
+            //   • hiddenByParent→ «· скрыт»     (сам активен, но родитель выключен)
             string subtitle = GetElementSubtitle(rt);
-            if (isInactive)
+            if (selfDisabled)
             {
                 string offTag = ToolLang.Get("off", "выкл");
                 subtitle = string.IsNullOrEmpty(subtitle) ? offTag : subtitle + " · " + offTag;
             }
+            else if (hiddenByParent)
+            {
+                string hidTag = ToolLang.Get("hidden by parent", "скрыт родителем");
+                subtitle = string.IsNullOrEmpty(subtitle) ? hidTag : subtitle + " · " + hidTag;
+            }
             if (!string.IsNullOrEmpty(subtitle))
             {
                 var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
-                subSt.normal.textColor = isInactive ? C_TEXT_4
-                                                   : (isSel ? C_TEXT_3 : C_TEXT_4);
+                subSt.normal.textColor = selfDisabled ? C_TEXT_4
+                                                     : (isSel ? C_TEXT_3 : C_TEXT_4);
                 GUI.Label(new Rect(textX, row.y + 18, textW, 14), subtitle, subSt);
             }
 

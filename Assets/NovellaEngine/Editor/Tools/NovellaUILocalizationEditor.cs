@@ -43,6 +43,16 @@ namespace NovellaEngine.Editor
         private bool _addLangMode = false;
         private string _newLang = "";
 
+        // Свёрнутые категории в левой панели (по имени категории).
+        // Сессионное состояние, между сессиями не сохраняем.
+        private HashSet<string> _collapsedCategories = new HashSet<string>();
+        // Текущее значение для поля «новая категория» при редактировании ключа.
+        private string _newCategoryDraft = "";
+
+        // Имя «псевдо-категории» для ключей без явной категории.
+        // Подбираем строку которая 100% не пересечётся с реальным `Category`.
+        private const string UNCATEGORIZED_KEY = "__novella_uncategorized__";
+
         public static void ShowWindow()
         {
             var win = GetWindow<NovellaUILocalizationEditor>(false,
@@ -257,16 +267,76 @@ namespace NovellaEngine.Editor
 
             _keysScroll = GUILayout.BeginScrollView(_keysScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
 
+            // Группируем ключи по категории. Сначала отфильтрованные по поиску,
+            // затем sort'им категории и внутри каждой — ключи. Без категории
+            // = особая корзина «Без категории», она всегда в конце.
+            var grouped = new Dictionary<string, List<NovellaUILocalizationTable.Entry>>();
             for (int i = 0; i < _table.Entries.Count; i++)
             {
                 var e = _table.Entries[i];
                 if (e == null || string.IsNullOrEmpty(e.Key)) continue;
                 if (filter.Length > 0 && !e.Key.ToLowerInvariant().Contains(filter)) continue;
-                DrawKeyRow(e);
+                string cat = string.IsNullOrEmpty(e.Category) ? UNCATEGORIZED_KEY : e.Category;
+                if (!grouped.TryGetValue(cat, out var list)) { list = new List<NovellaUILocalizationTable.Entry>(); grouped[cat] = list; }
+                list.Add(e);
+            }
+
+            // Сортируем категории. Без-категории — в конце.
+            var catNames = grouped.Keys
+                .OrderBy(k => k == UNCATEGORIZED_KEY ? 1 : 0)
+                .ThenBy(k => k, System.StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var cat in catNames)
+            {
+                bool collapsed = _collapsedCategories.Contains(cat);
+                DrawCategoryHeader(cat, grouped[cat].Count, collapsed);
+                if (collapsed) continue;
+
+                var entries = grouped[cat];
+                entries.Sort((a, b) => string.Compare(a.Key, b.Key, System.StringComparison.OrdinalIgnoreCase));
+                foreach (var e in entries) DrawKeyRow(e);
+                GUILayout.Space(4);
             }
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        // Заголовок группы — сворачиваемый, со счётчиком и слегка приподнятым фоном.
+        private void DrawCategoryHeader(string category, int count, bool collapsed)
+        {
+            GUILayout.Space(2);
+            Rect row = GUILayoutUtility.GetRect(0, 22, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(row, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10f));
+            // Тонкая полоса слева — акцент.
+            EditorGUI.DrawRect(new Rect(row.x, row.y, 2, row.height), C_ACCENT);
+
+            // Шеврон
+            var chSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
+            chSt.normal.textColor = C_TEXT_2;
+            GUI.Label(new Rect(row.x + 6, row.y, 14, row.height), collapsed ? "▶" : "▼", chSt);
+
+            // Имя категории
+            string display = category == UNCATEGORIZED_KEY
+                ? ToolLang.Get("Uncategorized", "Без категории")
+                : category;
+            var hSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11 };
+            hSt.normal.textColor = category == UNCATEGORIZED_KEY ? C_TEXT_3 : C_TEXT_1;
+            GUI.Label(new Rect(row.x + 22, row.y, row.width - 70, row.height), display, hSt);
+
+            // Счётчик
+            var cntSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleRight };
+            cntSt.normal.textColor = C_TEXT_3;
+            GUI.Label(new Rect(row.xMax - 44, row.y, 36, row.height), count.ToString(), cntSt);
+
+            if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition) && Event.current.button == 0)
+            {
+                if (collapsed) _collapsedCategories.Remove(category);
+                else _collapsedCategories.Add(category);
+                Event.current.Use();
+                Repaint();
+            }
         }
 
         private void DrawKeyRow(NovellaUILocalizationTable.Entry e)
@@ -282,10 +352,18 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(row, isSel ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f) : Color.clear);
             if (isSel) EditorGUI.DrawRect(new Rect(row.x, row.y, 3, row.height), C_ACCENT);
 
-            // Кружок-индикатор: заполнен ли default-язык
+            // Кружок-индикатор: заполнен ли default-язык.
+            // Раньше был квадрат через DrawRect — теперь рисуем символ «●»
+            // GUI-меткой с цветом, по визуалу это аккуратный круг.
             string defText = e.Get(_table.DefaultLanguage);
-            Color dotCol = string.IsNullOrEmpty(defText) ? C_WARN : new Color(0.40f, 0.78f, 0.45f);
-            EditorGUI.DrawRect(new Rect(row.x + 12, row.y + row.height * 0.5f - 3, 6, 6), dotCol);
+            bool defFilled = !string.IsNullOrEmpty(defText);
+            Color dotCol = defFilled ? new Color(0.40f, 0.78f, 0.45f) : C_WARN;
+            string dotTip = defFilled
+                ? ToolLang.Get("Default-language translation is filled.", "Перевод на язык по умолчанию заполнен.")
+                : ToolLang.Get("Default-language translation is empty — fill it first.", "Нет перевода на язык по умолчанию — заполни в первую очередь.");
+            var dotSt = new GUIStyle(EditorStyles.label) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+            dotSt.normal.textColor = dotCol;
+            GUI.Label(new Rect(row.x + 8, row.y, 16, row.height), new GUIContent("●", dotTip), dotSt);
 
             var st = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
             st.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
@@ -401,10 +479,15 @@ namespace NovellaEngine.Editor
                 "Fill in a translation for each language. The default-language field (marked ⭐) is the fallback when other languages are empty. The ✕ button next to a language removes it from the project entirely.",
                 "Заполни перевод для каждого языка. Поле языка по умолчанию (⭐) используется как fallback, если другие языки пусты. Кнопка ✕ рядом с языком полностью удаляет его из проекта."));
 
-            // Категория ключа — для группировки в picker'ах. Свободный текст;
-            // пользователь сам придумывает («menu», «dialog», «hud», ...).
+            // Категория ключа — для группировки в picker'ах и в левой панели.
+            // UX переделан: вместо хардкода menu/dialog/hud рядом с полем
+            // показываем dropdown со ВСЕМИ существующими категориями (что юзер
+            // уже завёл) + поле «Новая…». Так не получится случайно ввести
+            // дублирующее имя с опечаткой («menu » vs «menu»).
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Category", "Категория"), EditorStyles.miniBoldLabel, GUILayout.Width(140));
+
+            // Текстовое поле — текущее значение, редактируемое.
             string newCat = EditorGUILayout.TextField(entry.Category ?? "", GUILayout.Height(22));
             if (newCat != (entry.Category ?? ""))
             {
@@ -412,10 +495,65 @@ namespace NovellaEngine.Editor
                 entry.Category = newCat;
                 EditorUtility.SetDirty(_table);
             }
-            // Quick-pick кнопки для часто-используемых.
-            if (GUILayout.Button("menu", EditorStyles.miniButton, GUILayout.Width(50)))   { Undo.RecordObject(_table, "Edit Category"); entry.Category = "menu";   EditorUtility.SetDirty(_table); }
-            if (GUILayout.Button("dialog", EditorStyles.miniButton, GUILayout.Width(60))) { Undo.RecordObject(_table, "Edit Category"); entry.Category = "dialog"; EditorUtility.SetDirty(_table); }
-            if (GUILayout.Button("hud", EditorStyles.miniButton, GUILayout.Width(50)))    { Undo.RecordObject(_table, "Edit Category"); entry.Category = "hud";    EditorUtility.SetDirty(_table); }
+
+            // Dropdown с существующими категориями.
+            if (GUILayout.Button(new GUIContent("▾ " + ToolLang.Get("Pick", "Выбрать"),
+                ToolLang.Get("Pick from existing categories.",
+                             "Выбрать из уже существующих категорий.")),
+                EditorStyles.miniButton, GUILayout.Width(80), GUILayout.Height(22)))
+            {
+                var menu = new GenericMenu();
+                var allCats = _table.Entries
+                    .Where(x => x != null && !string.IsNullOrEmpty(x.Category))
+                    .Select(x => x.Category)
+                    .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x, System.StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (allCats.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("(no categories yet)", "(категорий пока нет)")));
+                }
+                else
+                {
+                    foreach (var cat in allCats)
+                    {
+                        string captured = cat;
+                        menu.AddItem(new GUIContent(captured), entry.Category == captured, () =>
+                        {
+                            Undo.RecordObject(_table, "Pick Category");
+                            entry.Category = captured;
+                            EditorUtility.SetDirty(_table);
+                            Repaint();
+                        });
+                    }
+                }
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent(ToolLang.Get("(none)", "(без категории)")), string.IsNullOrEmpty(entry.Category), () =>
+                {
+                    Undo.RecordObject(_table, "Clear Category");
+                    entry.Category = "";
+                    EditorUtility.SetDirty(_table);
+                    Repaint();
+                });
+                menu.ShowAsContext();
+            }
+            GUILayout.EndHorizontal();
+
+            // Подсказка-counter — сколько уникальных категорий и предупреждение
+            // если их слишком много (становится тяжело искать).
+            int uniqueCats = _table.Entries
+                .Where(x => x != null && !string.IsNullOrEmpty(x.Category))
+                .Select(x => x.Category)
+                .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                .Count();
+            var catCntSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            catCntSt.normal.textColor = uniqueCats > 20 ? C_WARN : C_TEXT_4;
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(140);
+            GUILayout.Label(string.Format(ToolLang.Get(
+                "{0} unique categories in the project. Recommended: keep under 20 for readability.",
+                "Уникальных категорий в проекте: {0}. Рекомендуется ≤20 для читаемости."), uniqueCats), catCntSt);
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
 
