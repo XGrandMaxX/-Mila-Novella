@@ -2325,32 +2325,13 @@ namespace NovellaEngine.Editor
                 RectTransform pickedDeepest = PickDeepestRectAt(e.mousePosition, drawRect, targetW, targetH);
                 if (pickedDeepest != null)
                 {
+                    // Раньше при первом одиночном клике мы повышали target до
+                    // GetTopLevelParent(pickedDeepest) — выделялся ВЕСЬ слой
+                    // канваса, и только повторный клик «дрилл-даун»-ил до
+                    // реального элемента. Это путало: клик на Текст НЕ
+                    // выделял Текст. Сейчас всегда работаем с pickedDeepest —
+                    // тем что юзер реально видит и в чём кликает.
                     RectTransform target = pickedDeepest;
-
-                    if (!isDoubleClick)
-                    {
-                        bool alreadySelected = _selectedList.Contains(target);
-                        if (!alreadySelected)
-                        {
-                            RectTransform curr = target;
-                            while (curr != null && curr != _canvas.GetComponent<RectTransform>())
-                            {
-                                if (_selectedList.Contains(curr))
-                                {
-                                    alreadySelected = true;
-                                    target = curr;
-                                    break;
-                                }
-                                curr = curr.parent as RectTransform;
-                            }
-                        }
-
-                        if (!alreadySelected)
-                        {
-                            RectTransform topLevel = GetTopLevelParent(pickedDeepest);
-                            if (topLevel != null) target = topLevel;
-                        }
-                    }
 
                     if (e.control || e.command)
                     {
@@ -2371,7 +2352,7 @@ namespace NovellaEngine.Editor
                     // юзер свернул Холст руками, повторные клики на этот же
                     // объект уже не раскрывают (SyncSelectionToUnityIfNeeded
                     // считает «не менялся» и пропускает).
-                    if (target != null) ExpandTreeToTarget(target);
+                    ExpandTreeToTarget(target);
 
                     if (FirstSelected != _canvas.GetComponent<RectTransform>()) BeginDrag(e.mousePosition);
                 }
