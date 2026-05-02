@@ -121,8 +121,6 @@ namespace NovellaEngine.Editor.UIBindings
             DrawGroup("ИГРОВАЯ ЛОГИКА", new[]
             {
                 NovellaUIBinding.BindingAction.SetVariable,
-                NovellaUIBinding.BindingAction.TriggerEvent,
-                NovellaUIBinding.BindingAction.UnlockAchievement,
             });
 
             DrawGroup("ЭФФЕКТЫ", new[]
@@ -135,6 +133,15 @@ namespace NovellaEngine.Editor.UIBindings
                 NovellaUIBinding.BindingAction.ChangeLanguage,
                 NovellaUIBinding.BindingAction.OpenURL,
                 NovellaUIBinding.BindingAction.QuitGame,
+            });
+
+            // Отдельная группа «Для кодеров» — действия требующие интеграции
+            // через NovellaPlayer.OnNovellaEvent или платформенный API. Видимая
+            // визуальная отбивка, чтобы рядовой пользователь не ткнул случайно.
+            DrawCodersGroup(new[]
+            {
+                NovellaUIBinding.BindingAction.TriggerEvent,
+                NovellaUIBinding.BindingAction.UnlockAchievement,
             });
 
             DrawGroup("ПРОЧЕЕ", new[]
@@ -150,7 +157,6 @@ namespace NovellaEngine.Editor.UIBindings
 
         private void DrawGroup(string title, NovellaUIBinding.BindingAction[] actions)
         {
-            // Заголовок группы — caps-label с акцентом.
             GUILayout.Space(8);
             GUILayout.BeginHorizontal();
             GUILayout.Space(20);
@@ -161,12 +167,46 @@ namespace NovellaEngine.Editor.UIBindings
             GUILayout.EndHorizontal();
             GUILayout.Space(2);
 
-            // Карточки группы.
             for (int i = 0; i < actions.Length; i++)
             {
                 DrawActionCard(actions[i]);
                 GUILayout.Space(2);
             }
+        }
+
+        // Группа «Для кодеров» — отдельная плашка с рамкой и хинтом, чтобы не
+        // путалась с обычными action'ами. Эти действия требуют ручной интеграции
+        // через NovellaPlayer.OnNovellaEvent или платформенный API.
+        private void DrawCodersGroup(NovellaUIBinding.BindingAction[] actions)
+        {
+            GUILayout.Space(12);
+
+            // Заголовок группы.
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(20);
+            var hSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 9 };
+            hSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f); // amber — отличается от обычных групп
+            GUILayout.Label("👨‍💻 ДЛЯ КОДЕРОВ — требуют C#-интеграции", hSt);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(4);
+
+            // Карточки внутри плашки с янтарной рамкой.
+            Rect frameStart = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true));
+            GUILayout.Space(4);
+
+            for (int i = 0; i < actions.Length; i++)
+            {
+                DrawActionCard(actions[i]);
+                GUILayout.Space(2);
+            }
+
+            GUILayout.Space(4);
+            Rect frameEnd = GUILayoutUtility.GetLastRect();
+            // Рамка вокруг группы.
+            Rect frame = new Rect(frameStart.x + 12, frameStart.y, frameStart.width - 24, frameEnd.yMax - frameStart.y);
+            DrawBorder(frame, new Color(0.95f, 0.66f, 0.30f, 0.45f));
+            EditorGUI.DrawRect(new Rect(frame.x, frame.y, 3, frame.height), new Color(0.95f, 0.66f, 0.30f, 0.85f));
         }
 
         private void DrawActionCard(NovellaUIBinding.BindingAction action)

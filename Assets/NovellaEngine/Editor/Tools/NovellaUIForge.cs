@@ -2502,17 +2502,26 @@ namespace NovellaEngine.Editor
 
                 // Friendly name — главное поле, видно везде в пикерах.
                 GUILayout.Label(ToolLang.Get("Display name", "Имя для пикера"), EditorStyles.miniBoldLabel);
+                DrawFieldHint(ToolLang.Get(
+                    "Friendly name shown in graph node pickers and the Bindings overview. Doesn't affect the game — only how YOU find this element later.",
+                    "Дружелюбное имя — видно везде где этот элемент выбирается из ноды графа или таблицы Связей. На игру не влияет, нужно только тебе чтобы потом узнавать этот элемент в списке."));
                 string newName = EditorGUILayout.TextField(binding.Name);
                 if (newName != binding.Name) { binding.Name = newName; EditorUtility.SetDirty(binding); }
 
                 GUILayout.Space(8);
                 GUILayout.Label(ToolLang.Get("Localization key (optional)", "Ключ локализации (опц.)"), EditorStyles.miniBoldLabel);
+                DrawFieldHint(ToolLang.Get(
+                    "Connect this text to the localization table. When the player switches language, the text auto-updates. Leave empty if the text doesn't need translation.",
+                    "Связывает этот текст с таблицей локализации. При смене языка игроком текст обновится сам. Оставь пустым, если переводить не нужно."));
                 DrawKeyPickerRow(
                     binding.LocalizationKey,
                     newKey => { binding.LocalizationKey = newKey; EditorUtility.SetDirty(binding); binding.Refresh(); });
 
                 GUILayout.Space(6);
                 GUILayout.Label(ToolLang.Get("Variable (substitutes {var})", "Переменная (вместо {var})"), EditorStyles.miniBoldLabel);
+                DrawFieldHint(ToolLang.Get(
+                    "Inserts a variable's value into the text. Write \"{var}\" inside the localized string and pick a variable here — at runtime \"{var}\" gets replaced with its current value. Example: \"HP: {var}\" + variable \"PlayerHP\" → \"HP: 42\".",
+                    "Подставляет значение переменной в текст. Вставь «{var}» внутрь локализованной строки и выбери переменную здесь — в рантайме «{var}» заменится на её текущее значение. Пример: «HP: {var}» + переменная «PlayerHP» → «HP: 42»."));
                 DrawVarPickerRow(
                     binding.BoundVariable,
                     newVar => { binding.BoundVariable = newVar; EditorUtility.SetDirty(binding); binding.Refresh(); });
@@ -2522,6 +2531,9 @@ namespace NovellaEngine.Editor
                 {
                     GUILayout.Space(8);
                     GUILayout.Label(ToolLang.Get("Click action", "По клику"), EditorStyles.miniBoldLabel);
+                    DrawFieldHint(ToolLang.Get(
+                        "What the button does when player clicks it. Can be a sequence of actions executed top-to-bottom with optional delays.",
+                        "Что произойдёт когда игрок кликнет по кнопке. Может быть последовательность действий — выполняются сверху вниз с опциональными задержками."));
                     DrawClickActionEditor(binding);
                 }
 
@@ -2674,19 +2686,37 @@ namespace NovellaEngine.Editor
                                                      "Предыдущий шаг закрывает сцену — этот шаг скорее всего не выполнится."), wSt);
             }
 
-            // Delay before
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Delay before", "Задержка перед"), GUILayout.Width(120));
-            float newDelay = EditorGUILayout.FloatField(step.DelayBefore);
-            if (Mathf.Abs(newDelay - step.DelayBefore) > 0.0001f) { step.DelayBefore = Mathf.Max(0f, newDelay); EditorUtility.SetDirty(b); }
-            GUILayout.Label("сек", EditorStyles.miniLabel, GUILayout.Width(28));
-            GUILayout.EndHorizontal();
-
             GUILayout.Space(4);
 
             // Параметр(ы) для конкретного действия — те же поля что были в legacy editor'е,
             // но теперь читаются/пишутся в step.X.
             DrawStepParameters(b, step);
+
+            // Delay — внизу шага, с явным объяснением «когда» и какой эффект.
+            // Для первого шага говорит «после клика», для последующих — «после прошлого шага».
+            // Вижуально мягче — отдельная мини-плашка чтобы не сбивать с параметров.
+            if (step.Action != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
+            {
+                GUILayout.Space(4);
+                Rect delayRect = GUILayoutUtility.GetRect(0, 32, GUILayout.ExpandWidth(true));
+                EditorGUI.DrawRect(delayRect, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.06f));
+
+                var lblSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
+                lblSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
+                string when = idx == 0
+                    ? ToolLang.Get("⏱  Wait this many seconds AFTER click before running this step.",
+                                   "⏱  Подождать столько секунд ПОСЛЕ клика перед выполнением этого шага.")
+                    : ToolLang.Get("⏱  Wait this many seconds AFTER previous step before running this step.",
+                                   "⏱  Подождать столько секунд ПОСЛЕ прошлого шага перед выполнением этого шага.");
+                GUI.Label(new Rect(delayRect.x + 8, delayRect.y + 2, delayRect.width - 90, 14), when, lblSt);
+
+                Rect numRect = new Rect(delayRect.xMax - 80, delayRect.y + 6, 50, 20);
+                float newDelay = EditorGUI.FloatField(numRect, step.DelayBefore);
+                if (Mathf.Abs(newDelay - step.DelayBefore) > 0.0001f) { step.DelayBefore = Mathf.Max(0f, newDelay); EditorUtility.SetDirty(b); }
+                var sSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
+                sSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
+                GUI.Label(new Rect(delayRect.xMax - 28, delayRect.y + 8, 24, 16), "сек", sSt);
+            }
 
             GUILayout.EndVertical();
             GUILayout.Space(8);
@@ -2761,10 +2791,21 @@ namespace NovellaEngine.Editor
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PlaySFX:
                 {
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Clip", "Звук"), GUILayout.Width(80));
-                    var newClip = (AudioClip)EditorGUILayout.ObjectField(step.SfxClip, typeof(AudioClip), false);
-                    if (newClip != step.SfxClip) { step.SfxClip = newClip; EditorUtility.SetDirty(b); }
+                    GUILayout.Label(ToolLang.Get("Sound", "Звук"), GUILayout.Width(80));
+                    string clipName = step.SfxClip != null ? step.SfxClip.name : ToolLang.Get("— pick from gallery —", "— выбрать из галереи —");
+                    if (GUILayout.Button("🎵  " + clipName, EditorStyles.popup))
+                    {
+                        NovellaGalleryWindow.ShowWindow(obj =>
+                        {
+                            if (obj is AudioClip clip) { step.SfxClip = clip; EditorUtility.SetDirty(b); }
+                        }, NovellaGalleryWindow.EGalleryFilter.Audio);
+                    }
+                    using (new EditorGUI.DisabledScope(step.SfxClip == null))
+                    {
+                        if (GUILayout.Button("✖", GUILayout.Width(22))) { step.SfxClip = null; EditorUtility.SetDirty(b); }
+                    }
                     GUILayout.EndHorizontal();
+
                     GUILayout.BeginHorizontal();
                     GUILayout.Label(ToolLang.Get("Volume", "Громкость"), GUILayout.Width(80));
                     float nv = EditorGUILayout.Slider(step.SfxVolume, 0f, 1f);
@@ -2795,24 +2836,18 @@ namespace NovellaEngine.Editor
             GUILayout.BeginHorizontal();
             GUILayout.Label(ToolLang.Get("Variable", "Переменная"), GUILayout.Width(100));
             string current = step.VariableName ?? "";
-            if (GUILayout.Button(string.IsNullOrEmpty(current) ? ToolLang.Get("— pick a variable —", "— выбери переменную —") : current, EditorStyles.popup))
+            if (GUILayout.Button(string.IsNullOrEmpty(current) ? ToolLang.Get("— pick a variable —", "— выбери переменную —") : "🔧  " + current, EditorStyles.popup))
             {
-                var menu = new GenericMenu();
-                var settings = Resources.Load<NovellaEngine.Data.NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-                if (settings == null || settings.Variables == null || settings.Variables.Count == 0)
+                NovellaEngine.Editor.UIBindings.NovellaVariablePickerWindow.Open(current, picked =>
                 {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No variables yet — open Hub → Variables", "Нет переменных — открой Hub → Переменные")));
-                }
-                else
-                {
-                    foreach (var v in settings.Variables)
-                    {
-                        if (string.IsNullOrEmpty(v.Name)) continue;
-                        string n = v.Name;
-                        menu.AddItem(new GUIContent($"{n}    ({v.Type})"), n == current, () => { step.VariableName = n; EditorUtility.SetDirty(b); });
-                    }
-                }
-                menu.ShowAsContext();
+                    if (b == null || step == null) return;
+                    step.VariableName = picked;
+                    EditorUtility.SetDirty(b);
+                });
+            }
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
+            {
+                if (GUILayout.Button("✖", GUILayout.Width(22))) { step.VariableName = ""; EditorUtility.SetDirty(b); }
             }
             GUILayout.EndHorizontal();
 
@@ -2987,6 +3022,22 @@ namespace NovellaEngine.Editor
             return name != null ? $"{name} ({code})" : code;
         }
 
+        // Маленькая «💡»-плашка под лейблом поля — объясняет рядовому
+        // пользователю зачем это поле и как им пользоваться. Показывается
+        // только когда включены Подсказки в Hub.
+        private static void DrawFieldHint(string text)
+        {
+            if (!NovellaSettingsModule.ShowGuide) return;
+            if (string.IsNullOrEmpty(text)) return;
+            var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true, padding = new RectOffset(6, 6, 4, 4) };
+            st.normal.textColor = NovellaSettingsModule.GetHintColor();
+            Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), st);
+            EditorGUI.DrawRect(r, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.07f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 2, r.height), NovellaSettingsModule.GetAccentColor());
+            GUI.Label(r, "💡 " + text, st);
+            GUILayout.Space(2);
+        }
+
         // Поле «ключ + кнопка пикера» для локализации.
         private static void DrawKeyPickerRow(string current, System.Action<string> onChanged)
         {
@@ -3019,7 +3070,9 @@ namespace NovellaEngine.Editor
             GUILayout.EndHorizontal();
         }
 
-        // Поле «переменная + кнопка пикера».
+        // Поле «переменная + кнопка пикера». Текстовое поле остаётся на случай
+        // если пользователь хочет ввести имя руками; кнопка 📊 открывает
+        // визуальный Variable Picker Window вместо плоского popup-меню.
         private static void DrawVarPickerRow(string current, System.Action<string> onChanged)
         {
             GUILayout.BeginHorizontal();
@@ -3028,25 +3081,7 @@ namespace NovellaEngine.Editor
 
             if (GUILayout.Button("📊", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
             {
-                var menu = new GenericMenu();
-                var settings = Resources.Load<NovellaEngine.Data.NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-                if (settings == null || settings.Variables == null || settings.Variables.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No variables yet", "Нет переменных")));
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Open Hub → Variables", "Открой Hub → Переменные")));
-                }
-                else
-                {
-                    foreach (var v in settings.Variables)
-                    {
-                        if (string.IsNullOrEmpty(v.Name)) continue;
-                        string n = v.Name;
-                        menu.AddItem(new GUIContent($"{n}    ({v.Type})"), n == current, () => onChanged(n));
-                    }
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
-                }
-                menu.ShowAsContext();
+                NovellaEngine.Editor.UIBindings.NovellaVariablePickerWindow.Open(current, onChanged);
             }
             GUILayout.EndHorizontal();
         }
@@ -3417,52 +3452,117 @@ namespace NovellaEngine.Editor
             }
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(4);
+            GUILayout.Space(6);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Bold", "Жирный"), GUILayout.Width(72));
-            bool isBold = (firstTxt.fontStyle & FontStyles.Bold) != 0;
-            EditorGUI.BeginChangeCheck();
-            bool nb = EditorGUILayout.Toggle(isBold);
-            if (EditorGUI.EndChangeCheck())
-            {
-                foreach (var rt in _selectedList)
-                {
-                    var txt = rt.GetComponent<TMP_Text>();
-                    if (txt != null)
-                    {
-                        Undo.RecordObject(txt, "Bold");
-                        if (nb) txt.fontStyle |= FontStyles.Bold; else txt.fontStyle &= ~FontStyles.Bold;
-                        EditorUtility.SetDirty(txt);
-                    }
-                }
-            }
-            GUILayout.EndHorizontal();
-
-            // Rich Text — позволяет TMP-тегам в тексте (<b>, <color>, <size>, ...).
-            // По умолчанию TMP включает rich text; даём явный тоггл, чтобы юзер
-            // мог отключить и видеть теги как обычный текст (полезно для UGC).
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent(ToolLang.Get("Rich Text", "Rich-теги"),
-                ToolLang.Get("Allow <b>, <color>, <size> and other TMP tags inside the text.",
-                             "Разрешить теги <b>, <color>, <size> и другие TMP-теги внутри текста.")),
-                GUILayout.Width(72));
-            EditorGUI.BeginChangeCheck();
-            bool rt2 = EditorGUILayout.Toggle(firstTxt.richText);
-            if (EditorGUI.EndChangeCheck())
-            {
-                foreach (var rtSel in _selectedList)
-                {
-                    var txt = rtSel.GetComponent<TMP_Text>();
-                    if (txt != null) { Undo.RecordObject(txt, "Rich Text"); txt.richText = rt2; EditorUtility.SetDirty(txt); }
-                }
-            }
-            GUILayout.EndHorizontal();
+            // Стилевые кнопки в стиле Word: B  I  R . Каждая — иконка-toggle с тултипом.
+            // Заменяет три отдельных Toggle-строки одной компактной плашкой.
+            DrawTextStyleToggles(firstTxt);
 
             GUILayout.EndVertical();
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
             GUILayout.Space(10);
+        }
+
+        // Кнопки-toggle для текстовых стилей: жирный / курсив / Rich-теги.
+        // Иконки B I R с активным акцентом — компактнее и понятнее чем три
+        // строки checkbox'ов.
+        private void DrawTextStyleToggles(TMP_Text firstTxt)
+        {
+            const float cell = 30f;
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ToolLang.Get("Style", "Стиль"), GUILayout.Width(72));
+
+            // Bold
+            bool isBold = (firstTxt.fontStyle & FontStyles.Bold) != 0;
+            if (DrawTextStyleCell(cell, "B", isBold, true,
+                ToolLang.Get("Bold — make text bold", "Жирный — выделить текст полужирным")))
+            {
+                ApplyTextStyleFlag(FontStyles.Bold, !isBold);
+            }
+            GUILayout.Space(2);
+
+            // Italic
+            bool isItalic = (firstTxt.fontStyle & FontStyles.Italic) != 0;
+            if (DrawTextStyleCell(cell, "I", isItalic, false, true,
+                ToolLang.Get("Italic — slant the text", "Курсив — наклонить текст")))
+            {
+                ApplyTextStyleFlag(FontStyles.Italic, !isItalic);
+            }
+            GUILayout.Space(2);
+
+            // Underline
+            bool isUnderline = (firstTxt.fontStyle & FontStyles.Underline) != 0;
+            if (DrawTextStyleCell(cell, "U", isUnderline, false, false, true,
+                ToolLang.Get("Underline — underline the text", "Подчёркнутый — подчеркнуть текст")))
+            {
+                ApplyTextStyleFlag(FontStyles.Underline, !isUnderline);
+            }
+            GUILayout.Space(8);
+
+            // Rich Text — отдельная семантика, не fontStyle. Иконка ‹›.
+            bool richOn = firstTxt.richText;
+            if (DrawTextStyleCell(cell, "‹›", richOn, false, false, false,
+                ToolLang.Get("Rich Text — allow <b><color><size> tags inside the text",
+                             "Rich-теги — разрешить теги <b><color><size> внутри текста")))
+            {
+                foreach (var rtSel in _selectedList)
+                {
+                    var txt = rtSel.GetComponent<TMP_Text>();
+                    if (txt != null) { Undo.RecordObject(txt, "Rich Text"); txt.richText = !richOn; EditorUtility.SetDirty(txt); }
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        // Рисует одну style-toggle ячейку. Возвращает true если кликнули.
+        private bool DrawTextStyleCell(float cell, string letter, bool active, bool bold, string tooltip)
+            => DrawTextStyleCell(cell, letter, active, bold, false, false, tooltip);
+        private bool DrawTextStyleCell(float cell, string letter, bool active, bool bold, bool italic, string tooltip)
+            => DrawTextStyleCell(cell, letter, active, bold, italic, false, tooltip);
+        private bool DrawTextStyleCell(float cell, string letter, bool active, bool bold, bool italic, bool underline, string tooltip)
+        {
+            Rect r = GUILayoutUtility.GetRect(cell, cell, GUILayout.Width(cell), GUILayout.Height(cell));
+            bool hover = r.Contains(Event.current.mousePosition);
+            Color bg = active ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f) : C_BG_PRIMARY;
+            if (hover) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f);
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(r, active ? C_ACCENT : C_BORDER);
+
+            FontStyle fs = FontStyle.Normal;
+            if (bold) fs |= FontStyle.Bold;
+            if (italic) fs |= FontStyle.Italic;
+            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter, fontStyle = fs };
+            st.normal.textColor = active ? C_ACCENT : C_TEXT_2;
+            GUI.Label(r, new GUIContent(letter, tooltip), st);
+
+            if (underline)
+            {
+                // Лёгкая подчёркивающая полоска под буквой — псевдо-underline.
+                Color uc = active ? C_ACCENT : C_TEXT_2;
+                EditorGUI.DrawRect(new Rect(r.x + 8, r.y + cell - 8, cell - 16, 1.5f), uc);
+            }
+
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                Event.current.Use();
+                return true;
+            }
+            return false;
+        }
+
+        private void ApplyTextStyleFlag(FontStyles flag, bool enable)
+        {
+            foreach (var rt in _selectedList)
+            {
+                var txt = rt.GetComponent<TMP_Text>();
+                if (txt == null) continue;
+                Undo.RecordObject(txt, "Text Style");
+                if (enable) txt.fontStyle |= flag; else txt.fontStyle &= ~flag;
+                EditorUtility.SetDirty(txt);
+            }
         }
 
         private void DrawButtonSection(Button firstBtn)
@@ -3700,8 +3800,8 @@ namespace NovellaEngine.Editor
                         "Спрайт — сама картинка. Кликни поле и выбери изображение из галереи проекта.\nЦвет — окрашивает картинку (полностью белый = без оттенка).\n\nВыпадающий список «Тип» решает как картинка будет растягиваться:\n  • Simple — рисует 1:1, как есть\n  • Sliced — «9-slice» с фиксированными углами (идеально для кнопок и панелей)\n  • Tiled — повторяет картинку, заполняя площадь\n  • Filled — частичное заполнение (HP-бар / прогресс; настраивается ползунком «Заполн.»)");
                 case "text":
                     return ToolLang.Get(
-                        "Here you only set the look: font, size, color, alignment, bold.\n\nThe actual text content comes from localization (RU/EN tables) and is edited in the Localization tab — not here. This keeps translations safe.",
-                        "Здесь настраивается только внешний вид: шрифт, размер, цвет, выравнивание.\n\nСам текст берётся из системы локализации (таблицы RU/EN) и редактируется на отдельной вкладке — не здесь. Так переводы никогда не сломаются.");
+                        "Here you set only the LOOK: font, size, color, alignment, style (Bold / Italic / Underline / Rich-tags).\n\nThe actual TEXT CONTENT itself comes from one of two places:\n  • Localization key (in 'LINK TO STORY' below) — text auto-translates per language.\n  • Or a graph node — for example a Dialogue line writes into this text element if you target it via 'UI text target' in the dialogue editor.\n\nThe Style buttons (B / I / U / ‹›):\n  • B — Bold\n  • I — Italic\n  • U — Underline\n  • ‹› — Rich-tags (allow <b><color><size> markup inside the text).",
+                        "Здесь настраивается только ВНЕШНИЙ ВИД: шрифт, размер, цвет, выравнивание, стиль (Жирный / Курсив / Подчёркивание / Rich-теги).\n\nСам ТЕКСТ берётся из одного из двух мест:\n  • Ключа локализации (см. «СВЯЗАТЬ С ИСТОРИЕЙ» ниже) — текст переводится сам при смене языка.\n  • Или из ноды графа — например реплика диалога пишется в этот текстовый элемент если ты указал его в «UI цель для текста» в редакторе диалогов.\n\nКнопки стиля (B / I / U / ‹›):\n  • B — Жирный\n  • I — Курсив\n  • U — Подчёркнутый\n  • ‹› — Rich-теги (разрешает разметку <b><color><size> внутри текста).");
                 case "button":
                     return ToolLang.Get(
                         "A clickable element with three colors:\n• Normal — resting state\n• Highlight — mouse hovers over\n• Pressed — being clicked",
