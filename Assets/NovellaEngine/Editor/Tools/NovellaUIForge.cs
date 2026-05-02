@@ -867,6 +867,31 @@ namespace NovellaEngine.Editor
                 _canvas = allCanvases.FirstOrDefault(c => c.isRootCanvas) ?? allCanvases.FirstOrDefault();
             }
 
+            // В Prefabs-режиме определяем какой prefab сейчас открыт в mock-сцене.
+            // Берём первого potомка [Novella]_PrefabEditor_Canvas который
+            // является prefab-instance, и через PrefabUtility получаем путь.
+            if (_mode == ForgeMode.Prefabs)
+            {
+                _currentPrefabAssetPath = null;
+                var canvasGo = GameObject.Find(NovellaPrefabSceneHelper.CANVAS_NAME);
+                if (canvasGo != null)
+                {
+                    for (int i = 0; i < canvasGo.transform.childCount; i++)
+                    {
+                        var child = canvasGo.transform.GetChild(i).gameObject;
+                        if (PrefabUtility.IsPartOfPrefabInstance(child))
+                        {
+                            var asset = PrefabUtility.GetCorrespondingObjectFromSource(child) as GameObject;
+                            if (asset != null)
+                            {
+                                _currentPrefabAssetPath = AssetDatabase.GetAssetPath(asset);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (_canvas != null && _camera != null)
             {
                 Canvas rc = _canvas.rootCanvas != null ? _canvas.rootCanvas : _canvas;
@@ -2115,8 +2140,16 @@ namespace NovellaEngine.Editor
             const float groupH = 32f;
             float yMid = topbar.y + (topbar.height - groupH) * 0.5f;
 
+            // Mode-switcher (Scene / Prefabs) — самый левый элемент тулбара.
+            // Видим что юзер сейчас редактирует, и быстро переключаемся.
+            const float modeW = 180f;
+            Rect modeR = new Rect(topbar.x + pad, yMid, modeW, groupH);
+            DrawTopbarGroupBg(modeR);
+            DrawModeSwitcher(modeR);
+
+            float g1Start = modeR.xMax + 8f;
             float g1W = (_resolutionPresetIndex == RESOLUTION_PRESETS.Length) ? 360f : 220f;
-            Rect g1 = new Rect(topbar.x + pad, yMid, g1W, groupH);
+            Rect g1 = new Rect(g1Start, yMid, g1W, groupH);
             DrawTopbarGroupBg(g1);
             DrawResolutionGroup(g1);
 
@@ -2129,6 +2162,9 @@ namespace NovellaEngine.Editor
             // 420 на десктопе. Если доступного места меньше — сжимаем до
             // compact-режима (~250) где кнопки только иконки. Меньше 250 уже
             // не уменьшаем, перекрытие неизбежно.
+            // В Prefabs-режиме слева ещё кнопка «💾 Сохранить» и название
+            // открытого prefab'а — они будут вместо g2 (toggles).
+            // Пока g2 рисуется как раньше.
             float availStart = g1.xMax + 12f;
             float availEnd = g3.x - 12f;
             float availW = availEnd - availStart;
@@ -2141,6 +2177,107 @@ namespace NovellaEngine.Editor
             Rect g2 = new Rect(g2X, yMid, g2W, groupH);
             DrawTopbarGroupBg(g2);
             DrawTogglesGroup(g2);
+        }
+
+        // Запомненная ссылка на «обычную» сцену (та что была активна до
+        // переключения в Prefabs-режим). При возврате в Scene-режим
+        // загружаем её заново.
+        private string _sceneBeforePrefabsPath;
+
+        // Текущий путь к prefab-asset который сейчас открыт в mock-сцене.
+        // Нужен для save-back через PrefabUtility.SaveAsPrefabAssetAndConnect.
+        private string _currentPrefabAssetPath;
+
+        // ─── Mode switcher (Scene | Prefabs) ─────────────────────────────
+        private void DrawModeSwitcher(Rect r)
+        {
+            const float bh = 26f;
+            float by = r.y + (r.height - bh) * 0.5f;
+            float halfW = (r.width - 8f) * 0.5f;
+
+            Rect sceneR   = new Rect(r.x + 4,                by, halfW, bh);
+            Rect prefabsR = new Rect(r.x + 4 + halfW + 0,     by, halfW, bh);
+            // Можно ещё мелкий gap, но на 180px width два сегмента влезают плотно.
+
+            DrawModeBtn(sceneR,   _mode == ForgeMode.Scene,   "🎬",
+                ToolLang.Get("Scene",   "Сцена"),
+                () => SwitchMode(ForgeMode.Scene));
+            DrawModeBtn(prefabsR, _mode == ForgeMode.Prefabs, "📦",
+                ToolLang.Get("Prefabs", "Префабы"),
+                () => SwitchMode(ForgeMode.Prefabs));
+        }
+
+        private void DrawModeBtn(Rect r, bool active, string icon, string label, System.Action onClick)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            Color bg = active
+                ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f)
+                : (hover ? new Color(1, 1, 1, 0.06f) : Color.clear);
+            EditorGUI.DrawRect(r, bg);
+            if (active)
+                EditorGUI.DrawRect(new Rect(r.x, r.yMax - 2, r.width, 2), C_ACCENT);
+
+            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
+            st.normal.textColor = active ? C_ACCENT : C_TEXT_2;
+            GUI.Label(r, icon + "  " + label, st);
+
+            if (Event.current.type == EventType.MouseDown && hover)
+            {
+                onClick?.Invoke();
+                Event.current.Use();
+            }
+        }
+
+        // Переключение между режимами — открывает/закрывает mock-сцену, при
+        // необходимости спрашивает сохранить изменения. Тяжёлые операции
+        // через delayCall, чтобы IMGUI-стек не разваливался.
+        private void SwitchMode(ForgeMode target)
+        {
+            if (_mode == target) return;
+            EditorApplication.delayCall += () =>
+            {
+                if (target == ForgeMode.Prefabs)
+                {
+                    // Запоминаем где были чтобы вернуться при выходе из Prefabs.
+                    var cur = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+                    if (cur.IsValid() && cur.path != NovellaPrefabSceneHelper.MOCK_SCENE_PATH)
+                        _sceneBeforePrefabsPath = cur.path;
+
+                    // Сохраняем dirty-сцену если нужно.
+                    if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                        return;
+
+                    NovellaPrefabSceneHelper.OpenMockScene();
+                    _mode = ForgeMode.Prefabs;
+                    FindReferences();
+                    RefreshRectsCache();
+                    _window?.Repaint();
+
+                    // Если в mock-сцене нет prefab-instance — открываем Browser.
+                    var canvasGo = GameObject.Find(NovellaPrefabSceneHelper.CANVAS_NAME);
+                    bool hasPrefabInside = canvasGo != null && canvasGo.transform.childCount > 0;
+                    if (!hasPrefabInside) NovellaPrefabBrowserWindow.Open();
+                }
+                else // target == Scene
+                {
+                    // Сохраняем mock-сцену если dirty (с подтверждением Apply prefab'а).
+                    if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                        return;
+
+                    if (!string.IsNullOrEmpty(_sceneBeforePrefabsPath) &&
+                        System.IO.File.Exists(_sceneBeforePrefabsPath))
+                    {
+                        UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                            _sceneBeforePrefabsPath,
+                            UnityEditor.SceneManagement.OpenSceneMode.Single);
+                    }
+                    _mode = ForgeMode.Scene;
+                    _currentPrefabAssetPath = null;
+                    FindReferences();
+                    RefreshRectsCache();
+                    _window?.Repaint();
+                }
+            };
         }
 
         private void DrawTopbarGroupBg(Rect r)
@@ -2254,6 +2391,43 @@ namespace NovellaEngine.Editor
                 compact ? "" : ToolLang.Get("Prefabs", "Префабы")))
             {
                 NovellaPrefabBrowserWindow.Open();
+            }
+
+            // Save Prefab — видна только в Prefabs-режиме когда есть открытый
+            // prefab-instance. Применяет изменения из mock-сцены обратно в asset.
+            if (_mode == ForgeMode.Prefabs && !string.IsNullOrEmpty(_currentPrefabAssetPath))
+            {
+                bx += prefabsW + gap;
+                float saveW = compact ? 32f : 110f;
+                var saveSt = new GUIStyle(EditorStyles.miniButton)
+                {
+                    fontSize = 11, fixedHeight = bh, padding = new RectOffset(8, 8, 2, 2),
+                    fontStyle = FontStyle.Bold,
+                };
+                saveSt.normal.textColor = Color.white;
+                var prevBg = GUI.backgroundColor;
+                GUI.backgroundColor = new Color(0.40f, 0.78f, 0.45f);
+                if (GUI.Button(new Rect(bx, by, saveW, bh),
+                    new GUIContent(compact ? "💾" : "💾 " + ToolLang.Get("Save", "Сохранить"),
+                                   ToolLang.Get("Save changes back to the prefab asset.",
+                                                "Сохранить изменения обратно в prefab-ассет.")), saveSt))
+                {
+                    SaveCurrentPrefabFromForge();
+                }
+                GUI.backgroundColor = prevBg;
+            }
+        }
+
+        // Применяет изменения mock-сцены обратно в prefab-asset.
+        private void SaveCurrentPrefabFromForge()
+        {
+            if (NovellaPrefabSceneHelper.SaveCurrentPrefab())
+            {
+                Debug.Log("[Novella] Prefab saved.");
+            }
+            else
+            {
+                Debug.LogWarning("[Novella] Couldn't find prefab-instance in mock scene.");
             }
         }
 
