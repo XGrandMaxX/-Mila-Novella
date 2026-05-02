@@ -1,22 +1,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 // NovellaUIBindingEditor
 //
-// Кастомный инспектор для NovellaUIBinding. Делает работу с компонентом
-// удобной без запоминания строк:
-//   • плашка-бейдж в шапке: какой UI-компонент обнаружен (Text/Button/Image)
-//     и его сокращённый ID;
-//   • поле LocalizationKey + кнопка «🔑 Выбрать…» — выпадающее меню со всеми
-//     ключами активной таблицы локализации;
-//   • поле BoundVariable + кнопка «📊 Выбрать…» — переменные из
-//     NovellaVariableSettings;
-//   • поле OnClickGotoNodeId + кнопка «➡ Выбрать…» — ноды активной истории.
+// Минималистичный инспектор для NovellaUIBinding в Unity. Все настройки
+// (Display name, Localization key, Variable, On-click) редактируются в
+// «Кузнице UI» (Novella Studio). Этот инспектор только показывает сводку и
+// предлагает быстро открыть Forge на нужном элементе.
 //
-// Когда автокомплит-источник пуст (нет таблицы / нет переменных / нет графа),
-// меню показывает disabled-пункт с подсказкой что сделать.
+// Идея: пользователь не должен заходить в Unity-инспектор вообще. Если он туда
+// попал случайно — мы аккуратно отправляем его обратно в Studio.
 // ════════════════════════════════════════════════════════════════════════════
 
-using System.IO;
-using NovellaEngine.Data;
 using NovellaEngine.Runtime.UI;
 using TMPro;
 using UnityEditor;
@@ -28,194 +21,92 @@ namespace NovellaEngine.Editor.UIBindings
     [CustomEditor(typeof(NovellaUIBinding))]
     public class NovellaUIBindingEditor : UnityEditor.Editor
     {
-        private SerializedProperty _localizationKey;
-        private SerializedProperty _boundVariable;
-        private SerializedProperty _onClickGoto;
-
-        private void OnEnable()
-        {
-            _localizationKey = serializedObject.FindProperty(nameof(NovellaUIBinding.LocalizationKey));
-            _boundVariable   = serializedObject.FindProperty(nameof(NovellaUIBinding.BoundVariable));
-            _onClickGoto     = serializedObject.FindProperty(nameof(NovellaUIBinding.OnClickGotoNodeId));
-        }
-
         public override void OnInspectorGUI()
         {
-            serializedObject.Update();
+            var b = (NovellaUIBinding)target;
 
-            var binding = (NovellaUIBinding)target;
-            DrawHeaderBadge(binding);
+            // Заголовок-плашка
+            var rect = GUILayoutUtility.GetRect(0, 36, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(rect, new Color(0.36f, 0.75f, 0.92f, 0.10f));
+            DrawBorder(rect, new Color(0.36f, 0.75f, 0.92f, 0.45f));
+            EditorGUI.DrawRect(new Rect(rect.x, rect.y, 3, rect.height), new Color(0.36f, 0.75f, 0.92f));
 
-            EditorGUILayout.Space(6);
+            var ttlSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
+            GUI.Label(new Rect(rect.x + 12, rect.y + 4, rect.width - 24, 18), "🎨 " + (string.IsNullOrEmpty(b.Name) ? b.gameObject.name : b.Name));
 
-            // Localization key + chooser
-            DrawFieldWithPicker(
-                _localizationKey,
-                "Ключ локализации",
-                "🔑 Выбрать…",
-                () => ShowLocalizationKeyMenu());
+            var subSt = new GUIStyle(EditorStyles.miniLabel);
+            subSt.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
+            string kindLbl = KindLabel(b);
+            GUI.Label(new Rect(rect.x + 12, rect.y + 20, rect.width - 24, 14), kindLbl, subSt);
 
-            // Bound variable + chooser
-            DrawFieldWithPicker(
-                _boundVariable,
-                "Переменная (для {var})",
-                "📊 Выбрать…",
-                () => ShowVariableMenu());
+            EditorGUILayout.Space(8);
 
-            // Click goto + chooser
-            bool hasButton = binding.GetComponent<Button>() != null;
-            using (new EditorGUI.DisabledScope(!hasButton))
+            // Сводка (read-only) — настраивать здесь нельзя, чтобы не было двух
+            // мест редактирования. Источник истины — Кузница UI.
+            var sumSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            sumSt.normal.textColor = new Color(0.71f, 0.72f, 0.78f);
+            EditorGUILayout.LabelField("🔑 " + Lang("Localization key", "Ключ локализации") + ": " + Or(b.LocalizationKey), sumSt);
+            EditorGUILayout.LabelField("📊 " + Lang("Variable", "Переменная") + ": " + Or(b.BoundVariable), sumSt);
+            EditorGUILayout.LabelField("➡  " + Lang("On click", "По клику") + ": " + Or(b.OnClickGotoNodeId), sumSt);
+
+            EditorGUILayout.Space(8);
+
+            var infoSt = new GUIStyle(EditorStyles.helpBox) { fontSize = 11, wordWrap = true };
+            EditorGUILayout.LabelField(Lang(
+                "Configure this binding in the UI Forge — that's the single source of truth. Avoid editing values from Unity inspector to prevent confusion.",
+                "Настраивай эту связь в Кузнице UI — там единственный источник правды. Не редактируй значения из инспектора Unity, чтобы не путаться."),
+                infoSt);
+
+            EditorGUILayout.Space(4);
+
+            if (GUILayout.Button("🎨  " + Lang("Open in UI Forge", "Открыть в Кузнице UI"), GUILayout.Height(28)))
             {
-                DrawFieldWithPicker(
-                    _onClickGoto,
-                    hasButton ? "Перейти на ноду по клику" : "Перейти на ноду по клику (нужен Button)",
-                    "➡ Выбрать…",
-                    () => ShowNodeMenu());
-            }
-
-            serializedObject.ApplyModifiedProperties();
-        }
-
-        // ─── Header badge ───────────────────────────────────────────────────────
-
-        private static void DrawHeaderBadge(NovellaUIBinding b)
-        {
-            string kind = "—";
-            if (b.GetComponent<TMP_Text>() != null) kind = "📝 Text";
-            else if (b.GetComponent<Button>() != null) kind = "🔘 Button";
-            else if (b.GetComponent<Image>() != null) kind = "🖼 Image";
-
-            string idShort = string.IsNullOrEmpty(b.Id) ? "(no id)" : "id: " + b.Id.Substring(0, Mathf.Min(8, b.Id.Length));
-
-            var rect = GUILayoutUtility.GetRect(0, 32, GUILayout.ExpandWidth(true));
-            EditorGUI.DrawRect(rect, new Color(0.16f, 0.18f, 0.24f, 0.45f));
-
-            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
-            GUI.Label(new Rect(rect.x + 10, rect.y + 7, rect.width - 20, 18), kind);
-
-            var idStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleRight };
-            idStyle.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
-            GUI.Label(new Rect(rect.x + 10, rect.y + 7, rect.width - 20, 18), idShort, idStyle);
-        }
-
-        // ─── Field helper ───────────────────────────────────────────────────────
-
-        private static void DrawFieldWithPicker(SerializedProperty prop, string label, string btnLabel, System.Action onPick)
-        {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PropertyField(prop, new GUIContent(label));
-            if (GUILayout.Button(btnLabel, EditorStyles.miniButton, GUILayout.Width(110), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
-            {
-                onPick?.Invoke();
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        // ─── Picker menus ───────────────────────────────────────────────────────
-
-        private void ShowLocalizationKeyMenu()
-        {
-            var menu = new GenericMenu();
-            var table = NovellaLocalizationManager.Table;
-            if (table == null || table.Entries == null || table.Entries.Count == 0)
-            {
-                menu.AddDisabledItem(new GUIContent("Таблица пуста или не назначена"));
-                menu.AddDisabledItem(new GUIContent("Открой Settings → Open Translation Editor"));
-            }
-            else
-            {
-                foreach (var entry in table.Entries)
+                Selection.activeGameObject = b.gameObject;
+                // ShowWindow на NovellaUIForge через рефлексию, чтобы избежать
+                // прямой ссылки из Editor.UI на Editor.Tools (ассембли одинаковые,
+                // но логически держим разделение чистым).
+                var t = System.Type.GetType("NovellaEngine.Editor.NovellaUIForge,Assembly-CSharp-Editor");
+                if (t != null)
                 {
-                    if (string.IsNullOrEmpty(entry.Key)) continue;
-                    string key = entry.Key;
-                    menu.AddItem(new GUIContent(key.Replace("/", "\\")), _localizationKey.stringValue == key, () =>
-                    {
-                        _localizationKey.stringValue = key;
-                        serializedObject.ApplyModifiedProperties();
-                    });
+                    var m = t.GetMethod("ShowWindow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    m?.Invoke(null, null);
                 }
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("(очистить)"), false, () =>
-                {
-                    _localizationKey.stringValue = "";
-                    serializedObject.ApplyModifiedProperties();
-                });
             }
-            menu.ShowAsContext();
         }
 
-        private void ShowVariableMenu()
+        private static string KindLabel(NovellaUIBinding b)
         {
-            var menu = new GenericMenu();
-            var settings = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-            if (settings == null || settings.Variables == null || settings.Variables.Count == 0)
-            {
-                menu.AddDisabledItem(new GUIContent("Переменные не заданы"));
-                menu.AddDisabledItem(new GUIContent("Открой Hub → Variables и добавь хотя бы одну"));
-            }
-            else
-            {
-                foreach (var v in settings.Variables)
-                {
-                    if (string.IsNullOrEmpty(v.Name)) continue;
-                    string varName = v.Name;
-                    menu.AddItem(new GUIContent($"{varName}    ({v.Type})"), _boundVariable.stringValue == varName, () =>
-                    {
-                        _boundVariable.stringValue = varName;
-                        serializedObject.ApplyModifiedProperties();
-                    });
-                }
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("(очистить)"), false, () =>
-                {
-                    _boundVariable.stringValue = "";
-                    serializedObject.ApplyModifiedProperties();
-                });
-            }
-            menu.ShowAsContext();
+            if (b.GetComponent<TMP_Text>() != null) return "📝 " + Lang("Text element", "Текстовый элемент");
+            if (b.GetComponent<Button>()   != null) return "🔘 " + Lang("Button", "Кнопка");
+            if (b.GetComponent<Image>()    != null) return "🖼 " + Lang("Image", "Картинка");
+            return "▣ " + Lang("UI element", "UI элемент");
         }
 
-        private void ShowNodeMenu()
+        private static void DrawBorder(Rect r, Color c)
         {
-            var menu = new GenericMenu();
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), c);
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), c);
+        }
 
-            // Берём активную историю из EditorPrefs (как Hub).
-            string activeStoryGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
-            NovellaTree tree = null;
-            if (!string.IsNullOrEmpty(activeStoryGuid))
-            {
-                var p = AssetDatabase.GUIDToAssetPath(activeStoryGuid);
-                var story = AssetDatabase.LoadAssetAtPath<NovellaStory>(p);
-                if (story != null) tree = story.StartingChapter;
-            }
+        private static string Or(string s) => string.IsNullOrEmpty(s) ? "—" : s;
 
-            if (tree == null || tree.Nodes == null || tree.Nodes.Count == 0)
+        // Локально дублируем ToolLang.Get чтобы не тянуть зависимость на тулзы
+        // из узкоспециализированного редактора компонента.
+        private static string Lang(string en, string ru)
+        {
+            try
             {
-                menu.AddDisabledItem(new GUIContent("Активная история не выбрана / нет нод"));
-                menu.AddDisabledItem(new GUIContent("Открой Hub → выбери историю"));
-            }
-            else
-            {
-                foreach (var n in tree.Nodes)
+                var t = System.Type.GetType("NovellaEngine.Editor.ToolLang,Assembly-CSharp-Editor");
+                if (t != null)
                 {
-                    if (n == null || string.IsNullOrEmpty(n.NodeID)) continue;
-                    string title = string.IsNullOrEmpty(n.NodeTitle) ? n.NodeType.ToString() : n.NodeTitle;
-                    string label = $"{n.NodeType}    ({title})";
-                    string nodeId = n.NodeID;
-                    menu.AddItem(new GUIContent(label), _onClickGoto.stringValue == nodeId, () =>
-                    {
-                        _onClickGoto.stringValue = nodeId;
-                        serializedObject.ApplyModifiedProperties();
-                    });
+                    var m = t.GetMethod("Get", new[] { typeof(string), typeof(string) });
+                    if (m != null) return (string)m.Invoke(null, new object[] { en, ru });
                 }
-                menu.AddSeparator("");
-                menu.AddItem(new GUIContent("(очистить)"), false, () =>
-                {
-                    _onClickGoto.stringValue = "";
-                    serializedObject.ApplyModifiedProperties();
-                });
             }
-            menu.ShowAsContext();
+            catch { }
+            return en;
         }
     }
 }

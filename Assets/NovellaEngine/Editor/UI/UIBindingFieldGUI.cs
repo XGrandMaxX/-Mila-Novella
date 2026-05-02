@@ -1,15 +1,19 @@
 // ════════════════════════════════════════════════════════════════════════════
 // UIBindingFieldGUI
 //
-// IMGUI-хелпер для рендера ссылки на NovellaUIBinding из любых редакторских
-// окон (Graph Node Inspector, Dialogue Editor, …). Аналог property-drawer'а
-// для атрибута [UIBindingTarget], но вызывается явно из ручного IMGUI кода.
+// IMGUI-хелпер для выбора NovellaUIBinding в нодах графа. Вместо drag&drop из
+// Unity-иерархии (что заставляло пользователя лезть в инспектор Unity) тут
+// отдельный пикер: одна кнопка с именем выбранного binding'а, по клику —
+// GenericMenu со всеми подходящими элементами активной сцены, сгруппированными
+// по типу (📝 Текст / 🔘 Кнопка / 🖼 Картинка / Другое).
 //
-// Принимает текущую строку-id и lambda которая запишет новое значение —
-// это позволяет работать с произвольными data-типами без SerializedProperty.
+// Имена берутся из NovellaUIBinding.DisplayName (Name либо имя GameObject).
+// Так пользователь работает с понятными именами «Diary/PageBody», а не с
+// абстрактными ссылками на сцену — и ему не нужен Unity вообще.
 // ════════════════════════════════════════════════════════════════════════════
 
 using System;
+using System.Collections.Generic;
 using NovellaEngine.Runtime.UI;
 using TMPro;
 using UnityEditor;
@@ -28,69 +32,135 @@ namespace NovellaEngine.Editor.UIBindings
 
             EditorGUILayout.BeginHorizontal();
 
-            EditorGUI.BeginChangeCheck();
-            GameObject newGo = (GameObject)EditorGUILayout.ObjectField(
-                label,
-                currentBinding != null ? currentBinding.gameObject : null,
-                typeof(GameObject),
-                true);
-
-            if (EditorGUI.EndChangeCheck())
+            // Label слева — стандартной шириной как у других editor-полей.
+            if (!string.IsNullOrEmpty(label))
             {
-                if (newGo == null)
+                GUILayout.Label(label, GUILayout.Width(EditorGUIUtility.labelWidth));
+            }
+
+            // Кнопка-пикер: показывает имя выбранного binding'а или плейсхолдер.
+            string btnLabel;
+            if (currentBinding != null)
+            {
+                btnLabel = $"{KindIcon(currentBinding.DetectKind())}  {currentBinding.DisplayName}";
+            }
+            else if (!string.IsNullOrEmpty(currentId))
+            {
+                btnLabel = "⚠ binding не найден в сцене";
+            }
+            else
+            {
+                btnLabel = "— выбрать UI элемент —";
+            }
+
+            if (GUILayout.Button(btnLabel, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+            {
+                ShowPicker(currentId, kind, onChanged);
+            }
+
+            // X-кнопка справа — очистить.
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(currentId)))
+            {
+                if (GUILayout.Button("✖", GUILayout.Width(22)))
                 {
                     onChanged?.Invoke("");
-                }
-                else if (!IsKindCompatible(newGo, kind))
-                {
-                    EditorUtility.DisplayDialog(
-                        "UI Binding",
-                        kind == UIBindingKind.Text
-                            ? "Этому полю нужен текстовый элемент (TMP_Text). На выбранном объекте его нет."
-                            : kind == UIBindingKind.Button
-                                ? "Этому полю нужна кнопка (UnityEngine.UI.Button). На выбранном объекте её нет."
-                                : "Объект не подходит.",
-                        "OK");
-                }
-                else
-                {
-                    var b = NovellaUIBinding.GetOrAdd(newGo);
-                    if (b != null) onChanged?.Invoke(b.Id);
                 }
             }
 
             EditorGUILayout.EndHorizontal();
-
-            // Лёгкий статусный текст под полем — короткий путь / предупреждение.
-            var hintStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
-            hintStyle.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
-
-            string hint;
-            if (string.IsNullOrEmpty(currentId)) hint = "↪ перетащи UI элемент из сцены сюда";
-            else if (currentBinding == null) hint = $"⚠ binding '{currentId.Substring(0, Math.Min(6, currentId.Length))}…' не найден в сцене";
-            else hint = $"✓ {GetPathOf(currentBinding.gameObject)}";
-
-            EditorGUILayout.LabelField("    " + hint, hintStyle);
         }
 
-        private static bool IsKindCompatible(GameObject go, UIBindingKind kind)
+        // Выпадающее меню со всеми binding'ами активной сцены, отфильтрованными
+        // по типу. Если пусто — disabled-пункт с подсказкой как создать.
+        private static void ShowPicker(string currentId, UIBindingKind kind, Action<string> onChanged)
         {
+            var menu = new GenericMenu();
+            var all = NovellaUIBinding.FindAllInScene();
+
+            // Фильтр по kind.
+            var filtered = new List<NovellaUIBinding>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                if (IsCompatible(all[i], kind)) filtered.Add(all[i]);
+            }
+
+            if (filtered.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent(KindHint(kind) + ": в сцене нет привязываемых элементов"));
+                menu.AddSeparator("");
+                menu.AddDisabledItem(new GUIContent("Открой Кузницу UI → выбери элемент → «➕ Сделать привязываемым»"));
+                menu.ShowAsContext();
+                return;
+            }
+
+            // Сортируем по группе (Text/Button/Image/Other) затем по имени.
+            filtered.Sort((a, b) =>
+            {
+                int ga = (int)a.DetectKind(), gb = (int)b.DetectKind();
+                if (ga != gb) return ga.CompareTo(gb);
+                return string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+            });
+
+            foreach (var b in filtered)
+            {
+                var bLocal = b;
+                string group = KindFolder(b.DetectKind());
+                string item = $"{group}/{b.DisplayName}";
+                bool selected = b.Id == currentId;
+                menu.AddItem(new GUIContent(item), selected, () =>
+                {
+                    onChanged?.Invoke(bLocal.Id);
+                });
+            }
+
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("(очистить)"), false, () => onChanged?.Invoke(""));
+
+            menu.ShowAsContext();
+        }
+
+        private static bool IsCompatible(NovellaUIBinding b, UIBindingKind kind)
+        {
+            if (b == null) return false;
             switch (kind)
             {
-                case UIBindingKind.Text:   return go.GetComponent<TMP_Text>() != null;
-                case UIBindingKind.Button: return go.GetComponent<Button>() != null;
+                case UIBindingKind.Text:   return b.GetComponent<TMP_Text>() != null;
+                case UIBindingKind.Button: return b.GetComponent<Button>()   != null;
                 default:                   return true;
             }
         }
 
-        private static string GetPathOf(GameObject go)
+        private static string KindIcon(NovellaUIBinding.BindingKind k)
         {
-            if (go == null) return "(null)";
-            var t = go.transform;
-            string p = t.name;
-            if (t.parent != null) p = t.parent.name + "/" + p;
-            if (t.parent != null && t.parent.parent != null) p = t.parent.parent.name + "/" + p;
-            return p;
+            switch (k)
+            {
+                case NovellaUIBinding.BindingKind.Text:   return "📝";
+                case NovellaUIBinding.BindingKind.Button: return "🔘";
+                case NovellaUIBinding.BindingKind.Image:  return "🖼";
+                default: return "▣";
+            }
+        }
+
+        private static string KindFolder(NovellaUIBinding.BindingKind k)
+        {
+            switch (k)
+            {
+                case NovellaUIBinding.BindingKind.Text:   return "📝 Тексты";
+                case NovellaUIBinding.BindingKind.Button: return "🔘 Кнопки";
+                case NovellaUIBinding.BindingKind.Image:  return "🖼 Картинки";
+                default: return "▣ Прочее";
+            }
+        }
+
+        private static string KindHint(UIBindingKind kind)
+        {
+            switch (kind)
+            {
+                case UIBindingKind.Text:   return "📝 Тексты";
+                case UIBindingKind.Button: return "🔘 Кнопки";
+                default: return "Элементы";
+            }
         }
     }
 }

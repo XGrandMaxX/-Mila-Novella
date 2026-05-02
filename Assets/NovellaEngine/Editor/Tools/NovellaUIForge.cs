@@ -2018,74 +2018,209 @@ namespace NovellaEngine.Editor
         }
 
         // ─── BINDINGS section ───────────────────────────────────────────────────
-        // Показывает живой статус NovellaUIBinding для выбранного элемента.
-        // Если binding нет — кнопка добавить. Если есть — короткое summary
-        // и кнопка перейти к нему в инспекторе Unity (для редактирования полей).
+        // Полный редактор привязки — здесь и только здесь пользователь настраивает
+        // связь UI-элемента с историей. В Unity-инспектор лезть НЕ нужно: всё
+        // что отсюда меняется, сразу видят ноды графа в их пикерах.
 
         private void DrawBindingSection()
         {
-            DrawSectionLabel(ToolLang.Get("BINDINGS (CONNECT TO STORY)", "СВЯЗИ С ИСТОРИЕЙ"), "bindings");
+            DrawSectionLabel(ToolLang.Get("LINK TO STORY", "СВЯЗАТЬ С ИСТОРИЕЙ"), "bindings");
             DrawInlineGuide("bindings");
 
             var binding = FirstSelected.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>();
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
+            GUILayout.BeginVertical();
 
             if (binding == null)
             {
-                if (GUILayout.Button(ToolLang.Get("➕  Add UI Binding", "➕  Сделать привязываемым"), GUILayout.Height(26)))
+                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+                st.normal.textColor = C_TEXT_3;
+                GUILayout.Label(ToolLang.Get(
+                    "Make this element addressable from story nodes — give it a friendly name and link it to localization, variables or click navigation.",
+                    "Сделай этот элемент доступным из нод истории — задай дружелюбное имя и привяжи к локализации, переменным или переходу по клику."), st);
+                GUILayout.Space(6);
+
+                if (NovellaSettingsModule.AccentButton(ToolLang.Get("➕  Make this linkable", "➕  Сделать привязываемым"), GUILayout.Height(26)))
                 {
                     foreach (var rt in _selectedList)
-                        if (rt != null && rt.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>() == null)
-                            UnityEditor.Undo.AddComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>(rt.gameObject);
+                    {
+                        if (rt == null) continue;
+                        if (rt.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>() == null)
+                            NovellaEngine.Runtime.UI.NovellaUIBinding.GetOrAdd(rt.gameObject);
+                    }
                 }
             }
             else
             {
-                GUILayout.BeginVertical();
+                Undo.RecordObject(binding, "Edit UI Binding");
 
-                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
-                st.normal.textColor = NovellaSettingsModule.GetTextMuted();
+                // Friendly name — главное поле, видно везде в пикерах.
+                GUILayout.Label(ToolLang.Get("Display name", "Имя для пикера"), EditorStyles.miniBoldLabel);
+                string newName = EditorGUILayout.TextField(binding.Name);
+                if (newName != binding.Name) { binding.Name = newName; EditorUtility.SetDirty(binding); }
 
-                string idShort = binding.Id?.Substring(0, System.Math.Min(8, binding.Id.Length)) ?? "(no id)";
-                GUILayout.Label("ID: " + idShort, st);
+                GUILayout.Space(8);
+                GUILayout.Label(ToolLang.Get("Localization key (optional)", "Ключ локализации (опц.)"), EditorStyles.miniBoldLabel);
+                DrawKeyPickerRow(
+                    binding.LocalizationKey,
+                    newKey => { binding.LocalizationKey = newKey; EditorUtility.SetDirty(binding); binding.Refresh(); });
 
-                string locShort = string.IsNullOrEmpty(binding.LocalizationKey) ? "—" : binding.LocalizationKey;
-                string varShort = string.IsNullOrEmpty(binding.BoundVariable) ? "—" : binding.BoundVariable;
-                string clkShort = string.IsNullOrEmpty(binding.OnClickGotoNodeId) ? "—" : binding.OnClickGotoNodeId.Substring(0, System.Math.Min(8, binding.OnClickGotoNodeId.Length));
+                GUILayout.Space(6);
+                GUILayout.Label(ToolLang.Get("Variable (substitutes {var})", "Переменная (вместо {var})"), EditorStyles.miniBoldLabel);
+                DrawVarPickerRow(
+                    binding.BoundVariable,
+                    newVar => { binding.BoundVariable = newVar; EditorUtility.SetDirty(binding); binding.Refresh(); });
 
-                GUILayout.Label("🔑 " + ToolLang.Get("Loc key", "Ключ лок.") + ": " + locShort, st);
-                GUILayout.Label("📊 " + ToolLang.Get("Variable", "Переменная") + ": " + varShort, st);
-                GUILayout.Label("➡  " + ToolLang.Get("On click", "По клику") + ": " + clkShort, st);
-
-                GUILayout.Space(4);
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(ToolLang.Get("Edit in inspector", "Открыть в инспекторе"), EditorStyles.miniButton))
+                bool hasButton = binding.GetComponent<UnityEngine.UI.Button>() != null;
+                if (hasButton)
                 {
-                    UnityEditor.Selection.activeObject = binding;
+                    GUILayout.Space(6);
+                    GUILayout.Label(ToolLang.Get("Click → go to node", "По клику → перейти к ноде"), EditorStyles.miniBoldLabel);
+                    DrawNodePickerRow(
+                        binding.OnClickGotoNodeId,
+                        newNode => { binding.OnClickGotoNodeId = newNode; EditorUtility.SetDirty(binding); });
                 }
-                if (GUILayout.Button(ToolLang.Get("Remove", "Удалить"), EditorStyles.miniButton))
+
+                GUILayout.Space(10);
+                GUILayout.BeginHorizontal();
+                if (NovellaSettingsModule.NeutralButton(ToolLang.Get("Remove link", "Убрать связь"), GUILayout.Height(22)))
                 {
                     if (UnityEditor.EditorUtility.DisplayDialog(
-                            ToolLang.Get("Remove binding?", "Удалить связь?"),
-                            ToolLang.Get("All graph nodes referring to this UI element will lose the link. Proceed?",
+                            ToolLang.Get("Remove binding?", "Убрать связь?"),
+                            ToolLang.Get("All graph nodes referring to this element will lose the link. Proceed?",
                                          "Все ноды графа ссылающиеся на этот элемент потеряют связь. Продолжить?"),
-                            ToolLang.Get("Remove", "Удалить"),
+                            ToolLang.Get("Remove", "Убрать"),
                             ToolLang.Get("Cancel", "Отмена")))
                     {
                         UnityEditor.Undo.DestroyObjectImmediate(binding);
                     }
                 }
                 GUILayout.EndHorizontal();
-
-                GUILayout.EndVertical();
             }
 
+            GUILayout.EndVertical();
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8);
+        }
+
+        // Поле «ключ + кнопка пикера» для локализации.
+        private static void DrawKeyPickerRow(string current, System.Action<string> onChanged)
+        {
+            GUILayout.BeginHorizontal();
+            string newCurrent = EditorGUILayout.TextField(current);
+            if (newCurrent != current) onChanged(newCurrent);
+
+            if (GUILayout.Button("🔑", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+            {
+                var menu = new GenericMenu();
+                var table = NovellaEngine.Data.NovellaLocalizationManager.Table;
+                if (table == null || table.Entries == null || table.Entries.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Localization table empty or not set", "Таблица пуста или не назначена")));
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Open Settings → Open Translation Editor", "Открой Настройки → Открыть редактор переводов")));
+                }
+                else
+                {
+                    foreach (var e in table.Entries)
+                    {
+                        if (string.IsNullOrEmpty(e.Key)) continue;
+                        string key = e.Key;
+                        menu.AddItem(new GUIContent(key.Replace("/", "\\")), key == current, () => onChanged(key));
+                    }
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
+                }
+                menu.ShowAsContext();
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        // Поле «переменная + кнопка пикера».
+        private static void DrawVarPickerRow(string current, System.Action<string> onChanged)
+        {
+            GUILayout.BeginHorizontal();
+            string newCurrent = EditorGUILayout.TextField(current);
+            if (newCurrent != current) onChanged(newCurrent);
+
+            if (GUILayout.Button("📊", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
+            {
+                var menu = new GenericMenu();
+                var settings = Resources.Load<NovellaEngine.Data.NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
+                if (settings == null || settings.Variables == null || settings.Variables.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No variables yet", "Нет переменных")));
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("Open Hub → Variables", "Открой Hub → Переменные")));
+                }
+                else
+                {
+                    foreach (var v in settings.Variables)
+                    {
+                        if (string.IsNullOrEmpty(v.Name)) continue;
+                        string n = v.Name;
+                        menu.AddItem(new GUIContent($"{n}    ({v.Type})"), n == current, () => onChanged(n));
+                    }
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
+                }
+                menu.ShowAsContext();
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        // Поле «нода + кнопка пикера» — для OnClickGoto.
+        private static void DrawNodePickerRow(string current, System.Action<string> onChanged)
+        {
+            GUILayout.BeginHorizontal();
+
+            // Покажем имя выбранной ноды если найдём.
+            string label = current;
+            string activeStoryGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
+            NovellaEngine.Data.NovellaTree tree = null;
+            if (!string.IsNullOrEmpty(activeStoryGuid))
+            {
+                var p = AssetDatabase.GUIDToAssetPath(activeStoryGuid);
+                var story = AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaStory>(p);
+                if (story != null) tree = story.StartingChapter;
+            }
+            if (tree != null && !string.IsNullOrEmpty(current))
+            {
+                var node = tree.Nodes.Find(n => n != null && n.NodeID == current);
+                if (node != null) label = string.IsNullOrEmpty(node.NodeTitle) ? node.NodeType.ToString() : node.NodeTitle;
+            }
+            if (string.IsNullOrEmpty(label)) label = ToolLang.Get("— pick a node —", "— выбери ноду —");
+
+            if (GUILayout.Button(label, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+            {
+                var menu = new GenericMenu();
+                if (tree == null || tree.Nodes == null || tree.Nodes.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No active story / nodes", "Активная история не выбрана / нет нод")));
+                }
+                else
+                {
+                    foreach (var n in tree.Nodes)
+                    {
+                        if (n == null || string.IsNullOrEmpty(n.NodeID)) continue;
+                        string title = string.IsNullOrEmpty(n.NodeTitle) ? n.NodeType.ToString() : n.NodeTitle;
+                        string item = $"{n.NodeType}/{title}";
+                        string nid = n.NodeID;
+                        menu.AddItem(new GUIContent(item), nid == current, () => onChanged(nid));
+                    }
+                    menu.AddSeparator("");
+                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
+                }
+                menu.ShowAsContext();
+            }
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
+            {
+                if (GUILayout.Button("✖", GUILayout.Width(22))) onChanged("");
+            }
+            GUILayout.EndHorizontal();
         }
 
         private void DrawLegacyTextConvertSection(UnityEngine.UI.Text legacy)

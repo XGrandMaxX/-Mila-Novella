@@ -43,6 +43,9 @@ namespace NovellaEngine.Runtime.UI
         [SerializeField, HideInInspector] private string _id;
         public string Id => _id;
 
+        [Tooltip("Дружелюбное имя для пикера в Novella Studio. Видно везде где этот элемент выбирается из ноды или Forge.")]
+        public string Name;
+
         [Tooltip("Опционально: ключ из таблицы локализации. Текст обновится при смене языка.\nПример: ui.button.start")]
         public string LocalizationKey;
 
@@ -51,6 +54,19 @@ namespace NovellaEngine.Runtime.UI
 
         [Tooltip("Опционально: куда перейти при клике (если на этом GO есть UnityEngine.UI.Button).\nПодставь NodeID любой ноды графа — Player перейдёт на неё.")]
         public string OnClickGotoNodeId;
+
+        // Категория компонента — для группировки в пикерах (Text / Button / Other).
+        public enum BindingKind { Other, Text, Button, Image }
+        public BindingKind DetectKind()
+        {
+            if (GetComponent<TMP_Text>() != null) return BindingKind.Text;
+            if (GetComponent<Button>()  != null) return BindingKind.Button;
+            if (GetComponent<Image>()   != null) return BindingKind.Image;
+            return BindingKind.Other;
+        }
+
+        // Удобное имя для отображения. Если Name пустое — используем имя GameObject.
+        public string DisplayName => string.IsNullOrEmpty(Name) ? gameObject.name : Name;
 
         // ─── Static registry ────────────────────────────────────────────────────
 
@@ -89,6 +105,7 @@ namespace NovellaEngine.Runtime.UI
         private void Reset()
         {
             EnsureId();
+            if (string.IsNullOrEmpty(Name)) Name = gameObject != null ? gameObject.name : "Element";
         }
 
         private void OnValidate()
@@ -221,14 +238,23 @@ namespace NovellaEngine.Runtime.UI
             {
                 b = UnityEditor.Undo.AddComponent<NovellaUIBinding>(go);
                 b.EnsureId();
+                if (string.IsNullOrEmpty(b.Name)) b.Name = go.name;
                 UnityEditor.EditorUtility.SetDirty(b);
             }
-            else if (string.IsNullOrEmpty(b._id))
+            else
             {
-                b.EnsureId();
-                UnityEditor.EditorUtility.SetDirty(b);
+                bool dirty = false;
+                if (string.IsNullOrEmpty(b._id)) { b.EnsureId(); dirty = true; }
+                if (string.IsNullOrEmpty(b.Name)) { b.Name = go.name; dirty = true; }
+                if (dirty) UnityEditor.EditorUtility.SetDirty(b);
             }
             return b;
+        }
+
+        // Все binding'и в открытых сценах. Используется пикерами в Forge/нодах.
+        public static NovellaUIBinding[] FindAllInScene()
+        {
+            return UnityEngine.Object.FindObjectsByType<NovellaUIBinding>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         }
 
         // Найти binding по id среди ВСЕХ объектов сцены (registry в edit-mode

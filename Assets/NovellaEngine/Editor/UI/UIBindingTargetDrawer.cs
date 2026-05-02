@@ -1,35 +1,25 @@
 // ════════════════════════════════════════════════════════════════════════════
 // UIBindingTargetDrawer
 //
-// Рисует поле помеченное [UIBindingTarget(...)] как ObjectField для GameObject:
-//   • drag&drop GameObject из иерархии — Drawer добавляет NovellaUIBinding если
-//     его не было и сохраняет в строку его стабильный Id;
-//   • если поле пустое — отображает «Drag UI element here»;
-//   • если выбран binding с подходящим компонентом (Text/Button по Kind) —
-//     рисует мини-плашку с именем элемента и значком ✓.
-//
-// Так пользователь работает с UI как с обычными ассетами — никаких ручных
-// строковых ID, никаких «магических» полей.
+// Если строковое поле помечено [UIBindingTarget(Kind)] и его всё-таки рисует
+// дефолт-инспектор Unity (например при выборе ScriptableObject NovellaTree
+// напрямую), мы показываем тот же пикер по именам что и в редакторах Forge /
+// Dialogue Editor / Graph Inspector. Никаких ObjectField'ов — пользователь
+// никогда не должен «таскать» элементы из иерархии.
 // ════════════════════════════════════════════════════════════════════════════
 
 using NovellaEngine.Runtime.UI;
-using TMPro;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace NovellaEngine.Editor.UIBindings
 {
     [CustomPropertyDrawer(typeof(UIBindingTargetAttribute))]
     public class UIBindingTargetDrawer : PropertyDrawer
     {
-        private const float ROW_H = 18f;
-        private const float HINT_H = 14f;
-        private const float SPACE = 2f;
-
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
-            return ROW_H + SPACE + HINT_H;
+            return EditorGUIUtility.singleLineHeight + 2;
         }
 
         public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
@@ -41,88 +31,80 @@ namespace NovellaEngine.Editor.UIBindings
             }
 
             var attr = (UIBindingTargetAttribute)attribute;
-            string currentId = property.stringValue;
 
-            // Найдём текущий binding (если строка непустая) — для подсказки имени
-            // элемента и проверки kind.
-            NovellaUIBinding currentBinding = null;
-            if (!string.IsNullOrEmpty(currentId)) currentBinding = NovellaUIBinding.FindInScene(currentId);
-
-            Rect rowRect = new Rect(position.x, position.y, position.width, ROW_H);
-            Rect hintRect = new Rect(position.x, position.y + ROW_H + SPACE, position.width, HINT_H);
-
-            // Сам ObjectField — принимает GameObject.
+            // Используем общий хелпер, чтобы UX был один и тот же везде.
+            // Drawer работает поверх Layout-системы — поэтому обернёмся в
+            // временный layout с прицельной шириной.
             EditorGUI.BeginChangeCheck();
-            GameObject newGo = (GameObject)EditorGUI.ObjectField(rowRect, label,
-                currentBinding != null ? currentBinding.gameObject : null, typeof(GameObject), true);
+            var oldValue = property.stringValue;
 
-            if (EditorGUI.EndChangeCheck())
+            // Простой подход: рисуем prefix-label + кнопку ниже через стандартный API.
+            Rect labelRect = new Rect(position.x, position.y, EditorGUIUtility.labelWidth, position.height);
+            Rect fieldRect = new Rect(position.x + EditorGUIUtility.labelWidth, position.y,
+                                      position.width - EditorGUIUtility.labelWidth, position.height);
+
+            EditorGUI.LabelField(labelRect, label);
+
+            string current = property.stringValue;
+            NovellaUIBinding currentBinding = !string.IsNullOrEmpty(current) ? NovellaUIBinding.FindInScene(current) : null;
+            string btnLabel = currentBinding != null
+                ? "📌  " + currentBinding.DisplayName
+                : (string.IsNullOrEmpty(current) ? "— выбрать UI элемент —" : "⚠ binding не найден");
+
+            if (GUI.Button(fieldRect, btnLabel, EditorStyles.popup))
             {
-                if (newGo == null)
+                ShowPickerMenu(current, attr.Kind, newId =>
                 {
-                    property.stringValue = "";
+                    property.stringValue = newId;
                     property.serializedObject.ApplyModifiedProperties();
-                }
-                else
-                {
-                    // Проверяем что компонент нужного типа на нём есть.
-                    if (!IsKindCompatible(newGo, attr.Kind))
-                    {
-                        EditorUtility.DisplayDialog(
-                            "UI Binding",
-                            attr.Kind == UIBindingKind.Text
-                                ? "Этому полю нужен текстовый элемент (TMP_Text). На выбранном объекте его нет."
-                                : attr.Kind == UIBindingKind.Button
-                                    ? "Этому полю нужна кнопка (UnityEngine.UI.Button). На выбранном объекте её нет."
-                                    : "Объект не подходит.",
-                            "OK");
-                        return;
-                    }
-
-                    var binding = NovellaUIBinding.GetOrAdd(newGo);
-                    if (binding != null)
-                    {
-                        property.stringValue = binding.Id;
-                        property.serializedObject.ApplyModifiedProperties();
-                    }
-                }
+                });
             }
-
-            // Hint: показываем имя + статус.
-            var hintStyle = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9 };
-            hintStyle.normal.textColor = new Color(0.62f, 0.63f, 0.69f);
-
-            string hint;
-            if (string.IsNullOrEmpty(currentId)) hint = "↪ перетащи UI элемент из сцены";
-            else if (currentBinding == null) hint = $"⚠ binding '{currentId.Substring(0, 6)}…' не найден в сцене";
-            else hint = $"✓ {GetPathOf(currentBinding.gameObject)}";
-
-            EditorGUI.LabelField(hintRect, hint, hintStyle);
         }
 
-        private static bool IsKindCompatible(GameObject go, UIBindingKind kind)
+        private static void ShowPickerMenu(string currentId, UIBindingKind kind, System.Action<string> onPick)
         {
-            if (go == null) return false;
-            switch (kind)
+            var menu = new GenericMenu();
+            var all = NovellaUIBinding.FindAllInScene();
+
+            int compatibleCount = 0;
+            foreach (var b in all)
             {
-                case UIBindingKind.Text:   return go.GetComponent<TMP_Text>() != null;
-                case UIBindingKind.Button: return go.GetComponent<Button>() != null;
-                case UIBindingKind.Any:
-                default:                   return true;
+                if (b == null) continue;
+                bool ok = kind == UIBindingKind.Any
+                    || (kind == UIBindingKind.Text   && b.GetComponent<TMPro.TMP_Text>()           != null)
+                    || (kind == UIBindingKind.Button && b.GetComponent<UnityEngine.UI.Button>()    != null);
+                if (!ok) continue;
+
+                compatibleCount++;
+                string folder = FolderFor(b.DetectKind());
+                string item = $"{folder}/{b.DisplayName}";
+                var bRef = b;
+                menu.AddItem(new GUIContent(item), b.Id == currentId, () => onPick(bRef.Id));
             }
+
+            if (compatibleCount == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("В сцене нет привязываемых элементов"));
+                menu.AddDisabledItem(new GUIContent("Открой Кузницу UI и нажми «➕ Сделать привязываемым»"));
+            }
+            else
+            {
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent("(очистить)"), false, () => onPick(""));
+            }
+
+            menu.ShowAsContext();
         }
 
-        // "Canvas/Panel/HpLabel" — короткое читаемое имя для подсказки.
-        private static string GetPathOf(GameObject go)
+        private static string FolderFor(NovellaUIBinding.BindingKind k)
         {
-            if (go == null) return "(null)";
-            var t = go.transform;
-            string p = t.name;
-            // Идём максимум на 2 уровня вверх — чтобы не получить полный путь
-            // через половину иерархии и не сломать ширину инспектора.
-            if (t.parent != null) p = t.parent.name + "/" + p;
-            if (t.parent != null && t.parent.parent != null) p = t.parent.parent.name + "/" + p;
-            return p;
+            switch (k)
+            {
+                case NovellaUIBinding.BindingKind.Text:   return "📝 Тексты";
+                case NovellaUIBinding.BindingKind.Button: return "🔘 Кнопки";
+                case NovellaUIBinding.BindingKind.Image:  return "🖼 Картинки";
+                default: return "▣ Прочее";
+            }
         }
     }
 }
