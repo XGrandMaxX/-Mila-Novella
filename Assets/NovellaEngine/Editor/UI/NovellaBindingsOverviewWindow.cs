@@ -286,10 +286,10 @@ namespace NovellaEngine.Editor.UIBindings
         {
             EditorGUI.DrawRect(r, C_BG_PRIMARY);
 
-            // Фильтр.
+            // Фильтр. «Unused» считается мёртвой если граф НЕ ссылается И клик-action пустой.
             var filtered = _rows.Where(row =>
             {
-                if (_onlyUnused && row.Uses != 0) return false;
+                if (_onlyUnused && !IsUnused(row)) return false;
                 if (string.IsNullOrEmpty(_search)) return true;
                 return row.Name != null && row.Name.IndexOf(_search, System.StringComparison.OrdinalIgnoreCase) >= 0;
             }).ToList();
@@ -318,7 +318,7 @@ namespace NovellaEngine.Editor.UIBindings
 
                 // Зебра + предупреждение для неиспользуемых.
                 Color bg = i % 2 == 0 ? C_BG_PRIMARY : C_BG_SIDE;
-                if (row.Uses == 0) bg = new Color(0.85f, 0.55f, 0.20f, 0.10f);
+                if (IsUnused(row)) bg = new Color(0.85f, 0.55f, 0.20f, 0.10f);
                 bool hovered = rowRect.Contains(Event.current.mousePosition);
                 if (hovered) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.13f);
                 EditorGUI.DrawRect(rowRect, bg);
@@ -328,10 +328,11 @@ namespace NovellaEngine.Editor.UIBindings
                 DrawCell(new Rect(x, rowRect.y, colsW[1], rowRect.height), row.Kind, C_TEXT_2, false); x += colsW[1];
                 DrawCell(new Rect(x, rowRect.y, colsW[2], rowRect.height), Or(row.Binding.LocalizationKey), C_TEXT_3, true); x += colsW[2];
                 DrawCell(new Rect(x, rowRect.y, colsW[3], rowRect.height), Or(row.Binding.BoundVariable), C_TEXT_3, true); x += colsW[3];
-                DrawCell(new Rect(x, rowRect.y, colsW[4], rowRect.height), Or(NodeLabel(row.Binding.OnClickGotoNodeId)), C_TEXT_3, true); x += colsW[4];
+                DrawCell(new Rect(x, rowRect.y, colsW[4], rowRect.height), Or(ActionLabel(row.Binding)), C_TEXT_3, true); x += colsW[4];
+                bool unused = IsUnused(row);
                 DrawCell(new Rect(x, rowRect.y, colsW[5], rowRect.height),
-                    row.Uses == 0 ? "⚠ 0" : row.Uses.ToString(),
-                    row.Uses == 0 ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_2, false);
+                    unused ? "⚠ 0" : row.Uses.ToString(),
+                    unused ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_2, false);
 
                 // Клик — открывает Кузницу UI на этом элементе и подсвечивает его
                 // пульсирующей рамкой (как при выделении в графе/сценах).
@@ -358,6 +359,35 @@ namespace NovellaEngine.Editor.UIBindings
         }
 
         private static string Or(string s) => string.IsNullOrEmpty(s) ? "—" : s;
+
+        // Текст для колонки OnClick→ — формат «иконка действия + параметр».
+        // Дублируется по логике с DrawClickActionEditor в Forge, но даёт компактный
+        // single-line вид для таблицы.
+        private static string ActionLabel(NovellaUIBinding b)
+        {
+            if (b == null) return "";
+            switch (b.ClickAction)
+            {
+                case NovellaUIBinding.BindingAction.None:           return "";
+                case NovellaUIBinding.BindingAction.GoToNode:       return "🎯  " + (string.IsNullOrEmpty(b.OnClickGotoNodeId) ? "(?)" : NodeLabel(b.OnClickGotoNodeId));
+                case NovellaUIBinding.BindingAction.StartNewGame:   return "▶  " + (b.StoryToStart != null ? b.StoryToStart.name : "(?)");
+                case NovellaUIBinding.BindingAction.LoadLastSave:   return "📥  Last save";
+                case NovellaUIBinding.BindingAction.QuitGame:       return "🚪  Quit";
+                case NovellaUIBinding.BindingAction.ShowPanel:      return "👁  " + TargetLabel(b.TargetBindingId);
+                case NovellaUIBinding.BindingAction.HidePanel:      return "🚫  " + TargetLabel(b.TargetBindingId);
+                case NovellaUIBinding.BindingAction.TogglePanel:    return "🔁  " + TargetLabel(b.TargetBindingId);
+                case NovellaUIBinding.BindingAction.ChangeLanguage: return "🌐  " + (string.IsNullOrEmpty(b.LanguageCode) ? "(?)" : b.LanguageCode);
+                case NovellaUIBinding.BindingAction.OpenURL:        return "🔗  " + (string.IsNullOrEmpty(b.URL) ? "(?)" : b.URL);
+            }
+            return "";
+        }
+
+        private static string TargetLabel(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "(?)";
+            var t = NovellaUIBinding.FindInScene(id);
+            return t != null ? t.DisplayName : id.Substring(0, System.Math.Min(6, id.Length)) + "…";
+        }
 
         private static string NodeLabel(string nodeId)
         {
@@ -386,7 +416,7 @@ namespace NovellaEngine.Editor.UIBindings
             EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), C_BORDER);
 
             int total = _rows.Count;
-            int unused = _rows.Count(rw => rw.Uses == 0);
+            int unused = _rows.Count(IsUnused);
 
             var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
             st.normal.textColor = C_TEXT_3;
@@ -415,13 +445,28 @@ namespace NovellaEngine.Editor.UIBindings
             int removed = 0;
             foreach (var row in _rows.ToList())
             {
-                if (row.Uses != 0) continue;
+                if (!IsUnused(row)) continue;
                 if (row.Binding == null) continue;
                 Undo.DestroyObjectImmediate(row.Binding);
                 removed++;
             }
             Refresh();
             ShowNotification(new GUIContent($"Убрано связей: {removed}"));
+        }
+
+        // Binding считается «мёртвым» если на него не ссылается ни одна нода
+        // графа И на нём нет click-action / локализации / переменной — нечего
+        // вообще делать. Чисто текстовые binding'и с LocalizationKey
+        // правильно считаются используемыми.
+        private static bool IsUnused(Row row)
+        {
+            if (row.Binding == null) return true;
+            if (row.Uses != 0) return false;
+            var b = row.Binding;
+            if (b.ClickAction != NovellaUIBinding.BindingAction.None) return false;
+            if (!string.IsNullOrEmpty(b.LocalizationKey)) return false;
+            if (!string.IsNullOrEmpty(b.BoundVariable)) return false;
+            return true;
         }
     }
 }
