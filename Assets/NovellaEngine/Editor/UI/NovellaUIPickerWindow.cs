@@ -186,11 +186,14 @@ namespace NovellaEngine.Editor.UIBindings
         private void DrawTreeNode(RectTransform rt, int depth)
         {
             if (rt == null) return;
+            // TMP_SubMeshUI — авто-генерируемые дети TMP_Text (LiberationSans SDF
+            // Material и т.п.). Это шум, в иерархии и превью их быть не должно.
+            if (rt.GetComponent<TMPro.TMP_SubMeshUI>() != null) return;
+
             bool isCanvas = rt.GetComponent<Canvas>() != null && rt == _canvas.GetComponent<RectTransform>();
 
-            if (!isCanvas)
+            if (!isCanvas && ShouldShowInTree(rt))
             {
-                bool compatible = IsCompatible(rt);
                 bool selected = _selected == rt;
 
                 Rect row = GUILayoutUtility.GetRect(GUIContent.none,
@@ -203,7 +206,7 @@ namespace NovellaEngine.Editor.UIBindings
                 else if (hovered) EditorGUI.DrawRect(row, C_BG_RAISED);
 
                 var st = new GUIStyle(EditorStyles.label) { fontSize = 11 };
-                st.normal.textColor = compatible ? C_TEXT_1 : C_TEXT_4;
+                st.normal.textColor = C_TEXT_1;
 
                 string icon = IconFor(rt);
                 var b = rt.GetComponent<NovellaUIBinding>();
@@ -213,10 +216,9 @@ namespace NovellaEngine.Editor.UIBindings
 
                 GUI.Label(new Rect(row.x + 6, row.y + 2, row.width - 12, 18), text, st);
 
-                // hover-state для превью.
                 if (hovered) _hovered = rt;
 
-                if (Event.current.type == EventType.MouseDown && hovered && compatible)
+                if (Event.current.type == EventType.MouseDown && hovered)
                 {
                     if (Event.current.clickCount >= 2) { _selected = rt; Confirm(); return; }
                     _selected = rt;
@@ -225,10 +227,39 @@ namespace NovellaEngine.Editor.UIBindings
                 }
             }
 
+            // Если фильтр = Кнопка и текущая нода — Button, дети не показываем:
+            // их внутренности (текст, иконка) технически часть кнопки.
+            if (_kind == UIBindingKind.Button && !isCanvas && rt.GetComponent<Button>() != null)
+                return;
+
             for (int i = 0; i < rt.childCount; i++)
             {
                 var ch = rt.GetChild(i) as RectTransform;
-                if (ch != null) DrawTreeNode(ch, depth + 1);
+                if (ch == null) continue;
+                // Глубина увеличивается всегда — даже если родитель скрыт фильтром,
+                // чтобы пространственный отступ соответствовал реальной иерархии.
+                DrawTreeNode(ch, isCanvas ? 0 : depth + 1);
+            }
+        }
+
+        // Решает попадает ли rt в отфильтрованную иерархию.
+        private bool ShouldShowInTree(RectTransform rt)
+        {
+            switch (_kind)
+            {
+                case UIBindingKind.Button:
+                    return rt.GetComponent<Button>() != null;
+                case UIBindingKind.Text:
+                    return rt.GetComponent<TMP_Text>() != null;
+                default:
+                    // Any: показываем семантические элементы (текст / кнопка / картинка
+                    // / уже привязанный binding). Просто RectTransform без контента
+                    // тоже включаем — это могут быть панели/контейнеры для toggle.
+                    return rt.GetComponent<TMP_Text>() != null
+                        || rt.GetComponent<Button>()  != null
+                        || rt.GetComponent<Image>()   != null
+                        || rt.GetComponent<NovellaUIBinding>() != null
+                        || rt.childCount > 0; // контейнеры
             }
         }
 
@@ -261,8 +292,8 @@ namespace NovellaEngine.Editor.UIBindings
             DrawElementRectsRecursive(_canvas.GetComponent<RectTransform>(), canvasSize, view, scale);
 
             // Подсветка hovered + selected — поверх.
-            DrawHighlight(_hovered, canvasSize, view, scale, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.45f));
-            DrawHighlight(_selected, canvasSize, view, scale, C_ACCENT);
+            DrawHoverHighlight(_hovered, canvasSize, view, scale);
+            DrawSelectedHighlight(_selected, canvasSize, view, scale);
 
             // Клик внутри превью — пытаемся попасть в самый «глубокий» rect.
             if (Event.current.type == EventType.MouseDown && view.Contains(Event.current.mousePosition))
@@ -286,6 +317,8 @@ namespace NovellaEngine.Editor.UIBindings
                 var ch = rt.GetChild(i) as RectTransform;
                 if (ch == null) continue;
                 if (!ch.gameObject.activeInHierarchy) continue;
+                // SubMeshUI авто-генерируется TMP — не рисуем как отдельный rect.
+                if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
 
                 Rect screenRect = MapRect(ch, canvasSize, view, scale);
                 Color fill = TintFor(ch);
@@ -306,25 +339,64 @@ namespace NovellaEngine.Editor.UIBindings
             }
         }
 
-        private void DrawHighlight(RectTransform rt, Vector2 canvasSize, Rect view, float scale, Color c)
+        // Hover — лёгкая полупрозрачная обводка 2px.
+        private void DrawHoverHighlight(RectTransform rt, Vector2 canvasSize, Rect view, float scale)
         {
             if (rt == null) return;
             Rect r = MapRect(rt, canvasSize, view, scale);
-            Color outer = new Color(c.r, c.g, c.b, 1f);
-            // Толстая обводка 2px.
-            EditorGUI.DrawRect(new Rect(r.x - 2, r.y - 2, r.width + 4, 2), outer);
-            EditorGUI.DrawRect(new Rect(r.x - 2, r.yMax,  r.width + 4, 2), outer);
-            EditorGUI.DrawRect(new Rect(r.x - 2, r.y - 2, 2, r.height + 4), outer);
-            EditorGUI.DrawRect(new Rect(r.xMax, r.y - 2, 2, r.height + 4), outer);
+            Color c = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.55f);
+            EditorGUI.DrawRect(new Rect(r.x - 2, r.y - 2, r.width + 4, 2), c);
+            EditorGUI.DrawRect(new Rect(r.x - 2, r.yMax,  r.width + 4, 2), c);
+            EditorGUI.DrawRect(new Rect(r.x - 2, r.y - 2, 2, r.height + 4), c);
+            EditorGUI.DrawRect(new Rect(r.xMax, r.y - 2, 2, r.height + 4), c);
+        }
+
+        // Selected — более «громкое» выделение: толстая обводка + полупрозрачная
+        // заливка + угловые маркеры. Сразу видно даже на пёстром фоне.
+        private void DrawSelectedHighlight(RectTransform rt, Vector2 canvasSize, Rect view, float scale)
+        {
+            if (rt == null) return;
+            Rect r = MapRect(rt, canvasSize, view, scale);
+
+            // Полупрозрачная заливка.
+            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.28f));
+
+            // Толстая обводка 4px (внешняя), плюс 1px светлая внутри для двойной рамки.
+            Color outer = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 1f);
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, r.width + 8, 4), outer);
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax,  r.width + 8, 4), outer);
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, 4, r.height + 8), outer);
+            EditorGUI.DrawRect(new Rect(r.xMax, r.y - 4, 4, r.height + 8), outer);
+
+            // Угловые маркеры — короткие толстые «уголки», увеличивают броскость.
+            const float L = 12f, T = 4f;
+            Color mk = new Color(1f, 1f, 1f, 0.95f);
+            // top-left
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, L, T), mk);
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, T, L), mk);
+            // top-right
+            EditorGUI.DrawRect(new Rect(r.xMax + 4 - L, r.y - 4, L, T), mk);
+            EditorGUI.DrawRect(new Rect(r.xMax,         r.y - 4, T, L), mk);
+            // bottom-left
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax,         L, T), mk);
+            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax + 4 - L, T, L), mk);
+            // bottom-right
+            EditorGUI.DrawRect(new Rect(r.xMax + 4 - L, r.yMax,         L, T), mk);
+            EditorGUI.DrawRect(new Rect(r.xMax,         r.yMax + 4 - L, T, L), mk);
         }
 
         private RectTransform HitTestDeepest(RectTransform parent, Vector2 canvasSize, Rect view, float scale, Vector2 mouse)
         {
-            // DFS с обратным порядком — последние нарисованные дети обычно ближе к
-            // взгляду; но для UI достаточно DFS «глубже всего что попадает».
-            RectTransform best = null;
-            HitTestRecursive(parent, canvasSize, view, scale, mouse, ref best);
-            return best;
+            RectTransform deepest = null;
+            HitTestRecursive(parent, canvasSize, view, scale, mouse, ref deepest);
+            // Walk up до подходящего по фильтру предка. Так клик по «Play»-тексту
+            // внутри Play-кнопки (при фильтре Button) выбирает саму кнопку.
+            var canvasRt = _canvas.GetComponent<RectTransform>();
+            while (deepest != null && deepest != canvasRt && !IsCompatible(deepest))
+            {
+                deepest = deepest.parent as RectTransform;
+            }
+            return (deepest != null && deepest != canvasRt && IsCompatible(deepest)) ? deepest : null;
         }
 
         private void HitTestRecursive(RectTransform rt, Vector2 canvasSize, Rect view, float scale, Vector2 mouse, ref RectTransform best)
@@ -334,6 +406,7 @@ namespace NovellaEngine.Editor.UIBindings
                 var ch = rt.GetChild(i) as RectTransform;
                 if (ch == null) continue;
                 if (!ch.gameObject.activeInHierarchy) continue;
+                if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
 
                 Rect r = MapRect(ch, canvasSize, view, scale);
                 if (r.Contains(mouse)) best = ch;

@@ -472,7 +472,8 @@ namespace NovellaEngine.Editor
 
                 // UI binding для текста — если задан, текст пишется не в встроенный
                 // индикатор а в произвольный TMP-элемент сцены.
-                NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("UI text target (optional)", "UI цель для текста (опц.)"),
+                NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
+                    ToolLang.Get("📝 Text target (optional)", "📝 Поле для текста (опц.)"),
                     waitData.UITextTargetId,
                     NovellaEngine.Runtime.UI.UIBindingKind.Text,
                     newId => { waitData.UITextTargetId = newId; _onMarkUnsaved?.Invoke(); });
@@ -1306,7 +1307,7 @@ namespace NovellaEngine.Editor
                     {
                         var choiceLocal = choice;
                         NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
-                            ToolLang.Get("Use scene button (optional)", "Использовать кнопку из сцены (опц.)"),
+                            ToolLang.Get("🔘 Scene button (optional)", "🔘 Кнопка из сцены (опц.)"),
                             choiceLocal.UIButtonTargetId,
                             NovellaEngine.Runtime.UI.UIBindingKind.Button,
                             newId => { Undo.RecordObject(_currentTree, "Bind Choice Button"); choiceLocal.UIButtonTargetId = newId; _onMarkUnsaved?.Invoke(); });

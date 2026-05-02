@@ -22,15 +22,17 @@ namespace NovellaEngine.Editor.UIBindings
                 ? NovellaUIBinding.FindInScene(currentId)
                 : null;
 
-            EditorGUILayout.BeginHorizontal();
+            // Вертикальный layout: лейбл на отдельной строке, кнопка-пикер ниже.
+            // Так ничего не обрезается даже в узких инспекторах (Branch / Wait),
+            // и кнопка получает всю ширину.
+            EditorGUILayout.BeginVertical();
 
-            // Label слева — стандартной шириной как у других editor-полей.
             if (!string.IsNullOrEmpty(label))
             {
-                GUILayout.Label(label, GUILayout.Width(EditorGUIUtility.labelWidth));
+                var lblSt = new GUIStyle(EditorStyles.miniBoldLabel) { wordWrap = true };
+                GUILayout.Label(label, lblSt);
             }
 
-            // Кнопка-пикер: показывает имя выбранного binding'а или плейсхолдер.
             string btnLabel;
             if (currentBinding != null)
             {
@@ -45,21 +47,23 @@ namespace NovellaEngine.Editor.UIBindings
                 btnLabel = "— выбрать UI элемент —";
             }
 
-            if (GUILayout.Button(btnLabel, EditorStyles.popup, GUILayout.ExpandWidth(true)))
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(btnLabel, EditorStyles.popup, GUILayout.ExpandWidth(true), GUILayout.Height(EditorGUIUtility.singleLineHeight + 2)))
             {
                 NovellaUIPickerWindow.Open(label, kind, currentId, onChanged);
             }
 
-            // X-кнопка справа — очистить.
             using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(currentId)))
             {
-                if (GUILayout.Button("✖", GUILayout.Width(22)))
+                if (GUILayout.Button("✖", GUILayout.Width(22), GUILayout.Height(EditorGUIUtility.singleLineHeight + 2)))
                 {
                     onChanged?.Invoke("");
                 }
             }
-
             EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
+            GUILayout.Space(2);
         }
 
         private static string KindIcon(NovellaUIBinding.BindingKind k)
