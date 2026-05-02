@@ -349,31 +349,23 @@ namespace NovellaEngine.Editor
         }
 
         // Обёртка над CreateCanvasInScene с проверкой лимита.
-        // 5+ — подтверждение, 10+ — отказ.
+        // count == 5 → ОДИН диалог про оптимизацию (рассказываем юзеру что
+        //              много канвасов — это плохо для перфоманса).
+        // count >= 10 → не создаём (но кнопка к этому моменту уже disabled,
+        //              сюда приходим только если кто-то вызвал из кода).
         private void TryCreateAdditionalCanvas()
         {
             int count = CountRootCanvasesInScene();
-            if (count >= CANVAS_HARD_LIMIT)
-            {
-                EditorUtility.DisplayDialog(
-                    ToolLang.Get("Canvas limit", "Лимит холстов"),
-                    string.Format(ToolLang.Get(
-                        "Maximum {0} root canvases per scene. Reorganize existing canvases instead of adding more.",
-                        "Максимум {0} корневых холстов в сцене. Переорганизуй существующие, не плоди новые."),
-                        CANVAS_HARD_LIMIT),
-                    "OK");
-                return;
-            }
-            if (count >= CANVAS_SOFT_LIMIT)
+            if (count >= CANVAS_HARD_LIMIT) return;
+
+            if (count == CANVAS_SOFT_LIMIT)
             {
                 bool ok = EditorUtility.DisplayDialog(
-                    string.Format(ToolLang.Get(
-                        "Already {0} canvases",
-                        "Уже {0} холстов"), count),
-                    string.Format(ToolLang.Get(
-                        "Create one more? Hard limit is {0}.",
-                        "Создать ещё один? Жёсткий лимит — {0}."), CANVAS_HARD_LIMIT),
-                    ToolLang.Get("Create", "Создать"),
+                    ToolLang.Get("Performance warning", "Предупреждение по производительности"),
+                    ToolLang.Get(
+                        "You already have 5 root Canvases. Each Canvas is a separate draw call batch and a full hierarchy rebuild on any UI change — too many of them hurts FPS, especially on mobile.\n\nUsually 1–3 canvases are enough: one for the game UI, one for modals, one for HUD. Reuse panels inside an existing canvas where possible.\n\nMaximum is 10. Create one more?",
+                        "У тебя уже 5 корневых холстов. Каждый Canvas — это отдельный батч на отрисовку и полная перестройка иерархии при любом изменении UI. Большое количество холстов бьёт по FPS, особенно на мобилках.\n\nОбычно достаточно 1–3 канвасов: один на игровой UI, один на модалки, один на HUD. По возможности переиспользуй панели внутри существующего холста.\n\nМаксимум — 10. Всё-таки создать ещё один?"),
+                    ToolLang.Get("Create",  "Создать"),
                     ToolLang.Get("Cancel",  "Отмена"));
                 if (!ok) return;
             }
@@ -600,6 +592,27 @@ namespace NovellaEngine.Editor
             return false;
         }
 
+        // Рекурсивно сворачивает или разворачивает всё поддерево под rt.
+        // Используется при Alt+клик на шевроне.
+        // collapse = true  — добавляет в _collapsedNodes сам узел и всех потомков с детьми
+        // collapse = false — удаляет всё поддерево (включая сам узел) из _collapsedNodes
+        private void ToggleSubtreeCollapse(RectTransform rt, bool collapse)
+        {
+            if (rt == null) return;
+            if (HasVisibleChildren(rt))
+            {
+                int id = rt.GetInstanceID();
+                if (collapse) _collapsedNodes.Add(id);
+                else          _collapsedNodes.Remove(id);
+            }
+            for (int i = 0; i < rt.childCount; i++)
+            {
+                var ch = rt.GetChild(i) as RectTransform;
+                if (ch != null && !IsHiddenInternal(ch))
+                    ToggleSubtreeCollapse(ch, collapse);
+            }
+        }
+
         private string GetDisplayName(RectTransform rt)
         {
             if (rt == null) return "?";
@@ -726,14 +739,26 @@ namespace NovellaEngine.Editor
             addCanvasSt.hover.textColor = C_ACCENT;
             var prevBg = GUI.backgroundColor;
             GUI.backgroundColor = addCanvasBg;
-            if (GUILayout.Button(new GUIContent(
-                    "➕  " + ToolLang.Get("Canvas", "Холст"),
-                    ToolLang.Get(
-                        "Add another root Canvas (e.g. modal layer, HUD on top of game).",
-                        "Добавить ещё один root Canvas (например слой модалок или HUD над игровым).")),
-                addCanvasSt, GUILayout.MinWidth(120)))
+
+            // На жёстком лимите (10) кнопка становится недоступной — подсказка
+            // объясняет почему.
+            int rootCanvasCount = CountRootCanvasesInScene();
+            bool atHardLimit = rootCanvasCount >= CANVAS_HARD_LIMIT;
+            string addTip = atHardLimit
+                ? string.Format(ToolLang.Get(
+                    "Hard limit {0} reached — delete or reorganize existing canvases.",
+                    "Достигнут лимит {0} — удали или переорганизуй существующие холсты."), CANVAS_HARD_LIMIT)
+                : ToolLang.Get(
+                    "Add another root Canvas (e.g. modal layer, HUD on top of game).",
+                    "Добавить ещё один root Canvas (например слой модалок или HUD над игровым).");
+
+            using (new EditorGUI.DisabledScope(atHardLimit))
             {
-                TryCreateAdditionalCanvas();
+                if (GUILayout.Button(new GUIContent("➕  " + ToolLang.Get("Canvas", "Холст"), addTip),
+                    addCanvasSt, GUILayout.MinWidth(120)))
+                {
+                    TryCreateAdditionalCanvas();
+                }
             }
             GUI.backgroundColor = prevBg;
             GUILayout.FlexibleSpace();
@@ -1003,22 +1028,42 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(row, isSel ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f) : Color.clear);
             if (isSel) EditorGUI.DrawRect(new Rect(row.x, row.y, 3, row.height), C_ACCENT);
 
-            const float STEP = 14f;
+            const float STEP = 12f;
+            // На сильно вложенных деревьях индент перестаёт расти после
+            // INDENT_DEPTH_CAP — иначе текст на 10+ уровне был бы 5px шириной.
+            // Линии-«лесенка» рисуем только до cap; за ним — рисуем единственный
+            // маркер «↪», что сигнализирует юзеру: «здесь ещё глубже, реальный
+            // depth подсмотри через Unity Hierarchy».
+            const int INDENT_DEPTH_CAP = 6;
+            int visualDepth = Mathf.Min(depth, INDENT_DEPTH_CAP);
             float baseX = row.x + 12f;
             Color lineCol = new Color(0.30f, 0.32f, 0.40f, 0.55f);
 
-            if (depth > 0)
+            if (visualDepth > 0)
             {
-                for (int d = 1; d <= depth; d++)
+                for (int d = 1; d <= visualDepth; d++)
                 {
                     float lx = baseX + (d - 1) * STEP + STEP * 0.5f;
                     EditorGUI.DrawRect(new Rect(lx, row.y, 1, row.height), lineCol);
                 }
-                float branchX = baseX + (depth - 1) * STEP + STEP * 0.5f;
+                float branchX = baseX + (visualDepth - 1) * STEP + STEP * 0.5f;
                 EditorGUI.DrawRect(new Rect(branchX, row.y + row.height * 0.5f, STEP * 0.5f, 1), lineCol);
             }
 
-            float iconX = baseX + depth * STEP;
+            float iconX = baseX + visualDepth * STEP;
+
+            // Маркер «↪» для глубже cap'а — занимает 12px перед шевроном.
+            if (depth > INDENT_DEPTH_CAP)
+            {
+                var deepSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleCenter };
+                deepSt.normal.textColor = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.85f);
+                GUI.Label(new Rect(iconX, row.y, 12, row.height),
+                    new GUIContent("↪", string.Format(ToolLang.Get(
+                        "Nesting level {0} (visual indent capped at {1}).",
+                        "Уровень вложенности {0} (визуальный отступ ограничен {1})."),
+                        depth, INDENT_DEPTH_CAP)), deepSt);
+                iconX += 12;
+            }
 
             // Шеврон ▼/▶ — только у строк с детьми. Клик по нему сворачивает
             // ветку. Зона кликабельности 14×row, чтобы было удобно ткнуть.
@@ -1139,8 +1184,22 @@ namespace NovellaEngine.Editor
                 // во время поиска collapse игнорируется (useCollapse=false), но
                 // юзер всё равно может тыкать шевроны — чтобы заранее настроить
                 // что будет свёрнуто после очистки поиска.
-                if (_collapsedNodes.Contains(id)) _collapsedNodes.Remove(id);
-                else _collapsedNodes.Add(id);
+                bool currentlyCollapsed = _collapsedNodes.Contains(id);
+
+                if (e.alt)
+                {
+                    // Alt+клик: рекурсивно ко всему поддереву.
+                    // Поведение «как в IDE»:
+                    //   - если узел свёрнут → разворачиваем всё под ним
+                    //   - если узел развёрнут → сворачиваем всё под ним (включая его сам)
+                    bool collapseAll = !currentlyCollapsed;
+                    ToggleSubtreeCollapse(rt, collapseAll);
+                }
+                else
+                {
+                    if (currentlyCollapsed) _collapsedNodes.Remove(id);
+                    else _collapsedNodes.Add(id);
+                }
                 _window?.Repaint();
                 e.Use();
                 return;
@@ -2209,10 +2268,11 @@ namespace NovellaEngine.Editor
             {
                 DrawSectionLabel(ToolLang.Get("CANVAS", "ХОЛСТ (CANVAS)"));
                 DrawInlineGuide("canvas");
-                // RT-секцию рисуем только при единичном выделении — иначе
-                // непонятно к какому канвасу относится переключатель.
-                if (_selectedList.Count == 1)
-                    DrawCanvasGlobalRTSection(FirstSelected.GetComponent<Canvas>());
+                // RT-секция работает и при множественном выделении — кликом
+                // переключаем сразу у всех. Если состояния разные, агрегатор
+                // показывает «Mixed» и первый клик сводит всех к ВКЛ.
+                var canvases = _selectedList.Select(rt => rt.GetComponent<Canvas>()).Where(c => c != null).ToList();
+                DrawCanvasGlobalRTSection(canvases);
             }
             else if (isMixed)
             {
@@ -2796,17 +2856,30 @@ namespace NovellaEngine.Editor
         // Индивидуальные RT-настройки элементов сохраняются — они активны
         // только когда canvas-RT включен. Так можно одной кнопкой «глушить»
         // весь UI (например когда показывается модалка).
-        private void DrawCanvasGlobalRTSection(Canvas canvas)
+        private void DrawCanvasGlobalRTSection(List<Canvas> canvases)
         {
-            if (canvas == null) return;
-            var group = canvas.GetComponent<CanvasGroup>();
+            if (canvases == null || canvases.Count == 0) return;
 
             DrawSectionLabel(ToolLang.Get("GLOBAL CLICKS", "ГЛОБАЛЬНЫЕ КЛИКИ (RT)"));
             DrawFieldHint(ToolLang.Get(
                 "Master switch for all UI clicks on this canvas. When OFF — every element is grayed out and won't receive clicks (whatever their own RT). When ON — elements use their individual RT toggles. Useful for «disable UI when modal is open».",
                 "Главный выключатель кликов для всего канваса. Если ВЫКЛ — все элементы серые и не реагируют на клики (вне зависимости от их собственного RT). Если ВКЛ — элементы используют свои индивидуальные RT-настройки. Удобно когда нужно «заглушить» весь UI пока показана модалка."));
 
-            bool active = group == null ? true : group.blocksRaycasts;
+            // Агрегированное состояние:
+            //   allActive     — все включены
+            //   allInactive   — все выключены
+            //   иначе         — смешанное (показываем как ВЫКЛ-стиль с пометкой Mixed)
+            bool allActive = true, allInactive = true;
+            foreach (var c in canvases)
+            {
+                if (c == null) continue;
+                var g = c.GetComponent<CanvasGroup>();
+                bool a = g == null ? true : g.blocksRaycasts;
+                if (a) allInactive = false; else allActive = false;
+            }
+            bool mixed = !allActive && !allInactive;
+            // Для отрисовки кнопки используем «активный» вид только если все ВКЛ.
+            bool active = allActive;
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
@@ -2832,9 +2905,18 @@ namespace NovellaEngine.Editor
             GUILayout.Space(8);
             var stateSt = new GUIStyle(EditorStyles.label) { fontSize = 11 };
             stateSt.normal.textColor = active ? C_TEXT_2 : new Color(0.95f, 0.66f, 0.30f);
-            GUILayout.Label(active
-                ? ToolLang.Get("ON — UI is interactive", "ВКЛ — UI кликабелен")
-                : ToolLang.Get("OFF — UI is frozen", "ВЫКЛ — UI заморожен"), stateSt);
+            string label;
+            if (mixed)
+                label = ToolLang.Get("MIXED — click to enable all", "СМЕШАНО — клик включит все");
+            else if (active)
+                label = canvases.Count > 1
+                    ? string.Format(ToolLang.Get("ON for {0} canvases", "ВКЛ на {0} холстах"), canvases.Count)
+                    : ToolLang.Get("ON — UI is interactive", "ВКЛ — UI кликабелен");
+            else
+                label = canvases.Count > 1
+                    ? string.Format(ToolLang.Get("OFF for {0} canvases", "ВЫКЛ на {0} холстах"), canvases.Count)
+                    : ToolLang.Get("OFF — UI is frozen", "ВЫКЛ — UI заморожен");
+            GUILayout.Label(label, stateSt);
 
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -2842,15 +2924,20 @@ namespace NovellaEngine.Editor
 
             if (Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
             {
-                if (group == null)
+                // Целевое состояние:
+                //   mixed  → выравниваем всех в ВКЛ
+                //   иначе  → инвертируем
+                bool newActive = mixed ? true : !active;
+                foreach (var c in canvases)
                 {
-                    group = Undo.AddComponent<CanvasGroup>(canvas.gameObject);
+                    if (c == null) continue;
+                    var g = c.GetComponent<CanvasGroup>();
+                    if (g == null) g = Undo.AddComponent<CanvasGroup>(c.gameObject);
+                    Undo.RecordObject(g, "Toggle Canvas Global RT");
+                    g.blocksRaycasts = newActive;
+                    g.interactable   = newActive;
+                    EditorUtility.SetDirty(g);
                 }
-                Undo.RecordObject(group, "Toggle Canvas Global RT");
-                bool newActive = !active;
-                group.blocksRaycasts = newActive;
-                group.interactable   = newActive;
-                EditorUtility.SetDirty(group);
                 Event.current.Use();
             }
         }
