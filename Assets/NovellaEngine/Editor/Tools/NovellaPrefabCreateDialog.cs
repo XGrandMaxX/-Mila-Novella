@@ -30,7 +30,8 @@ namespace NovellaEngine.Editor
         private string _name = "";
         private Action<GameObject> _onCreated;
 
-        public static void Show(Action<GameObject> onCreated)
+        // Имя «Open», а не «Show» — иначе скрывает базовый EditorWindow.Show().
+        public static void Open(Action<GameObject> onCreated)
         {
             var win = CreateInstance<NovellaPrefabCreateDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Create prefab", "Создать префаб"));

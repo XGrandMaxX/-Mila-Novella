@@ -24,7 +24,8 @@ namespace NovellaEngine.Editor
         private List<NovellaPrefabHistory.Entry> _entries;
         private Vector2 _scroll;
 
-        public static void Show()
+        // Имя «Open», а не «Show» — иначе скрывает базовый EditorWindow.Show().
+        public static void Open()
         {
             var win = CreateInstance<NovellaPrefabHistoryDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Prefab history", "История префабов"));

@@ -31,7 +31,8 @@ namespace NovellaEngine.Editor
         private List<GameObject> _prefabs = new List<GameObject>();
         private string _selectedPath;
 
-        public static void Show()
+        // Имя «Open», а не «Show» — иначе конфликт с базовым EditorWindow.Show().
+        public static void Open()
         {
             var win = GetWindow<NovellaPrefabBrowserWindow>(false,
                 ToolLang.Get("Prefabs", "Префабы"), true);
@@ -99,7 +100,7 @@ namespace NovellaEngine.Editor
             GUI.backgroundColor = C_ACCENT;
             if (GUILayout.Button("✨ " + ToolLang.Get("Create", "Создать"), createSt, GUILayout.Width(110)))
             {
-                NovellaPrefabCreateDialog.Show(_ =>
+                NovellaPrefabCreateDialog.Open(_ =>
                 {
                     RefreshList();
                     Repaint();
@@ -114,7 +115,7 @@ namespace NovellaEngine.Editor
             histSt.normal.textColor = C_TEXT_2;
             if (GUILayout.Button("📜 " + ToolLang.Get("History", "История"), histSt, GUILayout.Width(110)))
             {
-                NovellaPrefabHistoryDialog.Show();
+                NovellaPrefabHistoryDialog.Open();
             }
 
             GUILayout.Space(14);

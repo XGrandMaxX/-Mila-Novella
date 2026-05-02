@@ -2253,7 +2253,7 @@ namespace NovellaEngine.Editor
             if (DrawIconButton(new Rect(bx, by, prefabsW, bh), "📦",
                 compact ? "" : ToolLang.Get("Prefabs", "Префабы")))
             {
-                NovellaPrefabBrowserWindow.Show();
+                NovellaPrefabBrowserWindow.Open();
             }
         }
 
