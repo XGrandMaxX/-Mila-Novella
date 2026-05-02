@@ -643,11 +643,18 @@ namespace NovellaEngine.Editor
             if (Mathf.Abs(prog - target) > 0.001f) _window?.Repaint();
             else if (prog > 0.001f) _hadAnyCardHover = true;
 
-            // Easing — smoothstep даёт более «упругое» наезжающее ощущение.
-            float t = prog * prog * (3f - 2f * prog);
+            // Easing — упругий «overshoot»: t→1 пробивает за единицу
+            // (~1.05) и возвращается. Юзеру даёт ощущение «прыжка».
+            // out-back с малой амплитудой:  t' = 1 + 1.7·(t-1)·(t-1)·(t·1.7 + 1.7 - 1)
+            // упрощённо: чуть превышаем target и сглаживаем.
+            float ts = prog;
+            // smoothstep + лёгкий «overshoot» на 1.05.
+            float smooth = ts * ts * (3f - 2f * ts);
+            float t = smooth + 0.08f * (smooth * (1f - smooth));
 
-            // Лёгкий scale-up при hover. Pivot — центр карточки.
-            float scale = Mathf.Lerp(1.0f, 1.03f, t);
+            // Заметное подпрыгивание при hover — увеличение до 1.15×.
+            // Pivot — центр карточки, поэтому раздуваем во все стороны.
+            float scale = Mathf.Lerp(1.0f, 1.15f, t);
             float dx = (cardW * (scale - 1f)) * 0.5f;
             float dy = (cardH * (scale - 1f)) * 0.5f;
             Rect rs = new Rect(r.x - dx, r.y - dy, cardW * scale, cardH * scale);
@@ -664,8 +671,8 @@ namespace NovellaEngine.Editor
             float stripW = Mathf.Lerp(4f, 6f, t);
             EditorGUI.DrawRect(new Rect(rs.x, rs.y, stripW, rs.height), accent);
 
-            // Иконка — слегка увеличивается.
-            float iconFs = Mathf.Lerp(42f, 48f, t);
+            // Иконка — заметно растёт.
+            float iconFs = Mathf.Lerp(42f, 56f, t);
             var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = (int)iconFs, alignment = TextAnchor.MiddleCenter };
             iconSt.normal.textColor = accent;
             GUI.Label(new Rect(rs.x, rs.y + 24, rs.width, 56), icon, iconSt);
@@ -2108,11 +2115,15 @@ namespace NovellaEngine.Editor
             DrawTopbarGroupBg(g3);
             DrawZoomHelpGroup(g3);
 
-            // Содержимое DrawTogglesGroup (см. там расчёт ширин):
-            // pad8 + Сетка70 + 10 + Магнит78 + 10 + Подсказки130 + 10 + [Safe 110+10] + Связи96 + pad8.
-            float g2W = _isMobileMode ? 540f : 420f;
+            // Адаптивная ширина g2. Полная — 540 на мобилке (с Safe Area),
+            // 420 на десктопе. Если доступного места меньше — сжимаем до
+            // compact-режима (~250) где кнопки только иконки. Меньше 250 уже
+            // не уменьшаем, перекрытие неизбежно.
             float availStart = g1.xMax + 12f;
             float availEnd = g3.x - 12f;
+            float availW = availEnd - availStart;
+            float g2WFull = _isMobileMode ? 540f : 420f;
+            float g2W = Mathf.Min(g2WFull, Mathf.Max(250f, availW));
             float g2X = (availStart + availEnd) * 0.5f - g2W * 0.5f;
             if (g2X < availStart) g2X = availStart;
             if (g2X + g2W > availEnd) g2X = availEnd - g2W;
@@ -2176,36 +2187,51 @@ namespace NovellaEngine.Editor
             float bx = r.x + 4;
             float by = r.y + (r.height - bh) * 0.5f;
 
-            const float gap = 10f; // комфортный зазор между кнопками тулбара
+            const float gap = 10f;
 
-            float gridW = 70f;
-            DrawIconToggle(new Rect(bx, by, gridW, bh), "▦", ToolLang.Get("Grid", "Сетка"), ref _showGrid);
+            // Адаптивная ширина: при недостатке места сжимаем кнопки до
+            // иконок без текста. Иначе на mobile-разрешении (1080×1920)
+            // тулбар не помещался в центральной области Кузницы.
+            // Полная ширина: gridW(70) + gap + snapW(78) + gap + guideW(130) +
+            //                gap + [safe(110) + gap] + overviewW(96) ≈ 504..634.
+            // Если r.width меньше — переключаемся в compact-режим.
+            bool compact = r.width < 480f;
+
+            float gridW = compact ? 32f : 70f;
+            DrawIconToggle(new Rect(bx, by, gridW, bh), "▦",
+                compact ? "" : ToolLang.Get("Grid", "Сетка"),
+                ref _showGrid);
             bx += gridW + gap;
 
-            float snapW = 78f;
-            DrawIconToggle(new Rect(bx, by, snapW, bh), "✦", ToolLang.Get("Snap", "Магнит"), ref _smartGuides);
+            float snapW = compact ? 32f : 78f;
+            DrawIconToggle(new Rect(bx, by, snapW, bh), "✦",
+                compact ? "" : ToolLang.Get("Snap", "Магнит"),
+                ref _smartGuides);
             bx += snapW + gap;
 
-            float guideW = 130f;
-            // Хинты — общий тоггл NovellaSettingsModule.ShowGuide (нельзя передать
-            // property по ref, поэтому копируем в локальную и пишем обратно).
+            float guideW = compact ? 32f : 130f;
             bool guide = NovellaSettingsModule.ShowGuide;
-            string guideText = guide ? ToolLang.Get("Hints: On", "Подсказки: Вкл") : ToolLang.Get("Hints: Off", "Подсказки: Выкл");
+            string guideText = compact
+                ? ""
+                : (guide ? ToolLang.Get("Hints: On", "Подсказки: Вкл")
+                         : ToolLang.Get("Hints: Off", "Подсказки: Выкл"));
             DrawIconToggle(new Rect(bx, by, guideW, bh), "💡", guideText, ref guide);
             if (guide != NovellaSettingsModule.ShowGuide) NovellaSettingsModule.ShowGuide = guide;
             bx += guideW + gap;
 
             if (_isMobileMode)
             {
-                DrawIconToggle(new Rect(bx, by, 110f, bh), "📱", ToolLang.Get("Safe Area", "Безоп. зона"), ref _showSafeArea);
-                bx += 110f + gap;
+                float safeW = compact ? 32f : 110f;
+                DrawIconToggle(new Rect(bx, by, safeW, bh), "📱",
+                    compact ? "" : ToolLang.Get("Safe Area", "Безоп. зона"),
+                    ref _showSafeArea);
+                bx += safeW + gap;
             }
             else _showSafeArea = false;
 
-            // Открыть таблицу всех связей сцены — отдельное окно с подсчётом
-            // использований по всем NovellaTree-ассетам.
-            float overviewW = 96f;
-            if (DrawIconButton(new Rect(bx, by, overviewW, bh), "📋", ToolLang.Get("Bindings", "Связи")))
+            float overviewW = compact ? 32f : 96f;
+            if (DrawIconButton(new Rect(bx, by, overviewW, bh), "📋",
+                compact ? "" : ToolLang.Get("Bindings", "Связи")))
             {
                 NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
             }
