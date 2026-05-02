@@ -561,9 +561,23 @@ namespace NovellaEngine.Editor
             y += 18;
             GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18), (_canvas != null ? "✅" : "❌") + "  " + ToolLang.Get("UI Canvas", "UI Canvas") + (_canvas != null ? "  ·  " + _canvas.gameObject.name : ""), diagSt);
             y += 18;
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18), (_player != null ? "✅" : "⚪") + "  NovellaPlayer" + (_player != null ? "  ·  " + _player.gameObject.name : "  " + ToolLang.Get("(optional)", "(необязательно)")), diagSt);
+            // NovellaPlayer обязателен для GAMEPLAY-сцен (играет ноды графа).
+            // Для меню/splash он не нужен. Поэтому ярлык контекстный.
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_player != null ? "✅" : "⚪") + "  NovellaPlayer" +
+                (_player != null
+                    ? "  ·  " + _player.gameObject.name
+                    : "  " + ToolLang.Get("(needed for gameplay scenes)", "(нужен для игровых сцен)")),
+                diagSt);
             y += 18;
-            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18), (_launcher != null ? "✅" : "⚪") + "  StoryLauncher" + (_launcher != null ? "  ·  " + _launcher.gameObject.name : "  " + ToolLang.Get("(optional)", "(необязательно)")), diagSt);
+            // StoryLauncher обязателен для MENU-сцен (привязывает кнопки меню,
+            // показывает список историй, MC creation). Для геймплея не нужен.
+            GUI.Label(new Rect(diagRect.x + 12, y, diagRect.width - 24, 18),
+                (_launcher != null ? "✅" : "⚪") + "  StoryLauncher" +
+                (_launcher != null
+                    ? "  ·  " + _launcher.gameObject.name
+                    : "  " + ToolLang.Get("(needed for menu scenes)", "(нужен для меню)")),
+                diagSt);
 
             GUILayout.Space(14);
 
