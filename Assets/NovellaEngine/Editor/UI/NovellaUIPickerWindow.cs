@@ -320,23 +320,65 @@ namespace NovellaEngine.Editor.UIBindings
                 // SubMeshUI авто-генерируется TMP — не рисуем как отдельный rect.
                 if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
 
-                Rect screenRect = MapRect(ch, canvasSize, view, scale);
-                Color fill = TintFor(ch);
-                EditorGUI.DrawRect(screenRect, fill);
-                DrawBorder(screenRect, new Color(fill.r * 1.4f, fill.g * 1.4f, fill.b * 1.4f, 0.65f));
+                bool isButton = ch.GetComponent<Button>() != null;
 
-                // Подпись если влезает.
-                if (screenRect.width > 50 && screenRect.height > 14)
+                // Превью фильтруем по тому же правилу что и иерархию:
+                //  • Button-фильтр — рисуем только кнопки. Внутрь не рекурсимся —
+                //    текст-надпись кнопки рисуем уже в её рамке.
+                //  • Text-фильтр   — рисуем только TMP-тексты.
+                //  • Any           — всё.
+                bool isText = ch.GetComponent<TMP_Text>() != null;
+                bool drawThis = _kind == UIBindingKind.Any
+                    || (_kind == UIBindingKind.Button && isButton)
+                    || (_kind == UIBindingKind.Text   && isText);
+
+                if (drawThis)
                 {
-                    var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = TextAnchor.UpperLeft };
-                    st.normal.textColor = NovellaSettingsModule.GetContrastingText(fill);
-                    var b = ch.GetComponent<NovellaUIBinding>();
-                    string nm = b != null ? b.DisplayName : ch.gameObject.name;
-                    GUI.Label(new Rect(screenRect.x + 3, screenRect.y + 1, screenRect.width - 6, 14), nm, st);
+                    Rect screenRect = MapRect(ch, canvasSize, view, scale);
+                    Color fill = TintFor(ch);
+                    EditorGUI.DrawRect(screenRect, fill);
+                    DrawBorder(screenRect, new Color(fill.r * 1.4f, fill.g * 1.4f, fill.b * 1.4f, 0.75f));
+
+                    // Подпись: для текста — реальный текст, для кнопки — её inner-text
+                    // (если есть), для остального — DisplayName/имя GO.
+                    if (screenRect.width > 30 && screenRect.height > 12)
+                    {
+                        string label = ResolveLabel(ch, isButton, isText);
+                        if (!string.IsNullOrEmpty(label))
+                        {
+                            var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = isButton ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, wordWrap = false };
+                            st.normal.textColor = NovellaSettingsModule.GetContrastingText(fill);
+                            var labelRect = isButton
+                                ? screenRect
+                                : new Rect(screenRect.x + 3, screenRect.y, screenRect.width - 6, screenRect.height);
+                            GUI.Label(labelRect, label, st);
+                        }
+                    }
                 }
 
-                DrawElementRectsRecursive(ch, canvasSize, view, scale);
+                // Внутрь Button под Button-фильтром не рекурсимся — оно уже одна
+                // визуальная сущность. Под другими фильтрами идём вглубь.
+                if (!(isButton && _kind == UIBindingKind.Button))
+                    DrawElementRectsRecursive(ch, canvasSize, view, scale);
             }
+        }
+
+        // Возвращает осмысленный текст для рендера в превью.
+        private static string ResolveLabel(RectTransform ch, bool isButton, bool isText)
+        {
+            if (isText)
+            {
+                var tmp = ch.GetComponent<TMP_Text>();
+                if (tmp != null && !string.IsNullOrEmpty(tmp.text)) return tmp.text;
+            }
+            if (isButton)
+            {
+                // Берём первый дочерний TMP_Text — это метка кнопки.
+                var inner = ch.GetComponentInChildren<TMP_Text>(true);
+                if (inner != null && !string.IsNullOrEmpty(inner.text)) return inner.text;
+            }
+            var b = ch.GetComponent<NovellaUIBinding>();
+            return b != null ? b.DisplayName : ch.gameObject.name;
         }
 
         // Hover — лёгкая полупрозрачная обводка 2px.
@@ -351,38 +393,24 @@ namespace NovellaEngine.Editor.UIBindings
             EditorGUI.DrawRect(new Rect(r.xMax, r.y - 2, 2, r.height + 4), c);
         }
 
-        // Selected — более «громкое» выделение: толстая обводка + полупрозрачная
-        // заливка + угловые маркеры. Сразу видно даже на пёстром фоне.
+        // Selected — чистая толстая рамка акцентом + лёгкая заливка. Без шумных
+        // маркеров: чем меньше «грязи», тем легче воспринимать в визуальной сцене.
         private void DrawSelectedHighlight(RectTransform rt, Vector2 canvasSize, Rect view, float scale)
         {
             if (rt == null) return;
             Rect r = MapRect(rt, canvasSize, view, scale);
 
-            // Полупрозрачная заливка.
-            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.28f));
+            // Лёгкая полупрозрачная заливка — даёт ощущение «выбрано»,
+            // но не закрывает содержимое.
+            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.16f));
 
-            // Толстая обводка 4px (внешняя), плюс 1px светлая внутри для двойной рамки.
-            Color outer = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 1f);
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, r.width + 8, 4), outer);
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax,  r.width + 8, 4), outer);
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, 4, r.height + 8), outer);
-            EditorGUI.DrawRect(new Rect(r.xMax, r.y - 4, 4, r.height + 8), outer);
-
-            // Угловые маркеры — короткие толстые «уголки», увеличивают броскость.
-            const float L = 12f, T = 4f;
-            Color mk = new Color(1f, 1f, 1f, 0.95f);
-            // top-left
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, L, T), mk);
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.y - 4, T, L), mk);
-            // top-right
-            EditorGUI.DrawRect(new Rect(r.xMax + 4 - L, r.y - 4, L, T), mk);
-            EditorGUI.DrawRect(new Rect(r.xMax,         r.y - 4, T, L), mk);
-            // bottom-left
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax,         L, T), mk);
-            EditorGUI.DrawRect(new Rect(r.x - 4, r.yMax + 4 - L, T, L), mk);
-            // bottom-right
-            EditorGUI.DrawRect(new Rect(r.xMax + 4 - L, r.yMax,         L, T), mk);
-            EditorGUI.DrawRect(new Rect(r.xMax,         r.yMax + 4 - L, T, L), mk);
+            // Сплошная 3px рамка вокруг.
+            Color c = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 1f);
+            const float T = 3f;
+            EditorGUI.DrawRect(new Rect(r.x - T, r.y - T, r.width + 2 * T, T), c);
+            EditorGUI.DrawRect(new Rect(r.x - T, r.yMax,   r.width + 2 * T, T), c);
+            EditorGUI.DrawRect(new Rect(r.x - T, r.y - T, T, r.height + 2 * T), c);
+            EditorGUI.DrawRect(new Rect(r.xMax, r.y - T,   T, r.height + 2 * T), c);
         }
 
         private RectTransform HitTestDeepest(RectTransform parent, Vector2 canvasSize, Rect view, float scale, Vector2 mouse)
