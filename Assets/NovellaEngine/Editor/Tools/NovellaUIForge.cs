@@ -962,6 +962,13 @@ namespace NovellaEngine.Editor
                         var go = obj as GameObject;
                         if (go != null && go.transform is RectTransform dragRt && dragRt != canvasRT)
                         {
+                            // Корневые канвасы НЕ должны попадать в drop-to-root —
+                            // иначе они становятся дочерними _canvas, теряют
+                            // isRootCanvas и в дереве отображаются как «Папка».
+                            // Канвасы реордерятся через Above/Below на другом канвасе.
+                            var dragCanvas = dragRt.GetComponent<Canvas>();
+                            if (dragCanvas != null && dragCanvas.isRootCanvas) continue;
+
                             Undo.SetTransformParent(dragRt, canvasRT, "Drop to Root");
                             dragRt.SetAsLastSibling();
                         }
@@ -1462,6 +1469,28 @@ namespace NovellaEngine.Editor
                 if (!(go.transform is RectTransform dragRt)) continue;
                 if (dragRt == target) continue;
                 if (target.IsChildOf(dragRt)) continue; // нельзя сделать предка ребёнком потомка
+
+                // Канвас можно реордерить только относительно ДРУГОГО root-канваса
+                // на уровне сцены. Любой другой drop:
+                //   • Inside на что угодно → канвас стал бы дочерним и потерял
+                //     isRootCanvas (Unity автоматически снимает root-флаг у nested
+                //     канвасов), после чего в дереве он рендерился бы как «Папка»
+                //     и больше не рендерил UI.
+                //   • Above/Below на не-канвас → тот же эффект (target.parent
+                //     становится новым родителем).
+                // Поэтому здесь сразу отбрасываем такие случаи.
+                var dragCanvas = dragRt.GetComponent<Canvas>();
+                bool dragIsCanvas = dragCanvas != null && dragCanvas.isRootCanvas;
+                var targetCanvas = target.GetComponent<Canvas>();
+                bool targetIsCanvas = targetCanvas != null && targetCanvas.isRootCanvas;
+
+                if (dragIsCanvas)
+                {
+                    // Inside в любую цель — нельзя.
+                    if (mode == DropMode.Inside) continue;
+                    // Above/Below только если target — тоже корневой канвас.
+                    if (!targetIsCanvas) continue;
+                }
 
                 if (mode == DropMode.Inside)
                 {
