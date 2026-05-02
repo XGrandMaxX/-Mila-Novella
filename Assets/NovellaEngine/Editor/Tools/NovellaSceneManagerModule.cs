@@ -818,12 +818,19 @@ namespace NovellaEngine.Editor
             DrawPresetsBlock(sc, applied, contentWidth);
             DrawToolsBlock(sc, applied, contentWidth);
 
+            GUILayout.Space(20);
+
+            // Закрываем В ОБРАТНОМ порядке от открытий:
+            //   Begin: Area → Horizontal → Vertical → ScrollView
+            //   End:   ScrollView → Vertical → Horizontal → Area
+            // Раньше End-вызовы стояли в порядке открытий (Vertical → Horizontal
+            // → ScrollView → Area), и при возникновении exception где-нибудь
+            // выше IMGUI-стек разваливался: «EndLayoutGroup must be called
+            // first» / «Stack empty».
+            GUILayout.EndScrollView();
             GUILayout.EndVertical();
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
-
-            GUILayout.Space(20);
-            GUILayout.EndScrollView();
 
             GUILayout.EndArea();
         }
