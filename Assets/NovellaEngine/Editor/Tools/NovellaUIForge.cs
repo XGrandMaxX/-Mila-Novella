@@ -522,6 +522,34 @@ namespace NovellaEngine.Editor
             return IconFor("", rt.gameObject);
         }
 
+        // Возвращает короткую подпись типа объекта для второй строки в дереве.
+        // Помогает понять что это за элемент даже если имя кастомное —
+        // например юзер назвал «Character_Layer» а под ним мы пишем «Пустая группа».
+        private string GetElementSubtitle(RectTransform rt)
+        {
+            if (rt == null) return "";
+            if (_canvas != null && rt == _canvas.GetComponent<RectTransform>())
+                return ToolLang.Get("Canvas",        "Холст");
+            var go = rt.gameObject;
+            if (go.GetComponent<UnityEngine.UI.Button>() != null)
+                return ToolLang.Get("Button",        "Кнопка");
+            if (go.GetComponent<TMPro.TMP_Text>() != null)
+                return ToolLang.Get("Text",          "Текст");
+            if (go.GetComponent<UnityEngine.UI.Text>() != null)
+                return ToolLang.Get("Text (legacy)", "Текст (устар.)");
+            if (go.GetComponent<UnityEngine.UI.Image>() != null)
+            {
+                // Если у Image полупрозрачный/тёмный фон и есть дети — это «панель».
+                var img = go.GetComponent<UnityEngine.UI.Image>();
+                if (rt.childCount > 0 && img.color.a < 0.99f) return ToolLang.Get("Panel", "Панель");
+                return ToolLang.Get("Image", "Картинка");
+            }
+            if (go.GetComponent<UnityEngine.UI.RawImage>() != null)
+                return ToolLang.Get("Raw image", "Сырая картинка");
+            // Без графики — пустышка-контейнер.
+            return ToolLang.Get("Empty group", "Пустая группа");
+        }
+
         // Возвращает текст предупреждения для элемента дерева (или null если ОК).
         // Используется для отрисовки «!» индикатора рядом с именем элемента
         // в дереве + tooltip объясняющий что не так.
@@ -766,6 +794,16 @@ namespace NovellaEngine.Editor
             PlaceUnderParent(go, new Vector2(420, 220), "Create Panel");
         }
 
+        // Пустышка — RectTransform-контейнер без графики. Используется как
+        // логическая группа (например Character_Layer, HUD_Top), внутрь
+        // вкладывают другие элементы.
+        private void CreateEmpty()
+        {
+            string locName = ToolLang.Get("Group", "Группа");
+            var go = new GameObject(locName);
+            PlaceUnderParent(go, new Vector2(200, 200), "Create Group");
+        }
+
         private int ComputeDepth(RectTransform rt)
         {
             if (rt == null) return 0;
@@ -789,7 +827,7 @@ namespace NovellaEngine.Editor
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(0);
-            Rect row = GUILayoutUtility.GetRect(0, 26, GUILayout.ExpandWidth(true));
+            Rect row = GUILayoutUtility.GetRect(0, 36, GUILayout.ExpandWidth(true));
             GUILayout.Space(0);
             GUILayout.EndHorizontal();
 
@@ -813,13 +851,27 @@ namespace NovellaEngine.Editor
 
             float iconX = baseX + depth * STEP;
 
-            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft };
+            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
             iconSt.normal.textColor = isSel ? C_ACCENT : C_TEXT_3;
-            GUI.Label(new Rect(iconX, row.y, 18, row.height), icon, iconSt);
+            GUI.Label(new Rect(iconX, row.y, 22, row.height), icon, iconSt);
 
-            var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+            // Имя — верхняя строка ряда.
+            var nameSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.LowerLeft, clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 2) };
             nameSt.normal.textColor = isSel ? C_TEXT_1 : C_TEXT_2;
-            GUI.Label(new Rect(iconX + 20, row.y, row.width - (iconX - row.x) - 60, row.height), name, nameSt);
+            float textX = iconX + 24;
+            float textW = row.width - (textX - row.x) - 60;
+            GUI.Label(new Rect(textX, row.y + 2, textW, 18), name, nameSt);
+
+            // Подпись типа — нижняя строка, мелким серым шрифтом. Объясняет
+            // юзеру что это за объект (Panel / Image / Empty / ...) даже если
+            // имя кастомное (Character_Layer).
+            string subtitle = GetElementSubtitle(rt);
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var subSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, alignment = TextAnchor.UpperLeft, clipping = TextClipping.Clip };
+                subSt.normal.textColor = isSel ? C_TEXT_3 : C_TEXT_4;
+                GUI.Label(new Rect(textX, row.y + 18, textW, 14), subtitle, subSt);
+            }
 
             // Индикатор проблем — янтарный «!» справа от имени, с tooltip
             // о причине. Сейчас только legacy UnityEngine.UI.Text, но точка
@@ -986,6 +1038,7 @@ namespace NovellaEngine.Editor
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreatePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateEmpty(); });
             menu.AddSeparator("");
 
             bool isCanvas = rt == _canvas.GetComponent<RectTransform>();
@@ -1020,6 +1073,7 @@ namespace NovellaEngine.Editor
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreatePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("◇ Empty group", "◇ Пустая группа")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateEmpty(); });
             menu.ShowAsContext();
         }
 
@@ -1928,6 +1982,7 @@ namespace NovellaEngine.Editor
             {
                 DrawSectionLabel(ToolLang.Get("CANVAS", "ХОЛСТ (CANVAS)"));
                 DrawInlineGuide("canvas");
+                DrawCanvasGlobalRTSection(FirstSelected.GetComponent<Canvas>());
             }
             else if (isMixed)
             {
@@ -2503,6 +2558,71 @@ namespace NovellaEngine.Editor
 
             // Bindings — связь UI-элемента с графом/локализацией/переменными.
             DrawBindingSection();
+        }
+
+        // Canvas-уровневый «глобальный RT». Реализован через CanvasGroup на
+        // Canvas-объекте: blocksRaycasts + interactable одновременно, чтобы
+        // отключение давало и raycast-блокировку, и серый-disabled-вид.
+        // Индивидуальные RT-настройки элементов сохраняются — они активны
+        // только когда canvas-RT включен. Так можно одной кнопкой «глушить»
+        // весь UI (например когда показывается модалка).
+        private void DrawCanvasGlobalRTSection(Canvas canvas)
+        {
+            if (canvas == null) return;
+            var group = canvas.GetComponent<CanvasGroup>();
+
+            DrawSectionLabel(ToolLang.Get("GLOBAL CLICKS", "ГЛОБАЛЬНЫЕ КЛИКИ (RT)"));
+            DrawFieldHint(ToolLang.Get(
+                "Master switch for all UI clicks on this canvas. When OFF — every element is grayed out and won't receive clicks (whatever their own RT). When ON — elements use their individual RT toggles. Useful for «disable UI when modal is open».",
+                "Главный выключатель кликов для всего канваса. Если ВЫКЛ — все элементы серые и не реагируют на клики (вне зависимости от их собственного RT). Если ВКЛ — элементы используют свои индивидуальные RT-настройки. Удобно когда нужно «заглушить» весь UI пока показана модалка."));
+
+            bool active = group == null ? true : group.blocksRaycasts;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(12);
+
+            const float cell = 30f;
+            Rect r = GUILayoutUtility.GetRect(cell, cell, GUILayout.Width(cell), GUILayout.Height(cell));
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            Color bg = active ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, hover ? 0.45f : 0.30f)
+                              : hover ? new Color(0.95f, 0.66f, 0.30f, 0.20f) : new Color(0.95f, 0.66f, 0.30f, 0.10f);
+            EditorGUI.DrawRect(r, bg);
+            DrawRectBorder(r, active ? C_ACCENT : new Color(0.95f, 0.66f, 0.30f, 0.55f));
+
+            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+            st.normal.textColor = active ? C_ACCENT : new Color(0.95f, 0.66f, 0.30f);
+            GUI.Label(r, "RT", st);
+            if (!active)
+            {
+                Color line = new Color(0.95f, 0.66f, 0.30f);
+                EditorGUI.DrawRect(new Rect(r.x + 4, r.y + r.height * 0.5f - 1, r.width - 8, 2f), line);
+            }
+
+            GUILayout.Space(8);
+            var stateSt = new GUIStyle(EditorStyles.label) { fontSize = 11 };
+            stateSt.normal.textColor = active ? C_TEXT_2 : new Color(0.95f, 0.66f, 0.30f);
+            GUILayout.Label(active
+                ? ToolLang.Get("ON — UI is interactive", "ВКЛ — UI кликабелен")
+                : ToolLang.Get("OFF — UI is frozen (no clicks, dimmed)", "ВЫКЛ — UI заморожен (клики и интерактив выключены)"), stateSt);
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+
+            if (Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
+            {
+                if (group == null)
+                {
+                    group = Undo.AddComponent<CanvasGroup>(canvas.gameObject);
+                }
+                Undo.RecordObject(group, "Toggle Canvas Global RT");
+                bool newActive = !active;
+                group.blocksRaycasts = newActive;
+                group.interactable   = newActive;
+                EditorUtility.SetDirty(group);
+                Event.current.Use();
+            }
         }
 
         // Маленький RT-тоггл в шапке инспектора. 22×20 кнопка — еле занимает
