@@ -1,10 +1,15 @@
 // ════════════════════════════════════════════════════════════════════════════
-// NovellaSocialIcons — программно сгенерированные иконки Telegram и Discord.
-// Аналогично NovellaHubIcons, но в 2 цветах (бренд + белый/тёмный) — чтобы
-// получился узнаваемый логотип без ручного импорта PNG.
+// NovellaSocialIcons — иконки Telegram и Discord для окна жалобы.
 //
-// Кэшируются в HideAndDontSave-текстурах: не попадают в проект, не плодят
-// .meta-файлов, ребилдятся при первом обращении после reload скриптов.
+// Стратегия загрузки:
+//   1. Если в Assets/NovellaEngine/Editor/Resources/SocialIcons/ лежит
+//      telegram.png и/или discord.png — используем их (PNG с альфа-каналом
+//      и без фона). Это идеальный путь — реальные брендовые лого.
+//   2. Если файлов нет — fallback на программно нарисованные иконки.
+//      Они узнаваемы, но не идеальны — лучше положить настоящие PNG.
+//
+// Программные иконки кэшируются в HideAndDontSave-текстурах (не попадают
+// в проект, не плодят .meta).
 // ════════════════════════════════════════════════════════════════════════════
 
 using UnityEditor;
@@ -16,14 +21,57 @@ namespace NovellaEngine.Editor
     {
         private const int SIZE = 64;
 
-        // Бренд-цвета. Telegram — фирменный голубой, Discord — Blurple.
+        // Папка где юзер кладёт настоящие PNG-иконки. Внутри Editor чтобы
+        // не попадать в собранную игру.
+        private const string ICON_DIR = "Assets/NovellaEngine/Editor/Resources/SocialIcons/";
+
+        // Бренд-цвета (используются программными fallback-иконками).
         public static readonly Color TelegramBlue = new Color(0.13f, 0.62f, 0.85f); // #229ED9
         public static readonly Color DiscordBlurple = new Color(0.34f, 0.40f, 0.95f); // #5865F2
 
         private static Texture2D _telegram, _discord;
 
-        public static Texture2D Telegram => _telegram != null ? _telegram : (_telegram = BuildTelegram());
-        public static Texture2D Discord  => _discord  != null ? _discord  : (_discord  = BuildDiscord());
+        public static Texture2D Telegram
+        {
+            get
+            {
+                if (_telegram != null) return _telegram;
+                _telegram = LoadIcon("telegram") ?? BuildTelegram();
+                return _telegram;
+            }
+        }
+
+        public static Texture2D Discord
+        {
+            get
+            {
+                if (_discord != null) return _discord;
+                _discord = LoadIcon("discord") ?? BuildDiscord();
+                return _discord;
+            }
+        }
+
+        // Сброс кэша — позвать после того как юзер положит PNG в папку,
+        // чтобы новая иконка подхватилась без перезапуска Studio.
+        public static void Reload()
+        {
+            _telegram = null;
+            _discord  = null;
+        }
+
+        // Пытается загрузить PNG/JPG-файл иконки. Принимает имя без расширения.
+        // Внутри пробует .png и .jpg. Возвращает null если ничего нет.
+        private static Texture2D LoadIcon(string baseName)
+        {
+            string[] extensions = { ".png", ".jpg", ".jpeg" };
+            foreach (var ext in extensions)
+            {
+                string path = ICON_DIR + baseName + ext;
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                if (tex != null) return tex;
+            }
+            return null;
+        }
 
         // ─── Telegram ──────────────────────────────────────────────────
         // Голубой круг + белый бумажный самолётик. Силуэт центрирован

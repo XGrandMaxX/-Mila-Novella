@@ -102,12 +102,20 @@ namespace NovellaEngine.Editor
                 _errorCount), subSt);
 
             GUILayout.Space(4);
+            // Молния отдельным label-ом, без italic и без wordWrap — иначе при
+            // переносе строки glyph «⚡» вертикально сжимался и выглядел плоским.
+            GUILayout.BeginHorizontal();
+            var lightSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.UpperLeft };
+            lightSt.normal.textColor = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.95f);
+            GUILayout.Label("⚡", lightSt, GUILayout.Width(18), GUILayout.Height(20));
+
             var promiseSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, fontStyle = FontStyle.Italic };
             promiseSt.normal.textColor = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.95f);
             GUILayout.Label(ToolLang.Get(
-                "⚡  Bugs are fixed as fast as possible — your feedback is never wasted, it makes the toolkit better for everyone.",
-                "⚡  Баги исправляются максимально быстро — твой фидбек не лишний, он делает инструмент лучше для всех."),
+                "Bugs are fixed as fast as possible — your feedback is never wasted, it makes the toolkit better for everyone.",
+                "Баги исправляются максимально быстро — твой фидбек не лишний, он делает инструмент лучше для всех."),
                 promiseSt);
+            GUILayout.EndHorizontal();
             GUILayout.EndVertical();
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
