@@ -193,8 +193,8 @@ namespace NovellaEngine.Editor.UIBindings
             _onlyUnused = GUI.Toggle(toggleRect, _onlyUnused, "  показать только неиспользуемые");
             if (EditorGUI.EndChangeCheck()) Repaint();
 
-            // Refresh
-            if (GUI.Button(new Rect(r.xMax - 86, r.y + 30, 72, 20), "↻ Обновить", EditorStyles.miniButton))
+            // Refresh — увеличил ширину чтобы «Обновить» не обрезалось.
+            if (GUI.Button(new Rect(r.xMax - 116, r.y + 30, 102, 20), "↻ Обновить", EditorStyles.miniButton))
             {
                 Refresh();
             }
