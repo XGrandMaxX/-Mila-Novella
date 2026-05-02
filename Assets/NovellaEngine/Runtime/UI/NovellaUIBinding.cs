@@ -74,6 +74,8 @@ namespace NovellaEngine.Runtime.UI
             PlaySFX,             // проиграть AudioClip как SFX
             RestartChapter,      // перезапустить активную главу с нуля
             UnlockAchievement,   // выдать ачивку (хук, требует интеграции платформы)
+            PauseGame,           // Time.timeScale = 0 (заморозка игрового времени)
+            ResumeGame,          // Time.timeScale = 1 (снять паузу)
         }
 
         // Один шаг последовательности кликов. Список таких шагов на кнопке
@@ -395,6 +397,24 @@ namespace NovellaEngine.Runtime.UI
                 case BindingAction.UnlockAchievement:
                     NovellaPlayer.RaiseNovellaEvent("Achievement.Unlock", step.AchievementId ?? "");
                     Debug.Log($"[NovellaUIBinding] Achievement unlock requested: '{step.AchievementId}'. Подключи свою платформенную интеграцию через NovellaPlayer.OnNovellaEvent (event = 'Achievement.Unlock').");
+                    break;
+
+                case BindingAction.PauseGame:
+                    // Time.timeScale = 0 замораживает физику, корутины с
+                    // WaitForSeconds (но не WaitForSecondsRealtime), Animator,
+                    // ParticleSystem (если используется simulation space). НЕ
+                    // влияет на UI-input и Update. Если забыть вызвать ResumeGame —
+                    // юзер увидит «зависшую» игру, поэтому громкий warning.
+                    Time.timeScale = 0f;
+                    Debug.LogWarning("[NovellaUIBinding] Game PAUSED (Time.timeScale=0). Не забудь вызвать ResumeGame чтобы снять паузу — иначе игра выглядит зависшей.");
+                    break;
+
+                case BindingAction.ResumeGame:
+                    // Возврат к нормальной скорости. Использует ровно 1f
+                    // (не сохраняем «прошлый timeScale»), потому что пауза в
+                    // VN-играх обычно бинарная.
+                    Time.timeScale = 1f;
+                    Debug.Log("[NovellaUIBinding] Game RESUMED (Time.timeScale=1).");
                     break;
             }
         }

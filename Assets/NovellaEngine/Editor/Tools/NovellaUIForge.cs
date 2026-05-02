@@ -554,7 +554,8 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(20);
 
-            // Три большие карточки сценариев.
+            // Две карточки сценариев. «Пустой холст» убран — без Player/Launcher
+            // граф не воспроизводится, юзеру нет смысла начинать с пустого UI.
             GUILayout.BeginHorizontal();
             DrawStartCard(
                 "📱",
@@ -577,18 +578,6 @@ namespace NovellaEngine.Editor
                     "Диалоговое окно, слой персонажей, контейнер выборов. Создаёт NovellaPlayer со всеми связями и стартовый NovellaTree если у тебя его нет."),
                 ToolLang.Get("Apply preset", "Применить шаблон"),
                 () => ApplyGameplayPresetFromForge());
-
-            GUILayout.Space(14);
-
-            DrawStartCard(
-                "🛠",
-                ToolLang.Get("Empty canvas", "Пустой холст"),
-                new Color(0.55f, 0.62f, 0.72f),
-                ToolLang.Get(
-                    "Just a Canvas + EventSystem + Camera. For when you want to build the UI from scratch. NovellaPlayer / StoryLauncher you can add later from the toolbar.",
-                    "Только Canvas + EventSystem + камера. Для тех кто хочет собрать UI с нуля. NovellaPlayer / StoryLauncher позже добавишь из тулбара."),
-                ToolLang.Get("Create canvas", "Создать холст"),
-                () => CreateCanvasInScene());
 
             GUILayout.EndHorizontal();
 
@@ -621,120 +610,90 @@ namespace NovellaEngine.Editor
             GUILayout.EndArea();
         }
 
+        // Кэш hover/animation-state для preset-карточек на welcome-экране.
+        // Хранит текущее значение hover [0..1], плавно интерполируется
+        // в OnEditorUpdate при смене hover. На карточку нужен ключ —
+        // используем имя пресета.
+        private readonly Dictionary<string, float> _cardHoverProgress = new Dictionary<string, float>();
+        private bool _hadAnyCardHover;
+
         // Большая карточка-сценарий на welcome-экране Кузницы.
-        // Цветной hover, иконка-эмодзи 36px, заголовок, описание, акцентная
-        // кнопка снизу. Вся карточка кликабельна.
+        // Hover-анимация: фон/border/иконка/CTA плавно «загораются» через
+        // float-progress 0..1, который тянется к hover-цели каждый OnGUI.
+        // Без этого выглядело статично — переключение шло мгновенно.
         private void DrawStartCard(string icon, string title, Color accent, string desc, string actionLabel, System.Action onClick)
         {
             const float cardW = 240f, cardH = 280f;
             Rect r = GUILayoutUtility.GetRect(cardW, cardH, GUILayout.Width(cardW), GUILayout.Height(cardH));
             bool hover = r.Contains(Event.current.mousePosition);
 
-            // Фон с лёгким бренд-тоном.
-            Color bg = hover
-                ? new Color(accent.r, accent.g, accent.b, 0.20f)
-                : new Color(accent.r, accent.g, accent.b, 0.10f);
-            EditorGUI.DrawRect(r, bg);
+            // Анимация hover-progress: 0 нейтрально, 1 — полный hover.
+            // Стремимся к target плавно, ~10 кадров на полный переход.
+            string key = title;
+            if (!_cardHoverProgress.TryGetValue(key, out float prog)) prog = 0f;
+            float target = hover ? 1f : 0f;
+            float speed = 0.18f;
+            prog = Mathf.MoveTowards(prog, target, speed);
+            _cardHoverProgress[key] = prog;
+            // Если есть незавершённая анимация на любой карточке — Repaint
+            // чтобы кадры продолжали идти. Without this, карточка «зависает»
+            // на промежуточном progress'е после ухода мыши.
+            if (Mathf.Abs(prog - target) > 0.001f) _window?.Repaint();
+            else if (prog > 0.001f) _hadAnyCardHover = true;
 
-            // Тонкий бордер, ярче на hover.
-            Color border = hover ? accent : new Color(accent.r, accent.g, accent.b, 0.50f);
-            DrawRectBorder(r, border);
+            // Easing — smoothstep даёт более «упругое» наезжающее ощущение.
+            float t = prog * prog * (3f - 2f * prog);
 
-            // Цветная полоса слева.
-            EditorGUI.DrawRect(new Rect(r.x, r.y, 4, r.height), accent);
+            // Лёгкий scale-up при hover. Pivot — центр карточки.
+            float scale = Mathf.Lerp(1.0f, 1.03f, t);
+            float dx = (cardW * (scale - 1f)) * 0.5f;
+            float dy = (cardH * (scale - 1f)) * 0.5f;
+            Rect rs = new Rect(r.x - dx, r.y - dy, cardW * scale, cardH * scale);
 
-            // Иконка.
-            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 42, alignment = TextAnchor.MiddleCenter };
+            // Фон. Прозрачность интерполируется.
+            Color bg = new Color(accent.r, accent.g, accent.b, Mathf.Lerp(0.10f, 0.24f, t));
+            EditorGUI.DrawRect(rs, bg);
+
+            // Бордер.
+            Color border = Color.Lerp(new Color(accent.r, accent.g, accent.b, 0.50f), accent, t);
+            DrawRectBorder(rs, border);
+
+            // Цветная полоса слева — толще на hover.
+            float stripW = Mathf.Lerp(4f, 6f, t);
+            EditorGUI.DrawRect(new Rect(rs.x, rs.y, stripW, rs.height), accent);
+
+            // Иконка — слегка увеличивается.
+            float iconFs = Mathf.Lerp(42f, 48f, t);
+            var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = (int)iconFs, alignment = TextAnchor.MiddleCenter };
             iconSt.normal.textColor = accent;
-            GUI.Label(new Rect(r.x, r.y + 24, r.width, 56), icon, iconSt);
+            GUI.Label(new Rect(rs.x, rs.y + 24, rs.width, 56), icon, iconSt);
 
             // Заголовок.
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
-            titleSt.normal.textColor = C_TEXT_1;
-            GUI.Label(new Rect(r.x, r.y + 88, r.width, 22), title, titleSt);
+            titleSt.normal.textColor = Color.Lerp(C_TEXT_1, accent, t * 0.6f);
+            GUI.Label(new Rect(rs.x, rs.y + 88, rs.width, 22), title, titleSt);
 
             // Описание.
             var descSt = new GUIStyle(EditorStyles.label) { fontSize = 11, alignment = TextAnchor.UpperCenter, wordWrap = true };
             descSt.normal.textColor = C_TEXT_3;
-            GUI.Label(new Rect(r.x + 14, r.y + 116, r.width - 28, 110), desc, descSt);
+            GUI.Label(new Rect(rs.x + 14, rs.y + 116, rs.width - 28, 110), desc, descSt);
 
-            // CTA-кнопка снизу.
-            Rect btnR = new Rect(r.x + 14, r.yMax - 42, r.width - 28, 30);
-            bool btnHover = btnR.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(btnR, btnHover ? accent : new Color(accent.r, accent.g, accent.b, 0.75f));
-
+            // CTA-кнопка снизу — насыщеннее цвет на hover.
+            Rect btnR = new Rect(rs.x + 14, rs.yMax - 42, rs.width - 28, 30);
+            EditorGUI.DrawRect(btnR, Color.Lerp(new Color(accent.r, accent.g, accent.b, 0.75f), accent, t));
             var btnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
             btnSt.normal.textColor = Color.white;
             GUI.Label(btnR, actionLabel, btnSt);
 
-            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            EditorGUIUtility.AddCursorRect(rs, MouseCursor.Link);
 
-            // Клик по любой части карточки.
+            // Клик по любой части карточки. Используем оригинальный r для
+            // hit-test'а — анимированный rs нестабилен.
             if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
             {
                 onClick?.Invoke();
                 Event.current.Use();
             }
-        }
-
-        // Открывает красивый диалог с карточками вместо плоского GenericMenu.
-        // Юзер видит описание каждого компонента / пресета и сознательно
-        // выбирает что добавить.
-        private void ShowSceneComponentMenu()
-        {
-            bool playerExists   = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null;
-            bool launcherExists = UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null;
-
-            NovellaSceneSetupDialog.Show(
-                playerExists, launcherExists,
-                onAddPlayer:     CreateNovellaPlayerInScene,
-                onAddLauncher:   CreateStoryLauncherInScene,
-                onApplyMenu:     ApplyMenuPresetFromForge,
-                onApplyGameplay: ApplyGameplayPresetFromForge,
-                onClearScene:    ClearSceneFromForge);
-        }
-
-        // Очищает сцену от всех Canvas / EventSystem / Player / Launcher.
-        // Locked (🔒) объекты остаются — они защищены. После очистки в Forge
-        // можно сразу применить пресет на «чистом листе».
-        private void ClearSceneFromForge()
-        {
-            EditorApplication.delayCall += () =>
-            {
-                int removed = 0;
-                // Canvases (включая отключённые).
-                var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var c in canvases)
-                {
-                    if (c == null || !c.isRootCanvas) continue;
-                    var rt = c.GetComponent<RectTransform>();
-                    if (rt != null && IsLockedTransitive(rt)) continue;
-                    Undo.DestroyObjectImmediate(c.gameObject);
-                    removed++;
-                }
-                // EventSystem.
-                var eventSystems = UnityEngine.Object.FindObjectsByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var e in eventSystems)
-                {
-                    if (e != null) { Undo.DestroyObjectImmediate(e.gameObject); removed++; }
-                }
-                // Player / Launcher.
-                var players = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var p in players)
-                {
-                    if (p != null) { Undo.DestroyObjectImmediate(p.gameObject); removed++; }
-                }
-                var launchers = UnityEngine.Object.FindObjectsByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var l in launchers)
-                {
-                    if (l != null) { Undo.DestroyObjectImmediate(l.gameObject); removed++; }
-                }
-
-                FindReferences();
-                RefreshRectsCache();
-                _window?.Repaint();
-                Debug.Log($"[Novella] Scene cleared: removed {removed} objects (locked items preserved).");
-            };
         }
 
         // Применяет пресет ПРЯМО в активной сцене через публичный фасад
@@ -862,122 +821,6 @@ namespace NovellaEngine.Editor
             _selectedList.Clear();
             _selectedList.Add(canvas.GetComponent<RectTransform>());
             RefreshRectsCache();
-        }
-
-        // Добавляет в сцену пустой NovellaPlayer GameObject. Привязки полей
-        // (DialoguePanel, SpeakerNameText и т.п.) НЕ выставляются — юзер
-        // настраивает их в Unity-инспекторе вручную, или применяет
-        // готовый Gameplay-пресет.
-        // Пытаемся подобрать NovellaTree из проекта если есть.
-        private void CreateNovellaPlayerInScene()
-        {
-            if (UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.NovellaPlayer>(FindObjectsInactive.Include) != null)
-            {
-                EditorUtility.DisplayDialog(
-                    ToolLang.Get("Already exists", "Уже существует"),
-                    ToolLang.Get("A NovellaPlayer is already present in the scene.",
-                                 "В сцене уже есть NovellaPlayer."),
-                    "OK");
-                return;
-            }
-            var go = new GameObject("[Novella]_Player");
-            var p  = go.AddComponent<NovellaEngine.Runtime.NovellaPlayer>();
-
-            // Если в проекте есть NovellaTree — подцепим первый. Без этого
-            // NovellaPlayer всё равно не запустит ничего, лучше уж подсунуть.
-            var guids = AssetDatabase.FindAssets("t:NovellaTree");
-            if (guids != null && guids.Length > 0)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(guids[0]);
-                var tree = AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaTree>(path);
-                if (tree != null) p.StoryTree = tree;
-            }
-
-            // Auto-bind UI-полей по именам объектов в сцене (как делает пресет).
-            // Имена из PerformGameplaySetup в SceneManagerModule.
-            var goPanel    = FindGameObjectByName("Dialogue_Box");
-            var goSpeaker  = FindGameObjectByName("Speaker_Name");
-            var goBody     = FindGameObjectByName("Dialogue_Text");
-            var goChoices  = FindGameObjectByName("ChoiceContainer");
-            var goCharLay  = FindGameObjectByName("Character_Layer");
-            if (goPanel   != null) p.DialoguePanel       = goPanel;
-            if (goSpeaker != null) p.SpeakerNameText     = goSpeaker.GetComponent<TMPro.TMP_Text>();
-            if (goBody    != null) p.DialogueBodyText    = goBody.GetComponent<TMPro.TMP_Text>();
-            if (goChoices != null) p.ChoiceContainer     = goChoices.transform;
-            if (goCharLay != null) p.CharactersContainer = goCharLay.transform;
-
-            Undo.RegisterCreatedObjectUndo(go, "Create NovellaPlayer");
-            FindReferences();
-            _window?.Repaint();
-        }
-
-        // Добавляет в сцену StoryLauncher GameObject + сразу привязывает все
-        // UI-поля по именам объектов в сцене (как делает пресет MainMenu).
-        // AutoFindPanels внутри StoryLauncher.Start() работает только в рантайме —
-        // в редакторе поля оставались пустыми и юзер видел голый компонент.
-        private void CreateStoryLauncherInScene()
-        {
-            if (UnityEngine.Object.FindAnyObjectByType<NovellaEngine.Runtime.StoryLauncher>(FindObjectsInactive.Include) != null)
-            {
-                EditorUtility.DisplayDialog(
-                    ToolLang.Get("Already exists", "Уже существует"),
-                    ToolLang.Get("A StoryLauncher is already present in the scene.",
-                                 "В сцене уже есть StoryLauncher."),
-                    "OK");
-                return;
-            }
-            var go = new GameObject("[Novella]_StoryLauncher");
-            var sl = go.AddComponent<NovellaEngine.Runtime.StoryLauncher>();
-
-            // Auto-bind полей по именам — те же имена что в пресете MainMenu.
-            var mainMenu     = FindGameObjectByName("[Novella]_MainMenuPanel")
-                            ?? FindGameObjectByName("MainMenuPanel");
-            var storiesPanel = FindGameObjectByName("StoriesPanel");
-            var mcPanel      = FindGameObjectByName("MCCreationPanel");
-            var storiesCont  = FindGameObjectByName("StoriesContainer");
-            var avatar       = FindGameObjectByName("AvatarPreview");
-            var btnPrev      = FindGameObjectByName("Btn_PrevLook");
-            var btnNext      = FindGameObjectByName("Btn_NextLook");
-            var btnConfirm   = FindGameObjectByName("Btn_Confirm");
-            var nameInput    = FindGameObjectByName("MCNameInput");
-
-            if (mainMenu     != null) sl.MainMenuPanel    = mainMenu;
-            if (storiesPanel != null) sl.StoriesPanel     = storiesPanel;
-            if (mcPanel      != null) sl.MCCreationPanel  = mcPanel;
-            if (storiesCont  != null) sl.StoriesContainer = storiesCont.transform;
-            if (avatar       != null) sl.MCAvatarPreview  = avatar.GetComponent<UnityEngine.UI.Image>();
-            if (btnPrev      != null) sl.MCPrevLookButton = btnPrev.GetComponent<UnityEngine.UI.Button>();
-            if (btnNext      != null) sl.MCNextLookButton = btnNext.GetComponent<UnityEngine.UI.Button>();
-            if (btnConfirm   != null) sl.MCConfirmButton  = btnConfirm.GetComponent<UnityEngine.UI.Button>();
-            if (nameInput    != null) sl.MCNameInput      = nameInput.GetComponent<TMPro.TMP_InputField>();
-
-            // Подцепляем StoryButtonPrefab если он лежит как Generated/.
-            var prefabGuids = AssetDatabase.FindAssets("Starter_StoryButton t:Prefab");
-            if (prefabGuids != null && prefabGuids.Length > 0)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(prefabGuids[0]);
-                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                if (prefab != null) sl.StoryButtonPrefab = prefab;
-            }
-
-            Undo.RegisterCreatedObjectUndo(go, "Create StoryLauncher");
-            FindReferences();
-            _window?.Repaint();
-        }
-
-        // Находит первый активный GameObject в сцене с заданным именем.
-        // Используется для auto-bind полей при создании Player/Launcher.
-        // Берём через FindObjectsByType<RectTransform> чтобы захватить и
-        // отключённые объекты (например MCCreationPanel изначально выключен).
-        private static GameObject FindGameObjectByName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return null;
-            var rects = UnityEngine.Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            foreach (var rt in rects)
-            {
-                if (rt != null && rt.gameObject.name == name) return rt.gameObject;
-            }
-            return null;
         }
 
         private void FindReferences()
@@ -1342,28 +1185,6 @@ namespace NovellaEngine.Editor
                 }
             }
             GUI.backgroundColor = prevBg;
-
-            // Кнопка-меню для добавления компонентов сцены (Player / Launcher)
-            // или применения пресета. Доступна когда канвас уже создан —
-            // юзер хочет добавить только Player без полного пресета.
-            GUILayout.Space(6);
-            var addCompSt = new GUIStyle(EditorStyles.miniButton)
-            {
-                fontSize = 11,
-                alignment = TextAnchor.MiddleCenter,
-                fixedHeight = 22,
-                padding = new RectOffset(10, 10, 2, 2)
-            };
-            addCompSt.normal.textColor = C_TEXT_2;
-            if (GUILayout.Button(new GUIContent(
-                    "➕  " + ToolLang.Get("Scene", "Сцена") + "  ▾",
-                    ToolLang.Get(
-                        "Add NovellaPlayer / StoryLauncher to the scene, or apply a full scene preset.",
-                        "Добавить NovellaPlayer / StoryLauncher на сцену, или применить полный пресет сцены.")),
-                addCompSt, GUILayout.MinWidth(90)))
-            {
-                ShowSceneComponentMenu();
-            }
 
             GUILayout.FlexibleSpace();
             GUILayout.Space(10);
@@ -1870,33 +1691,18 @@ namespace NovellaEngine.Editor
             DrawSmallIconWithTint(pickRect, pickTex, pickColor, pickTip, 16f);
 
             // ─── Eye (active) ─────────────────────────────────────────────
-            // Кнопка-«глаз» переключает activeSelf. Для preset-managed и locked
-            // отключена, tooltip объясняет почему.
+            // Кнопка-«глаз» переключает activeSelf. Замок и preset-marker
+            // НЕ блокируют этот тоггл — юзер может включать/выключать панели
+            // (например показать MCCreationPanel в gameplay). Защита замка
+            // только от удаления/дублирования/drag.
             string eyeIcon = selfActive ? "●" : "◌";
-            string eyeTip;
-            if (isPresetManaged)
-            {
-                eyeTip = ToolLang.Get(
-                    "Created by a scene preset — its active state is locked. Clear the preset if you really need to remove it.",
-                    "Создано пресетом сцены — состояние active заблокировано. Удали пресет целиком если действительно нужно.");
-            }
-            else if (isLocked)
-            {
-                eyeTip = ToolLang.Get("Locked. Unlock first.", "Заблокирован. Сначала сними замок.");
-            }
-            else
-            {
-                eyeTip = selfActive
-                    ? ToolLang.Get("Click to disable this object (and its children).",
-                                   "Клик — выключить объект (и его потомков).")
-                    : ToolLang.Get("Click to enable this object.",
-                                   "Клик — включить объект.");
-            }
+            string eyeTip = selfActive
+                ? ToolLang.Get("Click to disable this object (and its children).",
+                               "Клик — выключить объект (и его потомков).")
+                : ToolLang.Get("Click to enable this object.",
+                               "Клик — включить объект.");
             var eyeSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13, alignment = TextAnchor.MiddleCenter };
-            if (isPresetManaged || isLocked)
-                eyeSt.normal.textColor = new Color(C_TEXT_4.r, C_TEXT_4.g, C_TEXT_4.b, 0.55f);
-            else
-                eyeSt.normal.textColor = selfActive ? C_TEXT_2 : C_TEXT_4;
+            eyeSt.normal.textColor = selfActive ? C_TEXT_2 : C_TEXT_4;
             GUI.Label(eyeRect, new GUIContent(eyeIcon, eyeTip), eyeSt);
 
             Event e = Event.current;
@@ -1922,12 +1728,11 @@ namespace NovellaEngine.Editor
                 }
                 if (eyeRect.Contains(e.mousePosition))
                 {
-                    if (!isPresetManaged && !isLocked)
-                    {
-                        Undo.RecordObject(rt.gameObject, selfActive ? "Disable Object" : "Enable Object");
-                        rt.gameObject.SetActive(!selfActive);
-                        EditorUtility.SetDirty(rt.gameObject);
-                    }
+                    // Замок и preset-marker НЕ блокируют переключение active.
+                    // Юзеру нужно показывать/скрывать панели даже у preset-объектов.
+                    Undo.RecordObject(rt.gameObject, selfActive ? "Disable Object" : "Enable Object");
+                    rt.gameObject.SetActive(!selfActive);
+                    EditorUtility.SetDirty(rt.gameObject);
                     _window?.Repaint();
                     e.Use();
                     return;
@@ -4323,6 +4128,8 @@ namespace NovellaEngine.Editor
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PlaySFX:           return ("🎵", ToolLang.Get("Play SFX",             "Проиграть звук"));
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage:    return ("🌐", ToolLang.Get("Change language",      "Сменить язык"));
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:           return ("🔗", ToolLang.Get("Open URL",             "Открыть ссылку"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PauseGame:         return ("⏸",  ToolLang.Get("Pause game",           "Пауза игры"));
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ResumeGame:        return ("▶",  ToolLang.Get("Resume game",          "Снять паузу"));
             }
             return ("?", a.ToString());
         }
@@ -4346,6 +4153,8 @@ namespace NovellaEngine.Editor
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel:    return ToolLang.Get("Toggles visibility of the chosen UI element.", "Переключает видимость выбранного UI элемента.");
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage: return ToolLang.Get("Sets the in-game language. All NovellaUIBinding texts and dialogue refresh.", "Меняет язык игры. Все тексты NovellaUIBinding и диалоги обновятся.");
                 case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:        return ToolLang.Get("Opens the URL in the system browser.", "Открывает URL в системном браузере.");
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PauseGame:      return ToolLang.Get("⚠ Sets Time.timeScale = 0 — game freezes. Make sure you wire a «Resume game» button somewhere, otherwise the game looks frozen.", "⚠ Ставит Time.timeScale = 0 — игра «замораживается». Обязательно повесь где-то кнопку «Снять паузу», иначе игра выглядит зависшей.");
+                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ResumeGame:     return ToolLang.Get("Sets Time.timeScale = 1 — unfreezes the game. Usually wired to «Continue» or close-pause buttons.", "Ставит Time.timeScale = 1 — снимает паузу. Обычно вешается на «Продолжить» или крестик закрытия паузы.");
             }
             return "";
         }

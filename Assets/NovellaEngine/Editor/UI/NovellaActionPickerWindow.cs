@@ -132,6 +132,8 @@ namespace NovellaEngine.Editor.UIBindings
             {
                 NovellaUIBinding.BindingAction.ChangeLanguage,
                 NovellaUIBinding.BindingAction.OpenURL,
+                NovellaUIBinding.BindingAction.PauseGame,
+                NovellaUIBinding.BindingAction.ResumeGame,
                 NovellaUIBinding.BindingAction.QuitGame,
             });
 
@@ -323,6 +325,8 @@ namespace NovellaEngine.Editor.UIBindings
                 case NovellaUIBinding.BindingAction.PlaySFX:           return ("🎵", "Проиграть звук");
                 case NovellaUIBinding.BindingAction.ChangeLanguage:    return ("🌐", "Сменить язык");
                 case NovellaUIBinding.BindingAction.OpenURL:           return ("🔗", "Открыть ссылку");
+                case NovellaUIBinding.BindingAction.PauseGame:         return ("⏸",  "Пауза игры");
+                case NovellaUIBinding.BindingAction.ResumeGame:        return ("▶",  "Снять паузу");
             }
             return ("?", a.ToString());
         }
@@ -352,6 +356,8 @@ namespace NovellaEngine.Editor.UIBindings
                 case NovellaUIBinding.BindingAction.PlaySFX:           return "Проигрывает звуковой эффект (одноразово, без повторов). Полезно для click-feedback кнопок и переходов.";
                 case NovellaUIBinding.BindingAction.ChangeLanguage:    return "Меняет язык игры. Все тексты NovellaUIBinding и диалоги обновятся автоматически.";
                 case NovellaUIBinding.BindingAction.OpenURL:           return "Открывает указанную ссылку в системном браузере.";
+                case NovellaUIBinding.BindingAction.PauseGame:         return "⚠ Ставит Time.timeScale = 0 — игра «замораживается». Обязательно где-то добавь кнопку «Снять паузу» (ResumeGame), иначе игра выглядит зависшей.";
+                case NovellaUIBinding.BindingAction.ResumeGame:        return "Снимает паузу — Time.timeScale = 1. Обычно вешается на кнопку «Продолжить» в pause-меню или на крестик закрытия паузы.";
             }
             return "";
         }

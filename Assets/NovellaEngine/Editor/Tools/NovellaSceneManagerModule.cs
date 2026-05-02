@@ -1830,7 +1830,16 @@ namespace NovellaEngine.Editor
             var btnExit     = CreateUIButton(marker, "Btn_Exit",      ToolLang.Get("Quit",       "Выход"),       Vector2.zero);
             SetCenterAnchorPos(btnExit,     new Vector2(0, -120));
 
+            // Привязки действий через NovellaUIBinding (вместо AutoWireButtons
+            // по имени). Это делает связь кнопка ↔ действие устойчивой к
+            // переименованию: юзер может назвать «Btn_StartPlay» в «Поехали» —
+            // действие останется. AutoWireButtons теперь пропускает кнопки
+            // у которых есть NovellaUIBinding (см. StoryLauncher.AutoWireButtons).
             AddLoadLastSaveBinding(btnContinue);
+            AddQuitGameBinding(btnExit);
+            // Btn_StartPlay = ShowPanel(StoriesPanel). Для этого StoriesPanel
+            // тоже получит binding (id-based привязка). Делаем после создания
+            // StoriesPanel ниже.
 
             // ─── Stories panel — список историй из Resources ─────────────────
             // StoryLauncher.LoadStoriesFromResources() сам инстанцирует
@@ -1857,6 +1866,16 @@ namespace NovellaEngine.Editor
             vlg.childAlignment = TextAnchor.UpperCenter;
 
             storiesPanel.SetActive(false);
+
+            // Биндинг на StoriesPanel — нужен чтобы Btn_StartPlay мог
+            // ссылаться на него по ID через ShowPanel.
+            var storiesBinding = storiesPanel.AddComponent<NovellaUIBinding>();
+            storiesBinding.EnsureId();
+            storiesBinding.Name = "StoriesPanel";
+
+            // Btn_StartPlay → ShowPanel(StoriesPanel). Связь по ID — устойчива
+            // к переименованию StoriesPanel и/или самой кнопки.
+            AddShowPanelBinding(btnStart, storiesBinding.Id);
 
             // ─── MC Creation panel — гардероб / редактор персонажа ───────────
             var mcPanel = BuildMCCreationPanel(canvas, active: false);
@@ -2035,6 +2054,34 @@ namespace NovellaEngine.Editor
         // шагом LoadLastSave. Используется для Btn_Continue в Main Menu.
         private static void AddLoadLastSaveBinding(GameObject btnGo)
         {
+            AddSimpleBinding(btnGo, new NovellaUIBinding.ClickActionStep
+            {
+                Action = NovellaUIBinding.BindingAction.LoadLastSave
+            });
+        }
+
+        private static void AddQuitGameBinding(GameObject btnGo)
+        {
+            AddSimpleBinding(btnGo, new NovellaUIBinding.ClickActionStep
+            {
+                Action = NovellaUIBinding.BindingAction.QuitGame
+            });
+        }
+
+        private static void AddShowPanelBinding(GameObject btnGo, string targetBindingId)
+        {
+            AddSimpleBinding(btnGo, new NovellaUIBinding.ClickActionStep
+            {
+                Action = NovellaUIBinding.BindingAction.ShowPanel,
+                TargetBindingId = targetBindingId,
+            });
+        }
+
+        // Универсальный helper: вешает NovellaUIBinding на кнопку и ставит
+        // ровно один шаг ClickSequence. Если binding уже был — переиспользуем
+        // его (это редко, но не дублируем компонент).
+        private static void AddSimpleBinding(GameObject btnGo, NovellaUIBinding.ClickActionStep step)
+        {
             if (btnGo == null) return;
             var b = btnGo.GetComponent<NovellaUIBinding>();
             if (b == null) b = btnGo.AddComponent<NovellaUIBinding>();
@@ -2042,10 +2089,7 @@ namespace NovellaEngine.Editor
             b.Name = btnGo.name;
             if (b.ClickSequence == null) b.ClickSequence = new List<NovellaUIBinding.ClickActionStep>();
             b.ClickSequence.Clear();
-            b.ClickSequence.Add(new NovellaUIBinding.ClickActionStep
-            {
-                Action = NovellaUIBinding.BindingAction.LoadLastSave
-            });
+            b.ClickSequence.Add(step);
         }
 
         // Контейнер ссылок на дочерние элементы MC Creation Panel — чтобы
