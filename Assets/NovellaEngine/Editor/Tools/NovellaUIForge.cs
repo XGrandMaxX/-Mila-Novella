@@ -488,8 +488,21 @@ namespace NovellaEngine.Editor
             {
                 object val = f.GetValue(c);
                 GameObject go = null;
-                if (val is GameObject g) go = g;
-                else if (val is Component comp) go = comp.gameObject;
+                // Важно использовать Unity-овский `==` против null — это
+                // отлавливает «destroyed companion» (managed-обёртка ещё жива,
+                // а native-часть уже уничтожена). Если потянуться за .gameObject
+                // у такого объекта — летит MissingReferenceException и
+                // OnHierarchyChange падает на каждом изменении сцены.
+                if (val is GameObject g)
+                {
+                    if (g == null) continue;
+                    go = g;
+                }
+                else if (val is Component comp)
+                {
+                    if (comp == null) continue;
+                    go = comp.gameObject;
+                }
                 if (go != null && !_friendlyNames.ContainsKey(go))
                 {
                     _friendlyNames[go] = LocalizeFieldName(f.Name);
