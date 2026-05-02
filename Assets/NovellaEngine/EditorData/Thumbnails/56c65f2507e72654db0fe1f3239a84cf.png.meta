@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 6c5e46b9acda6e2499ab6888085cc557
+guid: 57780324d1189ef45b476ee1a2b72ce9
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 8308626380469435081
-    second: SALIGIA Pyramid_0
+      213: 1160021388847045224
+    second: 56c65f2507e72654db0fe1f3239a84cf_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -46,8 +46,8 @@ TextureImporter:
   nPOTScale: 0
   lightmap: 0
   compressionQuality: 50
-  spriteMode: 1
-  spriteExtrude: 3
+  spriteMode: 2
+  spriteExtrude: 1
   spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
@@ -75,7 +75,7 @@ TextureImporter:
     maxTextureSize: 2048
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 0
+    textureCompression: 1
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -126,13 +126,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: SALIGIA Pyramid_0
+      name: 56c65f2507e72654db0fe1f3239a84cf_0
       rect:
         serializedVersion: 2
         x: 0
         y: 0
-        width: 360
-        height: 224
+        width: 1280
+        height: 720
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -141,8 +141,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 9caf15b0cab2e4370800000000000000
-      internalID: 8308626380469435081
+      spriteID: 86a551e9e49391010800000000000000
+      internalID: 1160021388847045224
       vertices: []
       indices: 
       edges: []
@@ -151,7 +151,7 @@ TextureImporter:
     customData: 
     physicsShape: []
     bones: []
-    spriteID: 5e97eb03825dee720800000000000000
+    spriteID: 
     internalID: 0
     vertices: []
     indices: 
@@ -161,7 +161,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      SALIGIA Pyramid_0: 8308626380469435081
+      56c65f2507e72654db0fe1f3239a84cf_0: 1160021388847045224
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

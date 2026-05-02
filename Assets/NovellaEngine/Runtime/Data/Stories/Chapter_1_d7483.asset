@@ -12,12 +12,176 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e7fd50bdf9114ce4498a7f22f486539a, type: 3}
   m_Name: Chapter_1_d7483
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
-  RootNodeID: 
+  RootNodeID: Dialogue_5de67
   StartPosition: {x: 50, y: 200}
   EnableAutoSave: 0
   AutoSaveInterval: 30
-  Nodes: []
+  Nodes:
+  - rid: 7628001597883416698
+  - rid: 7628001604869816386
+  - rid: 7628001597883416699
+  - rid: 7628001597883416697
   Groups: []
   references:
     version: 2
-    RefIds: []
+    RefIds:
+    - rid: 7628001597883416697
+      type: {class: DialogueNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_5de67
+        NodeTitle: Dialogue 1
+        GraphPosition: {x: 321, y: 300}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          FlipX: 0
+          FlipY: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+          UITextTargetId: ffe360e9ad074777be175666277579a4
+          UISpeakerTargetId: 
+        UnlockDialogueLimit: 0
+        NextNodeID: Branch_d7b8d
+        AudioSyncNodeID: 
+        AnimSyncNodeID: 
+        SceneSyncNodeID: SceneSettings_ccb00
+        FontSize: 32
+    - rid: 7628001597883416698
+      type: {class: BranchNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Branch_d7b8d
+        NodeTitle: Branch 1
+        GraphPosition: {x: 592, y: 200}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        Choices:
+        - PortID: Choice_b54fe
+          LocalizedText:
+            Translations: []
+          NextNodeID: Wait_53dc1
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+          UIButtonTargetId: a0a6f6cbb901495e9e4353cd8b61f036
+        - PortID: Choice_ade30
+          LocalizedText:
+            Translations: []
+          NextNodeID: 
+          Conditions: []
+          HasCondition: 0
+          ConditionVariable: 
+          ConditionValue: 0
+          ChanceWeight: 50
+          ChanceModifiers: []
+          UIButtonTargetId: 3c15e5c2a9954c1192509b607ee1d7d9
+        UnlockChoiceLimit: 0
+        OverrideChoiceButtonPrefab: {fileID: 0}
+    - rid: 7628001597883416699
+      type: {class: WaitNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Wait_53dc1
+        NodeTitle: Wait 1
+        GraphPosition: {x: 805, y: 282}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        WaitMode: 0
+        WaitTime: 1
+        WaitIsSkippable: 1
+        WaitClearText: 0
+        WaitHideFrame: 0
+        WaitIndicatorPreset: 3
+        WaitIndicatorPosX: 0
+        WaitIndicatorPosY: 80
+        WaitIndicatorSprite: {fileID: 0}
+        WaitIndicatorColor: {r: 1, g: 1, b: 1, a: 1}
+        WaitIndicatorSize: 25
+        WaitIndicatorAnimSpeed: 4
+        WaitIndicatorAmplitude: 10
+        WaitText: 
+        WaitTextColor: {r: 1, g: 1, b: 1, a: 0.7}
+        WaitTextSize: 24
+        WaitTextBlinkSpeed: 2
+        WaitTextPosX: 0
+        WaitTextPosY: -35
+        UITextTargetId: 
+        NextNodeID: 
+    - rid: 7628001604869816386
+      type: {class: SceneSettingsNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: SceneSettings_ccb00
+        NodeTitle: SceneSettings 1
+        GraphPosition: {x: 554, y: 115}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        SyncWithDialogue: 1
+        UnlockLimit: 0
+        BgSprite: {fileID: 0}
+        BgColor: {r: 1, g: 1, b: 1, a: 1}
+        BgTransition: 1
+        BgTransitionTime: 1
+        BgClearCharacters: 1
+        SceneEvents:
+        - LineIndex: 0
+          TriggerType: 0
+          TimeDelay: 0
+          ActionType: 4
+          BgSprite: {fileID: 0}
+          BgColor: {r: 1, g: 1, b: 1, a: 1}
+          BgTransition: 1
+          BgTransitionTime: 1
+          TargetCharacter: {fileID: 0}
+          UITargetId: f31619283a2c48739fbcdcef03ae0da3
+          UITextValue: 
+          UITextIsLocalizationKey: 0
+        NextNodeID: 
