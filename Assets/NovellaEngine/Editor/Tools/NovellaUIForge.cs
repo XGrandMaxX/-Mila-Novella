@@ -74,6 +74,16 @@ namespace NovellaEngine.Editor
 
         private bool _isMobileMode;
         private float _previewZoom = 1f;
+
+        // Под-режим Кузницы. Scene = редактируем сцену (как было).
+        // Prefabs = переключение на mock-сцену с одним prefab-объектом
+        // в фокусе. Список prefab'ов слева, тот же canvas-redaktor по центру.
+        private enum ForgeMode { Scene, Prefabs }
+        private ForgeMode _mode = ForgeMode.Scene;
+        // Текущий префаб который редактируется (загружен в mock-сцену).
+        // null если режим Prefabs пустой / только-что зашли.
+        private GameObject _currentPrefabAsset;
+        private Vector2 _prefabsListScroll;
         private bool _showSafeArea;
         private bool _showGrid = true;
         private bool _smartGuides = true;
@@ -2234,6 +2244,16 @@ namespace NovellaEngine.Editor
                 compact ? "" : ToolLang.Get("Bindings", "Связи")))
             {
                 NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
+            }
+            bx += overviewW + gap;
+
+            // Кнопка открытия библиотеки префабов. Ставим сюда чтобы быстро
+            // переключаться из работы со сценой в работу с prefab'ами.
+            float prefabsW = compact ? 32f : 96f;
+            if (DrawIconButton(new Rect(bx, by, prefabsW, bh), "📦",
+                compact ? "" : ToolLang.Get("Prefabs", "Префабы")))
+            {
+                NovellaPrefabBrowserWindow.Show();
             }
         }
 
@@ -5050,6 +5070,19 @@ namespace NovellaEngine.Editor
                     DuplicateSelected();
                 }
                 GUILayout.Space(4);
+
+                // «Сохранить как префаб» — для одиночного выделения, чтобы
+                // быстро вынести любой собранный элемент сцены в Gallery/Prefabs.
+                // Особенно полезно для Choice Button и других reusable-блоков.
+                if (_selectedList.Count == 1 && FirstSelected != null)
+                {
+                    if (GUILayout.Button(ToolLang.Get("📦 Save as prefab", "📦 Сохранить как префаб"),
+                        GUILayout.Height(28), GUILayout.ExpandWidth(true)))
+                    {
+                        SaveSelectedAsPrefab(FirstSelected.gameObject);
+                    }
+                    GUILayout.Space(4);
+                }
             }
 
             GUI.backgroundColor = C_DANGER;
@@ -5063,6 +5096,59 @@ namespace NovellaEngine.Editor
             GUILayout.Space(12);
             GUILayout.EndHorizontal();
             GUILayout.Space(20);
+        }
+
+        // Сохраняет выделенный объект сцены в Gallery/Prefabs/<name>.prefab.
+        // Имя предлагается через простое окно ввода. Использует
+        // PrefabUtility.SaveAsPrefabAssetAndConnect — после сохранения объект
+        // в сцене становится prefab-instance (можно дальше редактировать).
+        private void SaveSelectedAsPrefab(GameObject src)
+        {
+            if (src == null) return;
+            string baseName = src.name;
+            string folder = NovellaPrefabHistory.PREFABS_DIR;
+
+            // Простая запросная панель — Unity-built-in.
+            string suggestedName = baseName;
+            string targetPath = EditorUtility.SaveFilePanelInProject(
+                ToolLang.Get("Save as prefab", "Сохранить как префаб"),
+                suggestedName, "prefab",
+                ToolLang.Get("Pick where to save the prefab.", "Выбери куда сохранить префаб."),
+                folder);
+            if (string.IsNullOrEmpty(targetPath)) return;
+
+            // Гарантируем что папка существует.
+            string dir = System.IO.Path.GetDirectoryName(targetPath).Replace('\\', '/');
+            if (!AssetDatabase.IsValidFolder(dir))
+            {
+                Debug.LogWarning($"[Novella] Save folder doesn't exist: {dir}. Cancelling.");
+                return;
+            }
+
+            try
+            {
+                var prefab = PrefabUtility.SaveAsPrefabAssetAndConnect(src, targetPath, InteractionMode.UserAction);
+                if (prefab != null)
+                {
+                    NovellaPrefabHistory.Log("create", prefab.name, GuessPrefabType(prefab), targetPath);
+                    Debug.Log($"[Novella] Saved as prefab: {targetPath}");
+                    EditorGUIUtility.PingObject(prefab);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Failed", "Не удалось"),
+                    ex.Message, "OK");
+            }
+        }
+
+        private static string GuessPrefabType(GameObject go)
+        {
+            if (go.GetComponent<UnityEngine.UI.Button>() != null) return "Button";
+            if (go.GetComponent<TMPro.TMP_Text>() != null) return "Text";
+            if (go.GetComponent<UnityEngine.UI.Image>() != null) return "Image";
+            return "Other";
         }
 
         private void DuplicateSelected()
