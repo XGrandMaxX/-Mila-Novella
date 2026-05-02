@@ -2162,51 +2162,57 @@ namespace NovellaEngine.Editor
         // shows align (top/middle/bottom, left/center/right) и distribute (H/V).
         // Иконка с тултипом — никаких текстовых кнопок чтобы не разорвало layout.
 
-        // Полоска иконок выравнивания + Fill в стиле якорной 3×3-плашки:
-        // одна горизонтальная плашка с 7 ячейками (3 align-X, 3 align-Y, 1 fill).
-        // Доступна всегда: при одиночном выделении выравниваем относительно
-        // родителя (parent rect), при множественном — относительно границ выделения.
-        // Distribute-кнопки убраны как редко используемые.
+        // 3×3 сетка растягиваний — внешне идентична якорной плашке. Каждая ячейка
+        // тянет соответствующую сторону/угол элемента к стороне/углу родителя:
+        //   ↖ ⤒ ↗     ⇤ ▣ ⇥     ↙ ⤓ ↘
+        // Центр (▣) — Fill (заполнить полностью). Активная ячейка подсвечивается
+        // акцентом — глаз сразу видит «к какому краю элемент сейчас прибит».
         private void DrawAlignDistributeStrip()
         {
-            DrawSectionLabel(ToolLang.Get("ALIGN & FILL", "ВЫРОВНЯТЬ / ЗАПОЛНИТЬ"));
+            DrawSectionLabel(ToolLang.Get("STRETCH / FILL", "РАСТЯНУТЬ / ЗАПОЛНИТЬ"));
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(12);
 
             const float cell = 30f;
-            const int count = 7;
-            Rect strip = GUILayoutUtility.GetRect(cell * count + 8, cell + 8, GUILayout.Width(cell * count + 8));
-            EditorGUI.DrawRect(strip, C_BG_RAISED);
-            DrawRectBorder(strip, C_BORDER);
+            Rect grid = GUILayoutUtility.GetRect(cell * 3 + 8, cell * 3 + 8, GUILayout.Width(cell * 3 + 8));
+            EditorGUI.DrawRect(grid, C_BG_RAISED);
+            DrawRectBorder(grid, C_BORDER);
 
-            (string icon, string tip, System.Action act)[] actions = new (string, string, System.Action)[]
+            (string icon, string tip, StretchKind kind)[] presets = new (string, string, StretchKind)[]
             {
-                ("⇤", ToolLang.Get("Stretch to left edge",     "Растянуть до левого края"),    () => StretchEdge(StretchKind.ToLeft)),
-                ("⇔", ToolLang.Get("Stretch horizontally",     "Растянуть по горизонтали"),    () => StretchEdge(StretchKind.FillH)),
-                ("⇥", ToolLang.Get("Stretch to right edge",    "Растянуть до правого края"),   () => StretchEdge(StretchKind.ToRight)),
-                ("⤒", ToolLang.Get("Stretch to top edge",      "Растянуть до верхнего края"),  () => StretchEdge(StretchKind.ToTop)),
-                ("⇕", ToolLang.Get("Stretch vertically",       "Растянуть по вертикали"),      () => StretchEdge(StretchKind.FillV)),
-                ("⤓", ToolLang.Get("Stretch to bottom edge",   "Растянуть до нижнего края"),   () => StretchEdge(StretchKind.ToBottom)),
-                ("▣", ToolLang.Get("Fill — stretch to parent", "Заполнить — растянуть на родителя"), FillStretch),
+                ("↖", ToolLang.Get("Stretch to top-left corner",     "Растянуть в верхний-левый угол"),  StretchKind.ToTopLeft),
+                ("⤒", ToolLang.Get("Stretch to top edge",            "Растянуть до верхнего края"),       StretchKind.ToTop),
+                ("↗", ToolLang.Get("Stretch to top-right corner",    "Растянуть в верхний-правый угол"), StretchKind.ToTopRight),
+                ("⇤", ToolLang.Get("Stretch to left edge",           "Растянуть до левого края"),         StretchKind.ToLeft),
+                ("▣", ToolLang.Get("Fill — stretch to parent",       "Заполнить — растянуть на родителя"), StretchKind.FillAll),
+                ("⇥", ToolLang.Get("Stretch to right edge",          "Растянуть до правого края"),        StretchKind.ToRight),
+                ("↙", ToolLang.Get("Stretch to bottom-left corner",  "Растянуть в нижний-левый угол"),    StretchKind.ToBottomLeft),
+                ("⤓", ToolLang.Get("Stretch to bottom edge",         "Растянуть до нижнего края"),        StretchKind.ToBottom),
+                ("↘", ToolLang.Get("Stretch to bottom-right corner", "Растянуть в нижний-правый угол"),   StretchKind.ToBottomRight),
             };
 
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < 9; i++)
             {
-                Rect cellRect = new Rect(strip.x + 4 + i * cell, strip.y + 4, cell - 2, cell - 2);
+                int col = i % 3;
+                int row = i / 3;
+                Rect cellRect = new Rect(grid.x + 4 + col * cell, grid.y + 4 + row * cell, cell - 2, cell - 2);
+
+                bool isCurrent = IsStretchActive(presets[i].kind);
                 bool hover = cellRect.Contains(Event.current.mousePosition);
 
-                Color bg = hover ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f) : C_BG_PRIMARY;
+                Color bg = isCurrent ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f) : C_BG_PRIMARY;
+                if (hover) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f);
                 EditorGUI.DrawRect(cellRect, bg);
-                DrawRectBorder(cellRect, hover ? C_ACCENT : C_BORDER);
+                DrawRectBorder(cellRect, isCurrent ? C_ACCENT : C_BORDER);
 
                 var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
-                st.normal.textColor = hover ? C_ACCENT : C_TEXT_2;
-                GUI.Label(cellRect, new GUIContent(actions[i].icon, actions[i].tip), st);
+                st.normal.textColor = isCurrent ? C_ACCENT : C_TEXT_2;
+                GUI.Label(cellRect, new GUIContent(presets[i].icon, presets[i].tip), st);
 
-                if (Event.current.type == EventType.MouseDown && hover)
+                if (Event.current.type == EventType.MouseDown && cellRect.Contains(Event.current.mousePosition))
                 {
-                    actions[i].act?.Invoke();
+                    StretchEdge(presets[i].kind);
                     Event.current.Use();
                 }
             }
@@ -2216,6 +2222,37 @@ namespace NovellaEngine.Editor
             GUILayout.Space(8);
         }
 
+        // Активна ли ячейка stretch-плашки для текущего FirstSelected.
+        // Логика: сторона считается «прибитой» к родителю если её anchor-ratio
+        // = 0 или 1 И offset ≈ 0. Дальше сравниваем какие именно стороны прибиты
+        // против предустановки.
+        private bool IsStretchActive(StretchKind kind)
+        {
+            if (FirstSelected == null) return false;
+            var rt = FirstSelected;
+            const float epsR = 0.001f;
+            const float epsO = 0.5f;
+
+            bool L  = Mathf.Abs(rt.anchorMin.x - 0f) < epsR && Mathf.Abs(rt.offsetMin.x) < epsO;
+            bool R  = Mathf.Abs(rt.anchorMax.x - 1f) < epsR && Mathf.Abs(rt.offsetMax.x) < epsO;
+            bool T  = Mathf.Abs(rt.anchorMax.y - 1f) < epsR && Mathf.Abs(rt.offsetMax.y) < epsO;
+            bool B  = Mathf.Abs(rt.anchorMin.y - 0f) < epsR && Mathf.Abs(rt.offsetMin.y) < epsO;
+
+            switch (kind)
+            {
+                case StretchKind.FillAll:        return L && R && T && B;
+                case StretchKind.ToLeft:         return L && !R;
+                case StretchKind.ToRight:        return R && !L;
+                case StretchKind.ToTop:          return T && !B;
+                case StretchKind.ToBottom:       return B && !T;
+                case StretchKind.ToTopLeft:      return L && T && !R && !B;
+                case StretchKind.ToTopRight:     return R && T && !L && !B;
+                case StretchKind.ToBottomLeft:   return L && B && !R && !T;
+                case StretchKind.ToBottomRight:  return R && B && !L && !T;
+            }
+            return false;
+        }
+
         // Заполнить родителя — anchor 0..1, нулевые offset. Работает на любом
         // количестве выделенных, включая один.
         private void FillStretch()
@@ -2223,7 +2260,15 @@ namespace NovellaEngine.Editor
             StretchEdge(StretchKind.FillAll);
         }
 
-        private enum StretchKind { ToLeft, FillH, ToRight, ToTop, FillV, ToBottom, FillAll }
+        // Все 9 направлений stretch-плашки.
+        // Edges: ToLeft/Right/Top/Bottom — тянут одну сторону к родителю.
+        // Corners: ToTopLeft/etc. — тянут две смежные стороны (две стороны прибиты).
+        // FillAll — все 4 стороны прибиты к родителю (полное заполнение).
+        private enum StretchKind {
+            ToLeft, ToRight, ToTop, ToBottom,
+            ToTopLeft, ToTopRight, ToBottomLeft, ToBottomRight,
+            FillAll
+        }
 
         // Растягивает элемент: указанный край дотягивается до края родителя,
         // противоположный край ОСТАЁТСЯ на текущей мировой позиции.
@@ -2255,13 +2300,15 @@ namespace NovellaEngine.Editor
 
                 switch (kind)
                 {
-                    case StretchKind.ToLeft:   left   = pW.xMin; break;
-                    case StretchKind.ToRight:  right  = pW.xMax; break;
-                    case StretchKind.ToTop:    top    = pW.yMax; break;
-                    case StretchKind.ToBottom: bottom = pW.yMin; break;
-                    case StretchKind.FillH:    left   = pW.xMin; right  = pW.xMax; break;
-                    case StretchKind.FillV:    top    = pW.yMax; bottom = pW.yMin; break;
-                    case StretchKind.FillAll:  left = pW.xMin; right = pW.xMax; top = pW.yMax; bottom = pW.yMin; break;
+                    case StretchKind.ToLeft:         left = pW.xMin; break;
+                    case StretchKind.ToRight:        right = pW.xMax; break;
+                    case StretchKind.ToTop:          top = pW.yMax; break;
+                    case StretchKind.ToBottom:       bottom = pW.yMin; break;
+                    case StretchKind.ToTopLeft:      left = pW.xMin; top = pW.yMax; break;
+                    case StretchKind.ToTopRight:     right = pW.xMax; top = pW.yMax; break;
+                    case StretchKind.ToBottomLeft:   left = pW.xMin; bottom = pW.yMin; break;
+                    case StretchKind.ToBottomRight:  right = pW.xMax; bottom = pW.yMin; break;
+                    case StretchKind.FillAll:        left = pW.xMin; right = pW.xMax; top = pW.yMax; bottom = pW.yMin; break;
                 }
 
                 // Конвертируем мировые границы в anchorMin/Max (доли от родителя)
