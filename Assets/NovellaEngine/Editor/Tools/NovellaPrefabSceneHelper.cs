@@ -60,18 +60,16 @@ namespace NovellaEngine.Editor
         {
             if (prefabAsset == null) return null;
 
+            // Сначала вычищаем всё, что не относится к редактору префабов
+            // (старые инстансы, случайно оставшиеся пресеты типа MainMenu и т.п.).
+            CleanupMockScene();
+
             // Получаем или создаём корневой holder.
             var holder = GameObject.Find(PREFAB_HOLDER);
             if (holder == null)
             {
                 holder = new GameObject(PREFAB_HOLDER);
                 holder.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
-            }
-
-            // Удаляем все предыдущие instances.
-            for (int i = holder.transform.childCount - 1; i >= 0; i--)
-            {
-                Object.DestroyImmediate(holder.transform.GetChild(i).gameObject);
             }
 
             // Получаем или создаём Canvas.
@@ -127,6 +125,55 @@ namespace NovellaEngine.Editor
             }
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             return instance;
+        }
+
+        // Полная очистка mock-сцены: удаляем все root-объекты, не помеченные
+        // как «PrefabEditor», а внутри editor-canvas — все prefab-instances
+        // (которые могли остаться от прошлых сессий).
+        // Используется и при переключении в Prefabs-режим, и перед каждым
+        // открытием нового префаба.
+        public static void CleanupMockScene()
+        {
+            if (!IsMockSceneActive()) return;
+            var scene = EditorSceneManager.GetActiveScene();
+            var roots = scene.GetRootGameObjects();
+            bool changed = false;
+            foreach (var root in roots)
+            {
+                if (root == null) continue;
+                var marker = root.GetComponent<NovellaEngine.Runtime.NovellaPresetMarker>();
+                if (marker != null && marker.PresetName == "PrefabEditor")
+                {
+                    // Это наш editor-объект (Canvas/Camera/EventSystem/Holder).
+                    // Внутри Canvas могут болтаться чужие prefab-instances —
+                    // вычищаем их (но сами markers оставляем).
+                    if (root.name == CANVAS_NAME || root.name == PREFAB_HOLDER)
+                    {
+                        for (int i = root.transform.childCount - 1; i >= 0; i--)
+                        {
+                            var child = root.transform.GetChild(i).gameObject;
+                            var childMarker = child.GetComponent<NovellaEngine.Runtime.NovellaPresetMarker>();
+                            if (childMarker == null || childMarker.PresetName != "PrefabEditor")
+                            {
+                                Object.DestroyImmediate(child);
+                                changed = true;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Чужой объект (MainMenu, оставшийся пресет и т.п.) — удаляем.
+                Object.DestroyImmediate(root);
+                changed = true;
+            }
+            if (changed)
+            {
+                EditorSceneManager.MarkSceneDirty(scene);
+                // Тихое авто-сохранение — чтобы Unity не просил подтверждать
+                // изменения mock-сцены при каждом следующем переключении.
+                EditorSceneManager.SaveScene(scene);
+            }
         }
 
         // Сохраняет текущий instance prefab'а обратно в asset через

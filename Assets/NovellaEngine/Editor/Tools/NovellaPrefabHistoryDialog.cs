@@ -27,6 +27,12 @@ namespace NovellaEngine.Editor
         // Имя «Open», а не «Show» — иначе скрывает базовый EditorWindow.Show().
         public static void Open()
         {
+            // Single-instance: повторный клик переоткрывает, не плодит стек.
+            foreach (var existing in Resources.FindObjectsOfTypeAll<NovellaPrefabHistoryDialog>())
+            {
+                if (existing != null) existing.Close();
+            }
+
             var win = CreateInstance<NovellaPrefabHistoryDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Prefab history", "История префабов"));
             win._entries = NovellaPrefabHistory.ReadAll();

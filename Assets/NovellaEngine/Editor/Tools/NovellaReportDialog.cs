@@ -55,6 +55,12 @@ namespace NovellaEngine.Editor
 
         public static void Show(string reportText, int errorCount)
         {
+            // Single-instance: повторный клик переоткрывает, не плодит стек.
+            foreach (var existing in Resources.FindObjectsOfTypeAll<NovellaReportDialog>())
+            {
+                if (existing != null) existing.Close();
+            }
+
             var win = CreateInstance<NovellaReportDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Send a report", "Отправить отчёт"));
             win._reportText  = reportText;

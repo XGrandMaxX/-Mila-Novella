@@ -19,6 +19,10 @@ namespace NovellaEngine.Editor
     {
         public enum PrefabType { Button, Panel, Image, Text }
 
+        // Лимит длины имени префаба — синхронизирован с лимитом имён объектов
+        // в инспекторе Кузницы. См. NovellaUIForge.maxChars.
+        private const int MAX_NAME = 30;
+
         private static Color C_BG       => NovellaSettingsModule.GetInterfaceColor();
         private static Color C_BG_RAISED=> NovellaSettingsModule.GetBgRaisedColor();
         private static Color C_BORDER   => NovellaSettingsModule.GetBorderColor();
@@ -33,6 +37,12 @@ namespace NovellaEngine.Editor
         // Имя «Open», а не «Show» — иначе скрывает базовый EditorWindow.Show().
         public static void Open(Action<GameObject> onCreated)
         {
+            // Single-instance: повторный клик переоткрывает, не плодит стек.
+            foreach (var existing in Resources.FindObjectsOfTypeAll<NovellaPrefabCreateDialog>())
+            {
+                if (existing != null) existing.Close();
+            }
+
             var win = CreateInstance<NovellaPrefabCreateDialog>();
             win.titleContent = new GUIContent(ToolLang.Get("Create prefab", "Создать префаб"));
             win._onCreated = onCreated;
@@ -56,7 +66,7 @@ namespace NovellaEngine.Editor
             GUILayout.Space(20);
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
             titleSt.normal.textColor = C_TEXT_1;
-            GUILayout.Label("✨ " + ToolLang.Get("New prefab", "Новый префаб"), titleSt);
+            GUILayout.Label("＋ " + ToolLang.Get("New prefab", "Новый префаб"), titleSt);
             GUILayout.EndHorizontal();
             GUILayout.Space(12);
 
@@ -82,10 +92,24 @@ namespace NovellaEngine.Editor
             lblSt.normal.textColor = C_TEXT_3;
             GUILayout.Label(ToolLang.Get("Prefab name:", "Имя префаба:"), lblSt, GUILayout.Width(100));
             _name = EditorGUILayout.TextField(_name, GUILayout.Height(22));
+            // Лимит 30 символов — как у имён объектов в инспекторе Кузницы.
+            if (_name != null && _name.Length > MAX_NAME) _name = _name.Substring(0, MAX_NAME);
             GUILayout.Space(20);
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(8);
+            // Счётчик символов справа + индикатор: красный когда лимит достигнут.
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            int curChars = _name?.Length ?? 0;
+            var counterSt = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleRight, fontSize = 10 };
+            counterSt.normal.textColor = curChars >= MAX_NAME
+                ? new Color(0.92f, 0.36f, 0.36f)
+                : NovellaSettingsModule.GetTextDisabled();
+            GUILayout.Label($"{curChars}/{MAX_NAME}", counterSt, GUILayout.Width(50));
+            GUILayout.Space(20);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(4);
             GUILayout.BeginHorizontal();
             GUILayout.Space(20);
             var hintSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
@@ -116,19 +140,15 @@ namespace NovellaEngine.Editor
             bool nameOk = !string.IsNullOrWhiteSpace(_name);
             using (new EditorGUI.DisabledScope(!nameOk))
             {
-                var createSt = new GUIStyle(EditorStyles.miniButton)
-                {
-                    fontSize = 11, fixedHeight = 26, padding = new RectOffset(16, 16, 2, 2),
-                    fontStyle = FontStyle.Bold,
-                };
-                createSt.normal.textColor = Color.white;
-                var prevBg = GUI.backgroundColor;
+                // Тот же стиль, что у «Новый персонаж» / «Новая сцена»:
+                // дефолтный GUI.skin.button, фон = C_ACCENT, высота 32.
                 GUI.backgroundColor = C_ACCENT;
-                if (GUILayout.Button("✨ " + ToolLang.Get("Create", "Создать"), createSt, GUILayout.Width(140)))
+                if (GUILayout.Button("＋ " + ToolLang.Get("Create", "Создать"),
+                        GUILayout.Width(160), GUILayout.Height(32)))
                 {
                     DoCreate();
                 }
-                GUI.backgroundColor = prevBg;
+                GUI.backgroundColor = Color.white;
             }
             GUILayout.Space(20);
             GUILayout.EndHorizontal();
@@ -197,6 +217,8 @@ namespace NovellaEngine.Editor
                 {
                     NovellaPrefabHistory.Log("create", safeName, _type.ToString(), path);
                     Debug.Log($"[Novella] Prefab created: {path}");
+                    NovellaToast.Success(string.Format(
+                        ToolLang.Get("Prefab created: {0}", "Префаб создан: {0}"), safeName));
                     _onCreated?.Invoke(prefab);
                 }
             }

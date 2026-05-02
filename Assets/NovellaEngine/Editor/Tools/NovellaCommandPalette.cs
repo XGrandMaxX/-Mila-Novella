@@ -198,6 +198,29 @@ namespace NovellaEngine.Editor
             });
             _allItems.Add(new Item
             {
+                Label = ToolLang.Get("Insert prefab into scene", "Вставить префаб в сцену"),
+                Hint = ToolLang.Get("Action", "Действие"),
+                IconLetter = "P",
+                IconColor = pal[3],
+                OnInvoke = () =>
+                {
+                    // 3 = NovellaUIForge в списке модулей хаба.
+                    _hub.SwitchToModule(3);
+                    Close();
+                    // Дважды-задержка: первая чтобы UI хаба перерисовался и
+                    // _activeInstance Кузницы успел зарегистрироваться,
+                    // вторая чтобы попап открылся уже после.
+                    EditorApplication.delayCall += () =>
+                    {
+                        EditorApplication.delayCall += () =>
+                        {
+                            NovellaUIForge.RequestInsertPrefabFromExternal();
+                        };
+                    };
+                }
+            });
+            _allItems.Add(new Item
+            {
                 Label = ToolLang.Get("Restart tutorial", "Перезапустить туториал"),
                 Hint = ToolLang.Get("Help", "Помощь"),
                 IconLetter = "?",

@@ -762,6 +762,12 @@ namespace NovellaEngine.Editor
 
         public static void Show(string current, System.Action<string> onConfirm)
         {
+            // Single-instance: повторный клик переоткрывает, не плодит стек.
+            foreach (var existing in Resources.FindObjectsOfTypeAll<NovellaPopupRename>())
+            {
+                if (existing != null) existing.Close();
+            }
+
             var win = CreateInstance<NovellaPopupRename>();
             win._value = current;
             win._onConfirm = onConfirm;

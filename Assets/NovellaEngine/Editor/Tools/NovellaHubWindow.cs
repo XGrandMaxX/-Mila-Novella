@@ -763,33 +763,30 @@ namespace NovellaEngine.Editor
 
         private void OpenStorySwitcher()
         {
-            var menu = new GenericMenu();
-            string[] guids = AssetDatabase.FindAssets("t:NovellaStory");
             string activeGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
 
-            foreach (var g in guids)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(g);
-                var st = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
-                if (st == null) continue;
-                bool isActive = g == activeGuid;
-                string lbl = string.IsNullOrEmpty(st.Title) ? "(untitled)" : st.Title;
-                menu.AddItem(new GUIContent(lbl), isActive, () =>
-                {
-                    EditorPrefs.SetString("Novella_ActiveStoryGuid", g);
-                    var nameEl = _root.Q<Label>("activeStoryName");
-                    if (nameEl != null) nameEl.text = st.Title;
-                });
-            }
-            if (guids.Length == 0) menu.AddDisabledItem(new GUIContent(ToolLang.Get("No stories yet", "Истории не созданы")));
+            // Позиция попапа — рядом с кнопкой переключения, по центру окна Хаба.
+            Vector2 screenPos;
+            var winRect = position;
+            screenPos = new Vector2(winRect.x + winRect.width * 0.5f, winRect.y + 80f);
 
-            menu.AddSeparator("");
-            menu.AddItem(new GUIContent(ToolLang.Get("➕ Create new story", "➕ Создать историю")), false, () =>
-            {
-                if (_modules.Count > 0 && _modules[0] is DashboardModule dash) dash.RequestCreateNewStory();
-                SwitchToModule(0);
-            });
-            menu.ShowAsContext();
+            NovellaStoryPickerPopup.Open(
+                screenPos,
+                activeGuid,
+                pickedGuid =>
+                {
+                    if (string.IsNullOrEmpty(pickedGuid)) return;
+                    var path = AssetDatabase.GUIDToAssetPath(pickedGuid);
+                    var st = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
+                    EditorPrefs.SetString("Novella_ActiveStoryGuid", pickedGuid);
+                    var nameEl = _root.Q<Label>("activeStoryName");
+                    if (nameEl != null) nameEl.text = st != null ? st.Title : "";
+                },
+                () =>
+                {
+                    if (_modules.Count > 0 && _modules[0] is DashboardModule dash) dash.RequestCreateNewStory();
+                    SwitchToModule(0);
+                });
         }
 
         // ─────────── Sidebar: quick find ───────────

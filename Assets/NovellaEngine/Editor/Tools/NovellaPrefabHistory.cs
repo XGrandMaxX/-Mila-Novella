@@ -18,6 +18,11 @@ namespace NovellaEngine.Editor
         public const string PREFABS_DIR  = "Assets/NovellaEngine/Gallery/Prefabs";
         public const string HISTORY_FILE = "Assets/NovellaEngine/Gallery/Prefabs/__history.json";
 
+        // Максимум записей в журнале. После переполнения — кольцевая
+        // перезапись: самые старые записи вытесняются новыми. Очистить
+        // через UI нельзя.
+        public const int MAX_ENTRIES = 100;
+
         [Serializable]
         public class Entry
         {
@@ -34,7 +39,8 @@ namespace NovellaEngine.Editor
             public List<Entry> Entries = new List<Entry>();
         }
 
-        // Append-запись. Никогда не удаляет старое.
+        // Кольцевая запись: добавляем в конец, при превышении MAX_ENTRIES
+        // вытесняем самые старые записи (с начала списка).
         public static void Log(string action, string prefabName, string prefabType, string path)
         {
             EnsureFolder();
@@ -47,6 +53,12 @@ namespace NovellaEngine.Editor
                 Path       = path ?? "",
                 Timestamp  = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             });
+            // Кольцевая обрезка: оставляем только последние MAX_ENTRIES.
+            if (hist.Entries.Count > MAX_ENTRIES)
+            {
+                int excess = hist.Entries.Count - MAX_ENTRIES;
+                hist.Entries.RemoveRange(0, excess);
+            }
             SaveInternal(hist);
         }
 
