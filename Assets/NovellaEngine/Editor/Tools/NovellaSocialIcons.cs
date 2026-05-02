@@ -2,7 +2,7 @@
 // NovellaSocialIcons — иконки Telegram и Discord для окна жалобы.
 //
 // Стратегия загрузки:
-//   1. Если в Assets/NovellaEngine/Editor/Resources/SocialIcons/ лежит
+//   1. Если в Assets/NovellaEngine/Resources/SocialIcons/ лежит
 //      telegram.png и/или discord.png — используем их (PNG с альфа-каналом
 //      и без фона). Это идеальный путь — реальные брендовые лого.
 //   2. Если файлов нет — fallback на программно нарисованные иконки.
@@ -21,9 +21,10 @@ namespace NovellaEngine.Editor
     {
         private const int SIZE = 64;
 
-        // Папка где юзер кладёт настоящие PNG-иконки. Внутри Editor чтобы
-        // не попадать в собранную игру.
-        private const string ICON_DIR = "Assets/NovellaEngine/Editor/Resources/SocialIcons/";
+        // Папка где юзер кладёт настоящие PNG-иконки.
+        // Лежит в Resources/, а не Editor/ — чтобы их можно было использовать
+        // и из других мест проекта при необходимости.
+        private const string ICON_DIR = "Assets/NovellaEngine/Resources/SocialIcons/";
 
         // Бренд-цвета (используются программными fallback-иконками).
         public static readonly Color TelegramBlue = new Color(0.13f, 0.62f, 0.85f); // #229ED9
