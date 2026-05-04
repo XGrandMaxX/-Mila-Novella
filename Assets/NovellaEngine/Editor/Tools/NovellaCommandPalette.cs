@@ -198,6 +198,19 @@ namespace NovellaEngine.Editor
             });
             _allItems.Add(new Item
             {
+                Label = ToolLang.Get("Build the game", "Собрать игру"),
+                Hint = ToolLang.Get("Action", "Действие"),
+                IconLetter = "B",
+                IconColor = pal[3],
+                OnInvoke = () =>
+                {
+                    // 5 = NovellaBuildModule
+                    _hub.SwitchToModule(5);
+                    Close();
+                }
+            });
+            _allItems.Add(new Item
+            {
                 Label = ToolLang.Get("Insert prefab into scene", "Вставить префаб в сцену"),
                 Hint = ToolLang.Get("Action", "Действие"),
                 IconLetter = "P",

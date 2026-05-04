@@ -295,6 +295,7 @@ namespace NovellaEngine.Editor
                 new NovellaSceneManagerModule(),
                 new NovellaUIForge(),
                 new NovellaVariableEditorModule(),
+                new NovellaBuildModule(),
                 new NovellaConsoleModule(),
                 new NovellaSettingsModule(),
             };
@@ -835,8 +836,11 @@ namespace NovellaEngine.Editor
                     2 => NovellaHubIcons.Scenes,
                     3 => NovellaHubIcons.UIEditor,
                     4 => NovellaHubIcons.Variables,
-                    5 => NovellaHubIcons.Console,
-                    6 => NovellaHubIcons.Settings,
+                    // 5 — Build module (используем Scenes-иконку как ближайшую,
+                    // у NovellaHubIcons нет иконки для сборки).
+                    5 => NovellaHubIcons.Scenes,
+                    6 => NovellaHubIcons.Console,
+                    7 => NovellaHubIcons.Settings,
                     _ => NovellaHubIcons.Home,
                 };
                 var label = GetModuleLabelLocalized(i);
@@ -1029,6 +1033,7 @@ namespace NovellaEngine.Editor
                 2 => ToolLang.Get("Scenes & Menu", "Сцены и Меню"),
                 3 => ToolLang.Get("UI Forge", "Кузница UI"),
                 4 => ToolLang.Get("Variables", "Переменные"),
+                5 => ToolLang.Get("Build", "Сборка"),
                 _ => _modules[idx].ModuleName
             };
         }
