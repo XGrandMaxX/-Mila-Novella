@@ -865,6 +865,14 @@ namespace NovellaEngine.Editor
                 ToolLang.Get("CG gallery", "Галерея"),
                 NovellaHubIcons.Gallery,
                 () => NovellaGalleryWindow.OpenStandalone()));
+
+            // Импорт картинок/аудио — отдельный пункт, чтобы юзер не лез
+            // в Project window. NovellaAssetImportDialog авто-классифицирует
+            // и кладёт в правильную подпапку Gallery.
+            scroll.Add(MakeModuleButton(
+                ToolLang.Get("Import assets", "Импорт ассетов"),
+                NovellaHubIcons.Gallery,
+                () => NovellaAssetImportDialog.Open()));
         }
 
         private VisualElement MakeCategoryLabel(string text)

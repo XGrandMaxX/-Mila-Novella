@@ -211,6 +211,18 @@ namespace NovellaEngine.Editor
             });
             _allItems.Add(new Item
             {
+                Label = ToolLang.Get("Import images & audio", "Импорт картинок и аудио"),
+                Hint = ToolLang.Get("Action", "Действие"),
+                IconLetter = "I",
+                IconColor = pal[3],
+                OnInvoke = () =>
+                {
+                    Close();
+                    EditorApplication.delayCall += () => NovellaAssetImportDialog.Open();
+                }
+            });
+            _allItems.Add(new Item
+            {
                 Label = ToolLang.Get("Insert prefab into scene", "Вставить префаб в сцену"),
                 Hint = ToolLang.Get("Action", "Действие"),
                 IconLetter = "P",
