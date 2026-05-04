@@ -1084,6 +1084,122 @@ namespace NovellaEngine.Editor
             }
         }
 
+        // ─────────── Playtest: запускает активную историю в режиме игры ───────────
+        // 1. Берём активную историю (EditorPrefs).
+        // 2. Проверяем что у неё есть GameSceneAsset и StartingChapter.
+        // 3. Ищем сцену с StoryLauncher (главное меню) среди Build Settings.
+        // 4. Сохраняем текущую сцену если dirty.
+        // 5. Открываем main-menu сцену.
+        // 6. Жмём Play.
+        private void StartPlaytest()
+        {
+            // 1. Активная история.
+            string guid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
+            NovellaStory st = null;
+            if (!string.IsNullOrEmpty(guid))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                st = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
+            }
+            if (st == null)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("No active story", "Нет активной истории"),
+                    ToolLang.Get("Pick a story first — click the active-story card in the sidebar.",
+                                 "Сначала выбери историю — кликни по карточке активной истории в боковой панели."),
+                    "OK");
+                return;
+            }
+
+            // 2. У истории должна быть стартовая глава.
+            if (st.StartingChapter == null)
+            {
+                if (EditorUtility.DisplayDialog(
+                    ToolLang.Get("No starting chapter", "Нет стартовой главы"),
+                    ToolLang.Get("This story has no starting chapter. Open settings to assign one?",
+                                 "У истории не задана стартовая глава. Открыть настройки чтобы выбрать?"),
+                    ToolLang.Get("Open settings", "Открыть настройки"),
+                    ToolLang.Get("Cancel", "Отмена")))
+                {
+                    NovellaStorySettingsPopup.ShowWindow(st, null);
+                }
+                return;
+            }
+
+            // 2b. У истории должна быть назначена gameplay-сцена.
+            if (string.IsNullOrEmpty(st.GameSceneName))
+            {
+                if (EditorUtility.DisplayDialog(
+                    ToolLang.Get("No gameplay scene", "Нет игровой сцены"),
+                    ToolLang.Get("This story has no gameplay scene assigned. Open settings to pick one?",
+                                 "У истории не задана игровая сцена. Открыть настройки чтобы выбрать?"),
+                    ToolLang.Get("Open settings", "Открыть настройки"),
+                    ToolLang.Get("Cancel", "Отмена")))
+                {
+                    NovellaStorySettingsPopup.ShowWindow(st, null);
+                }
+                return;
+            }
+
+            // 3. Ищем main-menu сцену среди Build Settings — это первая
+            // включённая сцена, в которой есть StoryLauncher.
+            string mainMenuScenePath = FindMainMenuScenePath();
+            if (string.IsNullOrEmpty(mainMenuScenePath))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("No main menu scene", "Нет сцены главного меню"),
+                    ToolLang.Get("Couldn't find a scene with StoryLauncher in Build Settings.\n\n" +
+                                 "Open the Scenes module → create a scene → apply the «MainMenu» preset → add it to Build Settings.",
+                                 "В Build Settings нет сцены со StoryLauncher.\n\n" +
+                                 "Открой модуль «Сцены» → создай сцену → применi пресет «MainMenu» → добавь её в Build Settings."),
+                    "OK");
+                return;
+            }
+
+            // 4. Сохраняем текущую сцену если dirty.
+            if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                return;
+            }
+
+            // 5. Открываем main-menu сцену.
+            var openedScene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                mainMenuScenePath, UnityEditor.SceneManagement.OpenSceneMode.Single);
+            if (!openedScene.IsValid())
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Cannot open scene", "Не удалось открыть сцену"),
+                    string.Format(ToolLang.Get("Failed to open '{0}'.", "Не удалось открыть «{0}»."), mainMenuScenePath),
+                    "OK");
+                return;
+            }
+
+            // 6. Жмём Play.
+            EditorApplication.delayCall += () => { EditorApplication.isPlaying = true; };
+        }
+
+        private static string FindMainMenuScenePath()
+        {
+            // Пробегаем сцены из Build Settings (включённые) и ищем ту, где
+            // присутствует StoryLauncher. Не открываем сцены физически —
+            // используем PrefabUtility-like API через AssetDatabase.
+            // Для надёжности грузим текстовое представление .unity и ищем
+            // упоминание класса StoryLauncher (быстрая эвристика).
+            foreach (var bs in EditorBuildSettings.scenes)
+            {
+                if (!bs.enabled) continue;
+                if (string.IsNullOrEmpty(bs.path)) continue;
+                if (!System.IO.File.Exists(bs.path)) continue;
+                try
+                {
+                    string text = System.IO.File.ReadAllText(bs.path);
+                    if (text.Contains("StoryLauncher")) return bs.path;
+                }
+                catch { /* ignore */ }
+            }
+            return null;
+        }
+
         // ─────────── Sidebar: footer (tutorial button + quick keys) ───────────
 
         private void BuildSidebarHelp(VisualElement parent)
@@ -1199,14 +1315,29 @@ namespace NovellaEngine.Editor
 
             top.Add(crumb);
 
-            // Действия справа — Play / + New story (только на Home)
+            // Действия справа — Graph / Test / + New story (только на Home)
             var actions = new VisualElement();
             actions.AddToClassList("ns-actions");
 
-            var play = new Button(() => OpenActiveStoryGraph()) { text = "▶ " + ToolLang.Get("Play", "Запустить") };
-            play.AddToClassList("ns-btn");
-            play.AddToClassList("ns-btn--out");
-            actions.Add(play);
+            // Открыть граф истории (раньше эта кнопка называлась Play, но
+            // фактически открывала граф — переименовали чтобы не путать
+            // с реальным тестированием).
+            var graph = new Button(() => OpenActiveStoryGraph()) { text = "📊 " + ToolLang.Get("Graph", "Граф") };
+            graph.AddToClassList("ns-btn");
+            graph.AddToClassList("ns-btn--out");
+            graph.tooltip = ToolLang.Get(
+                "Open the story graph for the active story.",
+                "Открыть граф активной истории.");
+            actions.Add(graph);
+
+            // Реальный playtest — открывает сцену главного меню и нажимает Play.
+            var test = new Button(() => StartPlaytest()) { text = "🎮 " + ToolLang.Get("Test", "Тестировать") };
+            test.AddToClassList("ns-btn");
+            test.AddToClassList("ns-btn--out");
+            test.tooltip = ToolLang.Get(
+                "Launch the active story in Play mode — opens the main menu scene and starts the game.",
+                "Запустить активную историю в режиме игры — откроет сцену меню и стартует игру.");
+            actions.Add(test);
 
             var newStory = new Button(() => {
                 if (_modules.Count > 0 && _modules[0] is DashboardModule dash) dash.RequestCreateNewStory();
@@ -2045,6 +2176,78 @@ namespace NovellaEngine.Editor
             GUILayout.Space(10);
             DrawSectionLabel(ToolLang.Get("DESCRIPTION", "ОПИСАНИЕ"));
             Story.Description = EditorGUILayout.TextArea(Story.Description, GUILayout.Height(50));
+
+            GUILayout.Space(14);
+            DrawSectionLabel(ToolLang.Get("GAMEPLAY SCENE", "ИГРОВАЯ СЦЕНА"));
+            DrawHelpHint(ToolLang.Get(
+                "Which Unity scene should run when the player picks this story. Pick from the dropdown — no need to type names by hand.",
+                "Какая сцена Unity запустится, когда игрок выберет эту историю. Выбери из списка — имя писать руками не нужно."));
+
+            GUILayout.BeginHorizontal();
+            var prevSceneAsset = Story.GameSceneAsset;
+            Story.GameSceneAsset = (UnityEditor.SceneAsset)EditorGUILayout.ObjectField(
+                Story.GameSceneAsset, typeof(UnityEditor.SceneAsset), false,
+                GUILayout.Height(22));
+            // Синхронизируем строковое имя руками — на NovellaStory есть OnValidate,
+            // но он не срабатывает на ObjectField изменения в EditorWindow без SetDirty.
+            if (prevSceneAsset != Story.GameSceneAsset)
+            {
+                Story.GameSceneName = Story.GameSceneAsset != null ? Story.GameSceneAsset.name : "";
+                EditorUtility.SetDirty(Story);
+            }
+
+            // Если сцена выбрана но не в Build Settings — предупреждаем + кнопка добавить.
+            if (Story.GameSceneAsset != null)
+            {
+                string scenePath = AssetDatabase.GetAssetPath(Story.GameSceneAsset);
+                bool inBuild = false;
+                foreach (var s in EditorBuildSettings.scenes)
+                {
+                    if (s.path == scenePath && s.enabled) { inBuild = true; break; }
+                }
+                if (!inBuild)
+                {
+                    if (NovellaSettingsModule.ColoredButton("➕ " + ToolLang.Get("Add to Build", "В сборку"),
+                        new Color(0.95f, 0.66f, 0.30f), null, GUILayout.Width(140), GUILayout.Height(22)))
+                    {
+                        var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+                        list.Add(new EditorBuildSettingsScene(scenePath, true));
+                        EditorBuildSettings.scenes = list.ToArray();
+                    }
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            // Статус: ✓ зелёный если всё ок, ⚠ оранжевый если в Build Settings нет.
+            if (Story.GameSceneAsset != null)
+            {
+                string scenePath = AssetDatabase.GetAssetPath(Story.GameSceneAsset);
+                bool inBuild = false;
+                foreach (var s in EditorBuildSettings.scenes)
+                {
+                    if (s.path == scenePath && s.enabled) { inBuild = true; break; }
+                }
+                var statusSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, padding = new RectOffset(2, 2, 2, 2) };
+                if (inBuild)
+                {
+                    statusSt.normal.textColor = new Color(0.40f, 0.78f, 0.45f);
+                    GUILayout.Label("✓ " + ToolLang.Get("Scene is included in Build Settings.",
+                                                         "Сцена включена в Build Settings."), statusSt);
+                }
+                else
+                {
+                    statusSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
+                    GUILayout.Label("⚠ " + ToolLang.Get("Scene is NOT in Build Settings — game can't load it after build.",
+                                                         "Сцены НЕТ в Build Settings — после сборки игра её не загрузит."), statusSt);
+                }
+            }
+            else
+            {
+                var hintSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+                hintSt.normal.textColor = new Color(1f, 0.65f, 0.5f);
+                GUILayout.Label("⚠ " + ToolLang.Get("Pick a gameplay scene — without it the story can't play.",
+                                                     "Выбери игровую сцену — без неё история не сможет запуститься."), hintSt);
+            }
 
             GUILayout.Space(14);
             DrawSectionLabel(ToolLang.Get("STARTING CHAPTER", "СТАРТОВАЯ ГЛАВА"));

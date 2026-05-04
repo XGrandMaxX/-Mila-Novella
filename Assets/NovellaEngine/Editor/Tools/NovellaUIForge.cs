@@ -1493,6 +1493,11 @@ namespace NovellaEngine.Editor
                 _lastPrefabsRefresh = now;
             }
 
+            // Подробная подсказка про префабы — для новичков. Видна когда
+            // включён общий тоггл «💡 Подсказки». DrawInlineGuide сам решает
+            // показать или нет, и сам стилизует под проект.
+            DrawInlineGuide("prefabs");
+
             GUILayout.Space(8);
             // Кнопка «＋ Создать» — в едином стиле с «Новый персонаж» и «Новая сцена».
             GUILayout.BeginHorizontal();
@@ -1718,21 +1723,40 @@ namespace NovellaEngine.Editor
                     menu.AddItem(new GUIContent(ToolLang.Get("🔍 Show in Project", "🔍 Показать в Project")), false,
                         () => EditorGUIUtility.PingObject(prefab));
                     menu.AddSeparator("");
+                    // Захватываем имя и путь ДО удаления — после MoveAssetToTrash
+                    // ссылка prefab становится destroyed-объектом и любой
+                    // доступ к prefab.name бросает MissingReferenceException.
+                    string capturedName = prefab.name;
+                    string capturedPath = AssetDatabase.GetAssetPath(prefab);
                     menu.AddItem(new GUIContent(ToolLang.Get("🗑 Delete prefab", "🗑 Удалить префаб")), false, () =>
                     {
                         if (EditorUtility.DisplayDialog(
                             ToolLang.Get("Delete prefab", "Удалить префаб"),
                             string.Format(ToolLang.Get("Delete prefab '{0}'? File will be moved to OS trash.",
-                                                       "Удалить префаб «{0}»? Файл уйдёт в корзину ОС."), prefab.name),
+                                                       "Удалить префаб «{0}»? Файл уйдёт в корзину ОС."), capturedName),
                             ToolLang.Get("Delete", "Удалить"),
                             ToolLang.Get("Cancel", "Отмена")))
                         {
-                            string p = AssetDatabase.GetAssetPath(prefab);
-                            NovellaPrefabHistory.Log("delete", prefab.name, "", p);
-                            AssetDatabase.MoveAssetToTrash(p);
+                            NovellaPrefabHistory.Log("delete", capturedName, "", capturedPath);
+                            AssetDatabase.MoveAssetToTrash(capturedPath);
+                            bool wasOpen = (capturedPath == _currentPrefabAssetPath);
+                            // Если удалили тот, что сейчас открыт — сбрасываем состояние.
+                            if (wasOpen)
+                            {
+                                _currentPrefabAssetPath = null;
+                                _currentPrefabInstance  = null;
+                                _selectedList.Clear();
+                                NovellaPrefabSceneHelper.CleanupMockScene();
+                                RefreshRectsCache();
+                            }
                             RefreshPrefabsList();
+                            _window?.Repaint();
                             NovellaToast.Success(string.Format(
-                                ToolLang.Get("Prefab deleted: {0}", "Префаб удалён: {0}"), prefab.name));
+                                ToolLang.Get("Prefab deleted: {0}", "Префаб удалён: {0}"), capturedName));
+                            // Прерываем текущий paint если удалили активный
+                            // префаб — иначе остаток DrawInspector ловит NRE
+                            // на пустом _selectedList.
+                            if (wasOpen) GUIUtility.ExitGUI();
                         }
                     });
                     menu.ShowAsContext();
@@ -1978,6 +2002,13 @@ namespace NovellaEngine.Editor
                 NovellaPrefabSceneHelper.InstantiatePrefabInMockScene(prefab);
                 FindReferences();
                 RefreshRectsCache();
+                // Авто-выделение корня открытого префаба, чтобы инспектор сразу
+                // показал секцию «ФАЙЛ ПРЕФАБА» с кнопками Удалить / Переименовать.
+                if (_currentPrefabInstance != null)
+                {
+                    _selectedList.Clear();
+                    _selectedList.Add(_currentPrefabInstance);
+                }
                 _window?.Repaint();
             };
         }
@@ -2895,14 +2926,20 @@ namespace NovellaEngine.Editor
             DrawTopbarGroupBg(g3);
             DrawZoomHelpGroup(g3);
 
-            // Ширина g2 (toggles): 540 на мобилке (с Safe Area), 420 на
-            // десктопе. Если доступного места меньше — клампим (текстовые
-            // подписи теперь всегда видны, без compact-режима).
+            // Ширина g2 (toggles). Все кнопки с подписями, фиксированная ширина:
+            //   Scene-режим: Grid 70 + Snap 78 + Hints 130 + Bindings 96 + 3 gap*10 = 404
+            //                + Safe Area 110 + gap 10 = 524 на мобилке.
+            //   Prefabs-режим: Grid 70 + Hints 130 + gap 10 = 210
+            //                + Safe Area 110 + gap 10 = 330 на мобилке.
+            // Поскольку compact убран, эти ширины — это и full и min.
             float availStart = g1.xMax + 12f;
             float availEnd = g3.x - 12f;
             float availW = availEnd - availStart;
-            float g2WFull = _isMobileMode ? 540f : 420f;
-            float g2W = Mathf.Min(g2WFull, Mathf.Max(404f, availW));
+            bool inPrefabsMode = _mode == ForgeMode.Prefabs;
+            float g2WFull = inPrefabsMode
+                ? (_isMobileMode ? 340f : 220f)
+                : (_isMobileMode ? 540f : 420f);
+            float g2W = g2WFull;
             float g2X = (availStart + availEnd) * 0.5f - g2W * 0.5f;
             if (g2X < availStart) g2X = availStart;
             if (g2X + g2W > availEnd) g2X = availEnd - g2W;
@@ -3061,15 +3098,23 @@ namespace NovellaEngine.Editor
 
             const float gap = 10f;
 
-            // Полные текстовые подписи. Mode-switcher переехал в боковую
-            // панель, так что тулбару больше не нужен compact-режим.
+            bool inPrefabs = _mode == ForgeMode.Prefabs;
+            // В Prefabs-режиме «Магнит» и «Связи» неприменимы (нет канваса
+            // сцены и bindings'ов), поэтому скрываем их. В обоих режимах
+            // подписи всегда показываются — compact-режим убран совсем,
+            // юзер видит «Сетка / Магнит / Подсказки / Связи» как текст.
+
             DrawIconToggle(new Rect(bx, by, 70f, bh), "▦",
                 ToolLang.Get("Grid", "Сетка"), ref _showGrid);
             bx += 70f + gap;
 
-            DrawIconToggle(new Rect(bx, by, 78f, bh), "✦",
-                ToolLang.Get("Snap", "Магнит"), ref _smartGuides);
-            bx += 78f + gap;
+            // Snap — только в Scene-режиме.
+            if (!inPrefabs)
+            {
+                DrawIconToggle(new Rect(bx, by, 78f, bh), "✦",
+                    ToolLang.Get("Snap", "Магнит"), ref _smartGuides);
+                bx += 78f + gap;
+            }
 
             bool guide = NovellaSettingsModule.ShowGuide;
             string guideText = guide
@@ -3087,10 +3132,14 @@ namespace NovellaEngine.Editor
             }
             else _showSafeArea = false;
 
-            if (DrawIconButton(new Rect(bx, by, 96f, bh), "📋",
-                ToolLang.Get("Bindings", "Связи")))
+            // Bindings — только в Scene-режиме.
+            if (!inPrefabs)
             {
-                NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
+                if (DrawIconButton(new Rect(bx, by, 96f, bh), "📋",
+                    ToolLang.Get("Bindings", "Связи")))
+                {
+                    NovellaEngine.Editor.UIBindings.NovellaBindingsOverviewWindow.Open();
+                }
             }
         }
 
@@ -3898,6 +3947,15 @@ namespace NovellaEngine.Editor
             if (_selectedList.Count == 0)
             {
                 GUILayout.BeginArea(rect);
+
+                // Даже без выделения — если открыт префаб, показываем секцию
+                // действий (Удалить / Переименовать) сверху, а ниже placeholder.
+                if (_mode == ForgeMode.Prefabs && !string.IsNullOrEmpty(_currentPrefabAssetPath))
+                {
+                    GUILayout.Space(8);
+                    DrawPrefabAssetActionsSection();
+                }
+
                 GUILayout.Space(20);
                 var st = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter, wordWrap = true };
                 st.normal.textColor = C_TEXT_3;
@@ -3911,12 +3969,13 @@ namespace NovellaEngine.Editor
 
             DrawInspectorHeader();
 
-            // Если открыт префаб и выделен ИМЕННО его корень — рисуем
-            // секцию prefab-asset действий (удалить файл / переименовать файл).
+            // Секция prefab-asset действий: видна всегда когда открыт префаб
+            // в Prefabs-режиме (независимо от текущего выделения).
+            // Раньше требовалось чтобы корень префаба был именно выделен —
+            // но это ломалось для префабов без RectTransform на корне и для
+            // случая когда юзер кликнул внутрь и потерял выделение корня.
             if (_mode == ForgeMode.Prefabs &&
-                _currentPrefabInstance != null &&
-                _selectedList.Count == 1 &&
-                _selectedList[0] == _currentPrefabInstance)
+                !string.IsNullOrEmpty(_currentPrefabAssetPath))
             {
                 DrawPrefabAssetActionsSection();
             }
@@ -4121,6 +4180,10 @@ namespace NovellaEngine.Editor
 
             NovellaToast.Success(string.Format(
                 ToolLang.Get("Prefab deleted: {0}", "Префаб удалён: {0}"), prefabName));
+
+            // Прерываем текущий paint — иначе остаток DrawInspector пытается
+            // рисовать position/anchor для уже очищенного _selectedList и ловит NRE.
+            GUIUtility.ExitGUI();
         }
 
         // Переименовывает файл текущего открытого префаба и обновляет ссылки.
@@ -4171,6 +4234,11 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorPositionSection()
         {
+            // Защита: _selectedList мог опустеть mid-paint (например после
+            // удаления префаба, которое чистит выделение). Без этого
+            // FirstSelected становится null и .anchoredPosition бросает NRE.
+            if (FirstSelected == null) return;
+
             DrawSectionLabel(ToolLang.Get("POSITION & SIZE", "ПОЛОЖЕНИЕ И РАЗМЕР"));
             DrawInlineGuide("position");
 
@@ -4263,6 +4331,8 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorAnchorSection()
         {
+            if (FirstSelected == null) return;
+
             DrawSectionLabel(ToolLang.Get("ANCHOR & STRETCH", "ЯКОРЬ И РАСТЯНУТЬ"));
             DrawInlineGuide("anchor");
 
@@ -4615,6 +4685,8 @@ namespace NovellaEngine.Editor
 
         private void DrawInspectorTypeSpecificSections()
         {
+            if (FirstSelected == null) return;
+
             var firstImg = FirstSelected.GetComponent<Image>();
             if (firstImg != null) DrawImageSection(firstImg);
 
@@ -6449,6 +6521,39 @@ namespace NovellaEngine.Editor
                     return ToolLang.Get(
                         "Bindings make this UI element controllable from the story graph.\n• Localization key — text auto-updates on language switch.\n• Variable — substitutes a value of a variable into '{var}' inside the text.\n• Click → node — for buttons: clicking jumps the Player to a chosen node.\n\nIn graph nodes (Dialogue, Branch, Wait, Scene Settings) you'll see fields where you can drag this element from scene to target it directly.",
                         "Bindings связывают UI-элемент с графом истории.\n• Ключ локализации — текст обновляется автоматически при смене языка.\n• Переменная — подставляет её значение вместо «{var}» в тексте.\n• Перейти к ноде — для кнопок: клик переводит Player на нужную ноду графа.\n\nВ нодах графа (Диалог, Развилка, Wait, Scene Settings) появятся поля куда этот элемент можно перетащить мышью прямо из сцены.");
+                case "prefabs":
+                    return ToolLang.Get(
+                        "What is a prefab?\n" +
+                        "A prefab is a saved 'template' of a UI element (or a whole group of elements) that you can drop onto any scene. Edit the prefab once — every copy on every scene updates automatically.\n\n" +
+                        "Why use them?\n" +
+                        "• Build a button / panel / card once — reuse it everywhere.\n" +
+                        "• Change one detail (e.g. button color) — every place using the prefab picks up the change after Save.\n" +
+                        "• Keeps scenes clean: instead of rebuilding the same UI ten times, you drop the same prefab.\n\n" +
+                        "Workflow:\n" +
+                        "1. ＋ New prefab — create a new prefab (Button / Panel / Image / Text). It opens in this special editor.\n" +
+                        "2. Edit the structure on the canvas (move, resize, add nested elements via the «📐 Structure» panel).\n" +
+                        "3. 💾 Save — writes changes back to the prefab file. All instances on all scenes update next time you open them.\n" +
+                        "4. To insert a prefab onto a real scene: switch back to «Scene», then either right-click → «📦 Prefab…» or use the «📦 Prefab» button at the top of the sidebar.\n\n" +
+                        "Useful tips:\n" +
+                        "• Single click on canvas selects the prefab as a whole (so you can move it). Double click drills into a child (e.g. a Label inside a Button).\n" +
+                        "• The accent-coloured banner above the canvas reminds you that you're editing a prefab, not a regular scene.\n" +
+                        "• ✎ Rename / 🗑 Delete buttons in the right panel act on the FILE on disk — be careful, those affect every instance.",
+
+                        "Что такое префаб?\n" +
+                        "Префаб — это сохранённый «шаблон» UI-элемента (или целой группы элементов), который можно добавлять на любую сцену. Поправил префаб один раз — все его копии на всех сценах обновятся автоматически.\n\n" +
+                        "Зачем нужны?\n" +
+                        "• Собрать кнопку / панель / карточку один раз — переиспользовать везде.\n" +
+                        "• Поменял одну деталь (например, цвет кнопки) — после «Сохранить» все места где префаб стоит подхватят изменение.\n" +
+                        "• Сцены остаются чистыми: вместо того чтобы пересобирать один и тот же UI десять раз, ты просто бросаешь один и тот же префаб.\n\n" +
+                        "Как пользоваться:\n" +
+                        "1. ＋ Новый префаб — создаёт новый префаб (Кнопка / Панель / Картинка / Текст). Он открывается в этом специальном редакторе.\n" +
+                        "2. Редактируй структуру на холсте (двигай, меняй размер, добавляй вложенные элементы через панель «📐 Структура» слева).\n" +
+                        "3. 💾 Сохранить — запишет изменения в файл префаба. Все его инстансы на всех сценах подхватят их при следующем открытии.\n" +
+                        "4. Чтобы вставить префаб на реальную сцену: переключись на «Сцена», затем ПКМ → «📦 Префаб…» или кнопка «📦 Префаб» сверху в сайдбаре.\n\n" +
+                        "Полезные советы:\n" +
+                        "• Одиночный клик по холсту выделяет префаб целиком (можно двигать). Двойной клик проваливается во вложенный элемент (например, в Label внутри Кнопки).\n" +
+                        "• Акцентная полоса над холстом напоминает, что ты редактируешь префаб, а не обычную сцену.\n" +
+                        "• Кнопки ✎ Переименовать / 🗑 Удалить в правой панели работают с ФАЙЛОМ на диске — осторожно, они затронут все инстансы префаба.");
                 default:
                     return "";
             }

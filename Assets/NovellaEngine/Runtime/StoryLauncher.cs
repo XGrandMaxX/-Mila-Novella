@@ -26,9 +26,12 @@ namespace NovellaEngine.Runtime
         [Header("UI References - Stories")]
         public Transform StoriesContainer;
         public GameObject StoryButtonPrefab;
-        [HideInInspector] public string GameSceneName = "GameScene";
 
-        [Tooltip("���� ������ ����, ���������� ��� ������� �� ����� Resources/Stories")]
+        [Tooltip("Fallback scene name used if the picked NovellaStory has no GameSceneName of its own. " +
+                 "Modern flow: each story carries its own GameSceneAsset — this field stays for legacy.")]
+        public string GameSceneName = "GameScene";
+
+        [Tooltip("Stories shown in the menu. Empty = auto-load all from Resources/Stories.")]
         public List<NovellaStory> SpecificStories = new List<NovellaStory>();
 
         private NovellaStory _pendingStory;
@@ -290,13 +293,20 @@ namespace NovellaEngine.Runtime
 
             PlayerPrefs.Save();
 
-            if (!string.IsNullOrEmpty(GameSceneName))
+            // Приоритет: per-story GameSceneName из самой NovellaStory
+            // (новый поток через GameSceneAsset). Если пусто — fallback на
+            // launcher-уровень GameSceneName (старая совместимость).
+            string targetScene = !string.IsNullOrEmpty(story.GameSceneName)
+                ? story.GameSceneName
+                : GameSceneName;
+
+            if (!string.IsNullOrEmpty(targetScene))
             {
-                SceneManager.LoadScene(GameSceneName);
+                SceneManager.LoadScene(targetScene);
             }
             else
             {
-                Debug.LogError("[Novella Engine] ������� ����� �� ��������� � ���������� ����!");
+                Debug.LogError("[Novella Engine] Game scene is not set for this story. Pick one in the Story asset or in the StoryLauncher.");
             }
         }
     }
