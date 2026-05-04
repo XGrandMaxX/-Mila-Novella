@@ -216,13 +216,44 @@ namespace NovellaEngine.Runtime
 
             if (_currentNodeBase.NodeType == ENodeType.End) return;
 
-            NovellaSaveManager.SaveGame(StoryTree.name, _currentNodeBase.NodeID, _currentLineIndex);
+            // Превью-текст для слот-карточки: последняя реплика текущего диалога
+            // (в первой доступной локали — UI сам подберёт нужную при отображении).
+            string preview = ExtractPreviewText();
+            NovellaSaveManager.SaveGame(StoryTree.name, _currentNodeBase.NodeID, _currentLineIndex, preview);
 
             if (SaveNotification != null && !_isFastForwarding)
             {
                 if (_saveNotifCoroutine != null) StopCoroutine(_saveNotifCoroutine);
                 _saveNotifCoroutine = StartCoroutine(ShowSaveNotification());
             }
+        }
+
+        // Достаёт короткий текст для превью слота. Берёт первую непустую
+        // локализацию текущей реплики; если нет — имя ноды или пустую строку.
+        private string ExtractPreviewText()
+        {
+            try
+            {
+                if (_currentDialogue != null && _currentDialogue.DialogueLines != null
+                    && _currentLineIndex >= 0 && _currentLineIndex < _currentDialogue.DialogueLines.Count)
+                {
+                    var line = _currentDialogue.DialogueLines[_currentLineIndex];
+                    if (line != null && line.LocalizedPhrase != null)
+                    {
+                        foreach (var t in line.LocalizedPhrase.Translations)
+                        {
+                            if (t != null && !string.IsNullOrEmpty(t.Text))
+                            {
+                                string s = t.Text.Replace('\n', ' ').Trim();
+                                if (s.Length > 80) s = s.Substring(0, 79) + "…";
+                                return s;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { /* preview не критичен — глотаем */ }
+            return _currentNodeBase != null ? _currentNodeBase.NodeID : "";
         }
 
         private IEnumerator ShowSaveNotification()

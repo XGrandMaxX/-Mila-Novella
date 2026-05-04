@@ -267,30 +267,35 @@ namespace NovellaEngine.Runtime
 
         private void ProceedToGameScene(NovellaStory story)
         {
-            string saveKey = $"NovellaSave_{story.name}_Node";
             string completeKey = $"NovellaSave_{story.name}_Completed";
-
             bool isCompleted = PlayerPrefs.GetInt(completeKey, 0) == 1;
-            bool hasSave = PlayerPrefs.HasKey(saveKey);
 
             PlayerPrefs.SetString("SelectedStoryID", story.name);
             PlayerPrefs.SetString("SelectedChapterPath", story.StartingChapter.name);
 
+            // Слот по умолчанию для «Продолжить» — авто-слот (0).
+            // Если хотим грузить ручной слот, его указали через
+            // PlayerPrefs.SetInt("LoadFromSlot", N) до вызова.
+            int targetSlot = PlayerPrefs.GetInt("LoadFromSlot", NovellaSaveManager.AUTO_SLOT);
+
             if (isCompleted)
             {
-                PlayerPrefs.DeleteKey(saveKey);
+                NovellaSaveManager.DeleteSlot(story.name, NovellaSaveManager.AUTO_SLOT);
                 PlayerPrefs.SetInt(completeKey, 0);
                 PlayerPrefs.SetString("LoadTargetNodeID", "");
             }
-            else if (hasSave)
+            else if (NovellaSaveManager.HasSave(story.name, targetSlot))
             {
-                PlayerPrefs.SetString("LoadTargetNodeID", PlayerPrefs.GetString(saveKey));
+                var info = NovellaSaveManager.GetSlotInfo(story.name, targetSlot);
+                PlayerPrefs.SetString("LoadTargetNodeID", info.NodeID ?? "");
             }
             else
             {
                 PlayerPrefs.SetString("LoadTargetNodeID", "");
             }
 
+            // Сбрасываем индикатор после использования.
+            PlayerPrefs.DeleteKey("LoadFromSlot");
             PlayerPrefs.Save();
 
             // Приоритет: per-story GameSceneName из самой NovellaStory
