@@ -2393,7 +2393,7 @@ namespace NovellaEngine.Editor
             {
                 var es = new GameObject("[Novella]_EventSystem");
                 es.AddComponent<UnityEngine.EventSystems.EventSystem>();
-                es.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+                es.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
             }
         }
 

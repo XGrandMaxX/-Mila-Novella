@@ -17,9 +17,9 @@ MonoBehaviour:
   EnableAutoSave: 0
   AutoSaveInterval: 30
   Nodes:
-  - rid: 7628001597883416698
   - rid: 7628001604869816386
   - rid: 7628001597883416699
+  - rid: 7628001597883416698
   - rid: 7628001597883416697
   Groups: []
   references:
@@ -99,7 +99,7 @@ MonoBehaviour:
       data:
         NodeID: Branch_d7b8d
         NodeTitle: Branch 1
-        GraphPosition: {x: 592, y: 200}
+        GraphPosition: {x: 579, y: 215}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         Choices:
@@ -132,7 +132,7 @@ MonoBehaviour:
       data:
         NodeID: Wait_53dc1
         NodeTitle: Wait 1
-        GraphPosition: {x: 805, y: 282}
+        GraphPosition: {x: 792, y: 289}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         WaitMode: 0
@@ -161,7 +161,7 @@ MonoBehaviour:
       data:
         NodeID: SceneSettings_ccb00
         NodeTitle: SceneSettings 1
-        GraphPosition: {x: 554, y: 115}
+        GraphPosition: {x: 546, y: 99}
         NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
         IsPinned: 0
         SyncWithDialogue: 1
@@ -181,7 +181,7 @@ MonoBehaviour:
           BgTransition: 1
           BgTransitionTime: 1
           TargetCharacter: {fileID: 0}
-          UITargetId: f31619283a2c48739fbcdcef03ae0da3
+          UITargetId: adb4ceaeac824222ac84672647b1877f
           UITextValue: 
           UITextIsLocalizationKey: 0
         NextNodeID: 

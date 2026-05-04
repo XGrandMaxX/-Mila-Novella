@@ -467,37 +467,11 @@ namespace NovellaEngine.Editor
             DrawSectionCard("🌐 " + ToolLang.Get("Language", "Язык"), () =>
             {
                 DrawGuideTip(ToolLang.Get(
-                    "Two separate things here: 'Toolkit language' = the editor itself in RU/EN. 'Project UI localization' = translations for YOUR game's UI (button labels, screens, etc.) which players see at runtime.",
-                    "Здесь две разные вещи: «Язык инструмента» — сам редактор на RU/EN. «Локализация интерфейса проекта» — переводы UI ТВОЕЙ игры (надписи кнопок, экраны), которые увидит игрок в рантайме."));
+                    "'Project UI localization' = translations for YOUR game's UI (button labels, screens, etc.) which players see at runtime. The toolkit language itself is switched via the sidebar shortcut (Ctrl+L).",
+                    "«Локализация интерфейса проекта» — переводы UI ТВОЕЙ игры (надписи кнопок, экраны), которые увидит игрок в рантайме. Язык самого редактора переключается шорткатом из сайдбара (Ctrl+L)."));
 
                 var lbl = new GUIStyle(EditorStyles.label) { fontSize = 12 };
                 lbl.normal.textColor = C_TEXT_2;
-
-                // Tool language (RU/EN of the toolkit itself)
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(ToolLang.Get("Toolkit language", "Язык инструмента"), lbl, GUILayout.Width(180));
-                bool isRU = ToolLang.IsRU;
-                Color enBg = !isRU ? GetAccentColor() : GetButtonNeutralBg();
-                Color ruBg =  isRU ? GetAccentColor() : GetButtonNeutralBg();
-                GUI.backgroundColor = enBg;
-                if (GUILayout.Button("EN  English", ButtonStyleFor(EditorStyles.miniButtonLeft, enBg), GUILayout.Width(110), GUILayout.Height(22)))
-                {
-                    if (isRU) ToolLang.Toggle();
-                    _window?.Repaint();
-                }
-                GUI.backgroundColor = ruBg;
-                if (GUILayout.Button("RU  Русский", ButtonStyleFor(EditorStyles.miniButtonRight, ruBg), GUILayout.Width(110), GUILayout.Height(22)))
-                {
-                    if (!isRU) ToolLang.Toggle();
-                    _window?.Repaint();
-                }
-                GUI.backgroundColor = Color.white;
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(14);
-                EditorGUI.DrawRect(GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true)), C_BORDER);
-                GUILayout.Space(14);
 
                 var subTtl = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
                 subTtl.normal.textColor = C_TEXT_1;

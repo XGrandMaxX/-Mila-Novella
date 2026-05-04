@@ -30,6 +30,10 @@ namespace NovellaEngine.Editor
             public string IconLetter;    // 1 буква в круге
             public Color IconColor;
             public Action OnInvoke;
+            // Если true — пункт скрыт когда EditorApplication.isPlaying.
+            // Используется для всего что меняет проектное состояние или
+            // переключает в модули, отключённые в Play (см. NovellaHubWindow).
+            public bool DisabledInPlay;
         }
 
         public NovellaCommandPalette(NovellaHubWindow hub)
@@ -100,6 +104,30 @@ namespace NovellaEngine.Editor
                 new Color(0.88f, 0.48f, 0.62f), // pink
             };
 
+            // ─── Навигация по модулям Studio ───
+            // (3 = UI Forge, 6 = Console — разрешены в Play; остальные скрываются.)
+            void AddNav(int moduleIndex, string en, string ru, string letter, Color col, bool playOk)
+            {
+                int captured = moduleIndex;
+                _allItems.Add(new Item
+                {
+                    Label = ToolLang.Get(en, ru),
+                    Hint = ToolLang.Get("Open", "Открыть"),
+                    IconLetter = letter,
+                    IconColor = col,
+                    OnInvoke = () => { _hub.SwitchToModule(captured); Close(); },
+                    DisabledInPlay = !playOk,
+                });
+            }
+            AddNav(0, "Open Home",          "Открыть Главную",          "H", pal[0], false);
+            AddNav(3, "Open UI Forge",      "Открыть Кузницу UI",       "U", pal[1], true);
+            AddNav(1, "Open Characters",    "Открыть Персонажей",       "C", pal[2], false);
+            AddNav(2, "Open Scenes & Menu", "Открыть Сцены и Меню",     "S", pal[3], false);
+            AddNav(4, "Open Variables",     "Открыть Переменные",       "V", pal[4], false);
+            AddNav(5, "Open Build",         "Открыть Сборку",           "B", pal[5], false);
+            AddNav(6, "Open Console",       "Открыть Консоль",          "L", pal[0], true);
+            AddNav(7, "Open Settings",      "Открыть Настройки",        "G", pal[1], false);
+
             // Персонажи
             int idx = 0;
             foreach (var g in AssetDatabase.FindAssets("t:NovellaCharacter"))
@@ -120,7 +148,8 @@ namespace NovellaEngine.Editor
                         var mod = _hub.GetModule(1) as NovellaCharacterEditorModule;
                         mod?.SelectCharacter(captured);
                         Close();
-                    }
+                    },
+                    DisabledInPlay = true,  // открывает Персонажей — модуль закрыт в Play
                 });
             }
 
@@ -142,12 +171,14 @@ namespace NovellaEngine.Editor
                         {
                             NovellaVariableEditorModule.ShowInHub(capName);
                             Close();
-                        }
+                        },
+                        DisabledInPlay = true,  // открывает модуль Переменных
                     });
                 }
             }
 
-            // Истории
+            // Истории — клик меняет активную историю и открывает граф.
+            // В Play менять активную историю нельзя → пункт скрыт.
             foreach (var g in AssetDatabase.FindAssets("t:NovellaStory"))
             {
                 var path = AssetDatabase.GUIDToAssetPath(g);
@@ -167,7 +198,8 @@ namespace NovellaEngine.Editor
                         if (captured.StartingChapter != null)
                             NovellaGraphWindow.OpenGraphWindow(captured.StartingChapter);
                         Close();
-                    }
+                    },
+                    DisabledInPlay = true,
                 });
             }
 
@@ -182,7 +214,8 @@ namespace NovellaEngine.Editor
                 {
                     _hub.SwitchToModule(1);
                     Close();
-                }
+                },
+                DisabledInPlay = true,
             });
             _allItems.Add(new Item
             {
@@ -194,7 +227,8 @@ namespace NovellaEngine.Editor
                 {
                     _hub.SwitchToModule(4);
                     Close();
-                }
+                },
+                DisabledInPlay = true,
             });
             _allItems.Add(new Item
             {
@@ -207,7 +241,8 @@ namespace NovellaEngine.Editor
                     // 5 = NovellaBuildModule
                     _hub.SwitchToModule(5);
                     Close();
-                }
+                },
+                DisabledInPlay = true,
             });
             _allItems.Add(new Item
             {
@@ -258,7 +293,8 @@ namespace NovellaEngine.Editor
                         if (NovellaHubWindow.Instance != null) NovellaHubWindow.Instance.Close();
                     };
                     Close();
-                }
+                },
+                DisabledInPlay = true,
             });
             _allItems.Add(new Item
             {
@@ -278,14 +314,22 @@ namespace NovellaEngine.Editor
 
         private void Refilter(string query)
         {
+            // В Play отбрасываем пункты, ведущие в заблокированные модули
+            // (Персонажи, Сцены, Сборка и т.п.) — чтобы юзер не видел того
+            // что нажать всё равно не получится.
+            bool inPlay = EditorApplication.isPlaying;
+            IEnumerable<Item> source = inPlay
+                ? _allItems.Where(i => !i.DisabledInPlay)
+                : _allItems;
+
             if (string.IsNullOrEmpty(query))
             {
-                _filtered = _allItems.Take(40).ToList();
+                _filtered = source.Take(40).ToList();
             }
             else
             {
                 var q = query.ToLowerInvariant();
-                _filtered = _allItems
+                _filtered = source
                     .Where(i => i.Label.ToLowerInvariant().Contains(q))
                     .Take(40)
                     .ToList();

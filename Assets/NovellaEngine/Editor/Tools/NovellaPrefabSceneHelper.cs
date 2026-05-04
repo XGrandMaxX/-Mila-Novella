@@ -44,7 +44,8 @@ namespace NovellaEngine.Editor
         }
 
         // Открывает mock-сцену (если предыдущая dirty — спросит юзера).
-        // Возвращает true при успехе.
+        // Возвращает true при успехе. Используется только в legacy-сценариях;
+        // основной путь — OpenMockSceneAdditive (см. ниже).
         public static bool OpenMockScene()
         {
             EnsureMockScene();
@@ -54,17 +55,63 @@ namespace NovellaEngine.Editor
             return true;
         }
 
-        // Очищает mock-сцену от старого prefab-instance и инстанцирует новый.
-        // Создаёт временный Canvas если его ещё нет.
-        public static GameObject InstantiatePrefabInMockScene(GameObject prefabAsset)
+        // Подгружает mock-сцену поверх текущих (additive) и делает её активной —
+        // как «DontDestroyOnLoad»-слой для prefab-редактора. Gameplay-сцена
+        // остаётся в памяти и не теряет правок. Save current не требуется.
+        public static bool OpenMockSceneAdditive()
         {
-            if (prefabAsset == null) return null;
+            EnsureMockScene();
+            var loaded = EditorSceneManager.GetSceneByPath(MOCK_SCENE_PATH);
+            if (!loaded.IsValid() || !loaded.isLoaded)
+            {
+                loaded = EditorSceneManager.OpenScene(MOCK_SCENE_PATH, OpenSceneMode.Additive);
+            }
+            if (!loaded.IsValid()) return false;
+            if (EditorSceneManager.GetActiveScene() != loaded)
+            {
+                EditorSceneManager.SetActiveScene(loaded);
+            }
+            return true;
+        }
 
-            // Сначала вычищаем всё, что не относится к редактору префабов
-            // (старые инстансы, случайно оставшиеся пресеты типа MainMenu и т.п.).
-            CleanupMockScene();
+        // Снимает mock-сцену с additive-загрузки. Перед закрытием передаёт
+        // active-флаг другой загруженной сцене (gameplay), иначе Unity не
+        // даёт закрыть active-сцену. Если mock — ЕДИНСТВЕННАЯ загруженная
+        // сцена, не закрываем (Unity упадёт), просто логгируем.
+        public static bool CloseMockSceneAdditive()
+        {
+            var mockScene = EditorSceneManager.GetSceneByPath(MOCK_SCENE_PATH);
+            if (!mockScene.IsValid() || !mockScene.isLoaded) return false;
 
-            // Получаем или создаём корневой holder.
+            UnityEngine.SceneManagement.Scene? another = null;
+            for (int i = 0; i < EditorSceneManager.sceneCount; i++)
+            {
+                var s = EditorSceneManager.GetSceneAt(i);
+                if (s != mockScene && s.isLoaded) { another = s; break; }
+            }
+
+            if (another == null)
+            {
+                Debug.LogWarning(
+                    "[Novella] Cannot close PrefabEditor mock scene additively — it's the only loaded scene. " +
+                    "Open your gameplay scene first, then switch back to Prefabs/Scene tabs in UI Forge.");
+                return false;
+            }
+
+            if (EditorSceneManager.GetActiveScene() == mockScene)
+                EditorSceneManager.SetActiveScene(another.Value);
+
+            return EditorSceneManager.CloseScene(mockScene, true);
+        }
+
+        // Создаёт Holder/Canvas/Camera/EventSystem в mock-сцене если их ещё нет.
+        // Все объекты помечаются NovellaPresetMarker(PresetName="PrefabEditor"),
+        // чтобы CleanupMockScene их сохранял. Возвращает Canvas.
+        public static Canvas EnsureMockSceneChrome()
+        {
+            if (!IsMockSceneActive()) return null;
+
+            // Holder.
             var holder = GameObject.Find(PREFAB_HOLDER);
             if (holder == null)
             {
@@ -72,7 +119,7 @@ namespace NovellaEngine.Editor
                 holder.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
             }
 
-            // Получаем или создаём Canvas.
+            // Canvas + Camera.
             var canvasGo = GameObject.Find(CANVAS_NAME);
             Canvas canvas = canvasGo != null ? canvasGo.GetComponent<Canvas>() : null;
             if (canvas == null)
@@ -88,7 +135,6 @@ namespace NovellaEngine.Editor
                 canvasGo.AddComponent<UnityEngine.UI.GraphicRaycaster>();
                 canvasGo.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
 
-                // Камеру для канваса.
                 var camGo = new GameObject("[Novella]_PrefabEditor_Camera");
                 var cam = camGo.AddComponent<Camera>();
                 cam.clearFlags = CameraClearFlags.SolidColor;
@@ -97,17 +143,33 @@ namespace NovellaEngine.Editor
                 camGo.AddComponent<AudioListener>();
                 canvas.worldCamera = cam;
                 camGo.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
-
-                // EventSystem нужен иначе UI не отвечает в рантайме.
-                var es = Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include);
-                if (es == null)
-                {
-                    var esGo = new GameObject("[Novella]_PrefabEditor_EventSystem");
-                    esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
-                    esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
-                    esGo.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
-                }
             }
+
+            // EventSystem.
+            var es = Object.FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>(FindObjectsInactive.Include);
+            if (es == null)
+            {
+                var esGo = new GameObject("[Novella]_PrefabEditor_EventSystem");
+                esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
+                esGo.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+                esGo.AddComponent<NovellaEngine.Runtime.NovellaPresetMarker>().PresetName = "PrefabEditor";
+            }
+
+            EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+            return canvas;
+        }
+
+        // Очищает mock-сцену от старого prefab-instance и инстанцирует новый.
+        public static GameObject InstantiatePrefabInMockScene(GameObject prefabAsset)
+        {
+            if (prefabAsset == null) return null;
+
+            // Сначала вычищаем всё, что не относится к редактору префабов
+            // (старые инстансы, случайно оставшиеся пресеты типа MainMenu и т.п.).
+            CleanupMockScene();
+
+            var canvas = EnsureMockSceneChrome();
+            if (canvas == null) return null;
 
             // Инстанцируем под Canvas (а не holder), чтобы UI-prefab видел
             // canvas как родителя.

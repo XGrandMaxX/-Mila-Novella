@@ -46,12 +46,15 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(20);
 
-            // Заголовок.
+            // Заголовок + переключатель подсказок справа.
             GUILayout.BeginHorizontal();
             GUILayout.Space(24);
             var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 22 };
             titleSt.normal.textColor = C_TEXT_1;
             GUILayout.Label("📦 " + ToolLang.Get("Build the game", "Собрать игру"), titleSt);
+            GUILayout.FlexibleSpace();
+            DrawHintsToggle();
+            GUILayout.Space(24);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
@@ -63,6 +66,9 @@ namespace NovellaEngine.Editor
                 "Один клик — и твоя новелла превращается в готовую игру. Выбери платформу ниже."), subSt);
             GUILayout.Space(24);
             GUILayout.EndHorizontal();
+
+            GUILayout.Space(8);
+            DrawWhatIsBuildHint();
 
             GUILayout.Space(18);
 
@@ -85,6 +91,52 @@ namespace NovellaEngine.Editor
             GUILayout.Space(40);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        // Переключатель глобального ShowGuide. Аналогично кнопке в Кузнице UI.
+        private void DrawHintsToggle()
+        {
+            bool guide = NovellaSettingsModule.ShowGuide;
+            string text = "💡  " + (guide
+                ? ToolLang.Get("Hints: On", "Подсказки: Вкл")
+                : ToolLang.Get("Hints: Off", "Подсказки: Выкл"));
+
+            var prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = guide ? C_ACCENT : new Color(1, 1, 1, 0.05f);
+            var st = new GUIStyle(EditorStyles.miniButton) { fontSize = 11, padding = new RectOffset(8, 8, 4, 4) };
+            st.normal.textColor = guide
+                ? NovellaSettingsModule.GetContrastingText(C_ACCENT)
+                : C_TEXT_2;
+            if (GUILayout.Button(text, st, GUILayout.Width(140), GUILayout.Height(22)))
+            {
+                NovellaSettingsModule.ShowGuide = !guide;
+                _window?.Repaint();
+            }
+            GUI.backgroundColor = prevBg;
+        }
+
+        // Карточка-объяснение «Что такое сборка». Показывается только когда
+        // включены Подсказки. Стиль идентичен DrawGuideTip из Settings.
+        private void DrawWhatIsBuildHint()
+        {
+            if (!NovellaSettingsModule.ShowGuide) return;
+
+            string text = ToolLang.Get(
+                "A 'build' is a finished version of your game packaged into a single program (.exe / .app / web page). " +
+                "Players don't need Unity — they just download and run it. Pick a platform card below to start; the engine collects all your scenes, scripts, and assets and writes them into one folder you can share.",
+                "«Сборка» — это готовая версия игры, собранная в один запускаемый файл (.exe / .app / веб-страница). " +
+                "Игроку Unity не нужен — он просто скачивает и запускает. Выбери платформу ниже — движок соберёт все твои сцены, скрипты и ассеты в одну папку, которую ты можешь раздавать.");
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24);
+            var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(10, 10, 8, 8) };
+            st.normal.textColor = NovellaSettingsModule.GetHintColor();
+            Rect r = GUILayoutUtility.GetRect(new GUIContent("💡 " + text), st, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.07f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), C_ACCENT);
+            GUI.Label(r, "💡 " + text, st);
+            GUILayout.Space(24);
+            GUILayout.EndHorizontal();
         }
 
         private void DrawChecklist()
@@ -199,65 +251,82 @@ namespace NovellaEngine.Editor
 
             if (stack)
             {
-                DrawPlatformCard(BuildTarget.StandaloneWindows64, "🪟", "Windows (.exe)",
-                    ToolLang.Get("Standalone build for Windows. The most common option for Steam / itch.io.",
-                                 "Standalone-сборка под Windows. Самый частый вариант для Steam / itch.io."), canBuild);
+                DrawPlatformCard(BuildTarget.StandaloneWindows64, "🖥", "Windows (.exe)",
+                    ToolLang.Get("Standalone build for Windows (64-bit). Produces a folder with .exe + game data — share the whole folder; running the .exe alone will not work.",
+                                 "Standalone-сборка под Windows (64-bit). Получается папка с .exe и данными игры — раздавать нужно всю папку целиком; запустить только .exe в отрыве от неё не получится."), canBuild);
                 GUILayout.Space(8);
                 DrawPlatformCard(BuildTarget.StandaloneOSX, "🍎", "macOS (.app)",
-                    ToolLang.Get("Standalone build for Mac (Intel + Apple Silicon).",
-                                 "Standalone-сборка под Mac (Intel + Apple Silicon)."), canBuild);
+                    ToolLang.Get(
+                        "Standalone build for Mac (Intel + Apple Silicon). Note: a real Mac is required to produce a working .app — Unity can build the file from Windows, but it won't run on macOS without code-signing on a Mac. Search 'Unity build for Mac on Windows' on YouTube for the full setup.",
+                        "Standalone-сборка под Mac (Intel + Apple Silicon). Учти: чтобы получить рабочее .app, нужен сам Mac — Unity соберёт файл из-под Windows, но без подписи на Mac он не запустится. Подробный гайд — поиск «Unity build for Mac on Windows» на YouTube."), canBuild);
                 GUILayout.Space(8);
                 DrawPlatformCard(BuildTarget.WebGL, "🌐", "WebGL",
-                    ToolLang.Get("Browser build. Slow loading but plays in any browser without install.",
-                                 "Сборка под браузер. Медленнее грузится, но играется в любом браузере без установки."), canBuild);
+                    ToolLang.Get("Browser build. Plays in any browser without install. In development — not yet available.",
+                                 "Сборка под браузер. Играется в любом браузере без установки. В разработке — пока недоступно."),
+                    canBuild, comingSoon: true);
             }
             else
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(24);
-                DrawPlatformCard(BuildTarget.StandaloneWindows64, "🪟", "Windows (.exe)",
-                    ToolLang.Get("Standalone build for Windows. The most common option for Steam / itch.io.",
-                                 "Standalone-сборка под Windows. Самый частый вариант для Steam / itch.io."), canBuild);
+                DrawPlatformCard(BuildTarget.StandaloneWindows64, "🖥", "Windows (.exe)",
+                    ToolLang.Get("Standalone build for Windows (64-bit). Produces a folder with .exe + game data — share the whole folder; running the .exe alone will not work.",
+                                 "Standalone-сборка под Windows (64-bit). Получается папка с .exe и данными игры — раздавать нужно всю папку целиком; запустить только .exe в отрыве от неё не получится."), canBuild);
                 GUILayout.Space(8);
                 DrawPlatformCard(BuildTarget.StandaloneOSX, "🍎", "macOS (.app)",
-                    ToolLang.Get("Standalone build for Mac (Intel + Apple Silicon).",
-                                 "Standalone-сборка под Mac (Intel + Apple Silicon)."), canBuild);
+                    ToolLang.Get(
+                        "Standalone build for Mac (Intel + Apple Silicon). Note: a real Mac is required to produce a working .app — Unity can build the file from Windows, but it won't run on macOS without code-signing on a Mac. Search 'Unity build for Mac on Windows' on YouTube for the full setup.",
+                        "Standalone-сборка под Mac (Intel + Apple Silicon). Учти: чтобы получить рабочее .app, нужен сам Mac — Unity соберёт файл из-под Windows, но без подписи на Mac он не запустится. Подробный гайд — поиск «Unity build for Mac on Windows» на YouTube."), canBuild);
                 GUILayout.Space(8);
                 DrawPlatformCard(BuildTarget.WebGL, "🌐", "WebGL",
-                    ToolLang.Get("Browser build. Slow loading but plays in any browser without install.",
-                                 "Сборка под браузер. Медленнее грузится, но играется в любом браузере без установки."), canBuild);
+                    ToolLang.Get("Browser build. Plays in any browser without install. In development — not yet available.",
+                                 "Сборка под браузер. Играется в любом браузере без установки. В разработке — пока недоступно."),
+                    canBuild, comingSoon: true);
                 GUILayout.Space(24);
                 GUILayout.EndHorizontal();
             }
         }
 
-        private void DrawPlatformCard(BuildTarget target, string icon, string label, string desc, bool enabled)
+        private void DrawPlatformCard(BuildTarget target, string icon, string label, string desc, bool enabled, bool comingSoon = false)
         {
             var cardSt = new GUIStyle(EditorStyles.helpBox) { padding = new RectOffset(14, 14, 14, 14) };
             GUILayout.BeginVertical(cardSt, GUILayout.MinWidth(220));
 
             var iconSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 28, alignment = TextAnchor.MiddleLeft };
-            iconSt.normal.textColor = C_TEXT_1;
+            iconSt.normal.textColor = comingSoon ? C_TEXT_3 : C_TEXT_1;
             GUILayout.Label(icon, iconSt);
 
             var labelSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 };
-            labelSt.normal.textColor = C_TEXT_1;
+            labelSt.normal.textColor = comingSoon ? C_TEXT_3 : C_TEXT_1;
             GUILayout.Label(label, labelSt);
 
             var descSt = new GUIStyle(EditorStyles.wordWrappedMiniLabel) { fontSize = 10 };
-            descSt.normal.textColor = C_TEXT_3;
+            descSt.normal.textColor = comingSoon ? C_TEXT_4 : C_TEXT_3;
             GUILayout.Label(desc, descSt);
 
             GUILayout.Space(10);
 
-            using (new EditorGUI.DisabledScope(!enabled))
+            if (comingSoon)
             {
-                GUI.backgroundColor = C_ACCENT;
-                if (GUILayout.Button("📦 " + ToolLang.Get("Build", "Собрать"), GUILayout.Height(34)))
+                // Серая «Coming soon» — некликабельная заглушка.
+                using (new EditorGUI.DisabledScope(true))
                 {
-                    StartBuild(target);
+                    GUI.backgroundColor = new Color(0.5f, 0.5f, 0.5f);
+                    GUILayout.Button("⏳ " + ToolLang.Get("Coming soon", "Скоро будет"), GUILayout.Height(34));
+                    GUI.backgroundColor = Color.white;
                 }
-                GUI.backgroundColor = Color.white;
+            }
+            else
+            {
+                using (new EditorGUI.DisabledScope(!enabled))
+                {
+                    GUI.backgroundColor = C_ACCENT;
+                    if (GUILayout.Button("📦 " + ToolLang.Get("Build", "Собрать"), GUILayout.Height(34)))
+                    {
+                        StartBuild(target);
+                    }
+                    GUI.backgroundColor = Color.white;
+                }
             }
 
             GUILayout.EndVertical();

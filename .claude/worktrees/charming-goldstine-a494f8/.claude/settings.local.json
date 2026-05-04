@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"D:/UnityWork/[Mila]Novella\" add Assets/NovellaEngine/Editor/Tools/NovellaBuildModule.cs Assets/NovellaEngine/Editor/Tools/NovellaHubWindow.cs Assets/NovellaEngine/Editor/Tools/NovellaCommandPalette.cs)",
+      "Bash(git -C \"D:/UnityWork/[Mila]Novella\" status -s)"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find Library/PackageCache/com.unity.inputsystem* -type f -name \"InputSystemUIInputModule.cs\")"
+    ]
+  }
+}

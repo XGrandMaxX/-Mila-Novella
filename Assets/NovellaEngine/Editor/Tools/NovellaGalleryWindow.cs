@@ -19,7 +19,7 @@ namespace NovellaEngine.Editor
 {
     public class NovellaGalleryWindow : EditorWindow
     {
-        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story, Character, Font }
+        public enum EGalleryFilter { All, Image, Audio, Video, Prefab, CustomUI, Graph, Story, Character, Font, Scene }
         private enum UndoType { Delete, Move, Copy }
 
         private struct UndoAction
@@ -94,13 +94,19 @@ namespace NovellaEngine.Editor
             window._onSelect = onSelect;
             window._filterMode = onSelect != null ? filter : EGalleryFilter.All;
 
-            if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI || filter == EGalleryFilter.Font)
+            if (filter == EGalleryFilter.Prefab || filter == EGalleryFilter.CustomUI || filter == EGalleryFilter.Font || filter == EGalleryFilter.Scene)
             {
                 window._isProjectMode = true;
 
                 if (filter == EGalleryFilter.CustomUI)
                 {
                     string targetFolder = "Assets/NovellaEngine/Runtime/Prefabs/CustomUI";
+                    if (!Directory.Exists(targetFolder)) Directory.CreateDirectory(targetFolder);
+                    window._currentDir = targetFolder;
+                }
+                else if (filter == EGalleryFilter.Scene)
+                {
+                    string targetFolder = "Assets/NovellaEngine/Scenes";
                     if (!Directory.Exists(targetFolder)) Directory.CreateDirectory(targetFolder);
                     window._currentDir = targetFolder;
                 }
@@ -260,6 +266,7 @@ namespace NovellaEngine.Editor
             bool isAudio = ext == ".mp3" || ext == ".wav" || ext == ".ogg";
             bool isVideo = ext == ".mp4" || ext == ".mov" || ext == ".webm" || ext == ".avi" || ext == ".gif";
             bool isPrefab = ext == ".prefab";
+            bool isScene = ext == ".unity";
             bool isCustomUI = false;
 
             bool isGraph = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaTree);
@@ -286,7 +293,8 @@ namespace NovellaEngine.Editor
                 if (_filterMode == EGalleryFilter.Story && !isStory) return;
                 if (_filterMode == EGalleryFilter.Character && !isCharacter) return;
                 if (_filterMode == EGalleryFilter.Font && !isFont) return;
-                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory || isCharacter || isFont)) return;
+                if (_filterMode == EGalleryFilter.Scene && !isScene) return;
+                if (_filterMode == EGalleryFilter.All && !(isImage || isScript || isAudio || isVideo || isPrefab || isGraph || isStory || isCharacter || isFont || isScene)) return;
             }
 
             Texture2D tex = null;
@@ -311,6 +319,13 @@ namespace NovellaEngine.Editor
                     if (firstImg != null && firstImg.sprite != null) tex = firstImg.sprite.texture;
                 }
                 if (tex == null) tex = _prefabIcon ?? _fileIcon;
+            }
+            else if (isScene)
+            {
+                string sceneGuid = AssetDatabase.AssetPathToGUID(formattedFile);
+                string thumbPath = $"Assets/NovellaEngine/EditorData/Thumbnails/{sceneGuid}.png";
+                if (File.Exists(thumbPath)) tex = AssetDatabase.LoadAssetAtPath<Texture2D>(thumbPath);
+                if (tex == null) tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D ?? _fileIcon;
             }
             else tex = AssetDatabase.GetCachedIcon(formattedFile) as Texture2D ?? _fileIcon;
 

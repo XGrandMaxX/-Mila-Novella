@@ -150,6 +150,11 @@ namespace NovellaEngine.Editor
         // ссылки на удалённые объекты. Сессионное состояние, пересоздание окна
         // сбрасывает (намеренно — логика «по дефолту всё развернуто»).
         private HashSet<int> _collapsedNodes = new HashSet<int>();
+
+        // Счётчик «сессии» сворачивания дерева (см. FORGE_COLLAPSE_SESSION_KEY).
+        // Хранит последнее значение, при котором мы свернули все root-канвасы.
+        // -1 = ни разу не сворачивали → форсим collapse при первом входе.
+        private int _lastCollapseSession = -1;
         // 🔒 Заблокированные объекты — нельзя удалять/дублировать/переключать
         // active/двигать в дереве. Только редактор-only флаг (не влияет на игру).
         private HashSet<int> _lockedNodes = new HashSet<int>();
@@ -305,6 +310,20 @@ namespace NovellaEngine.Editor
 
             if (_allRects.Count == 0) RefreshRectsCache();
 
+            // На «новой» сессии (после Play или первого входа в Кузницу) сворачиваем
+            // все root-канвасы в дереве. Сессия инкрементится в Hub при входе в Play
+            // (см. NovellaHubWindow.OnPlayModeStateChanged → FORGE_COLLAPSE_SESSION_KEY).
+            // Если дерево ещё пустое — не «съедаем» сессию, ждём следующего кадра.
+            if (_allRects.Count > 0)
+            {
+                int collapseSession = SessionState.GetInt(NovellaHubWindow.FORGE_COLLAPSE_SESSION_KEY, 0);
+                if (_lastCollapseSession != collapseSession)
+                {
+                    CollapseAllRootCanvases();
+                    _lastCollapseSession = collapseSession;
+                }
+            }
+
             // Базовая ширина сайдбара: 340 — под иконки lock/pickup/eye и длинные
             // имена. В Prefabs-режиме чуть шире (420), чтобы влезала 3-колоночная
             // сетка превью префабов.
@@ -326,6 +345,194 @@ namespace NovellaEngine.Editor
             NovellaToast.DrawOverlay(canvasRect, _window);
 
             SyncSelectionToUnityIfNeeded();
+
+            DrawPlayModeOverlay(position, canvasRect);
+            DrawStartPlayButton(canvasRect);
+        }
+
+        // Зелёная плавающая кнопка «▶ Запустить» в правом верхнем углу canvas-
+        // превью. Дублирует кнопку «Запустить» из топбара Хаба (на Главной).
+        // Прячется когда уже в Play (там её место занимает кнопка выхода).
+        // Если включены Подсказки — слева от кнопки выводится пояснение что
+        // такое Play Mode и зачем он.
+        private void DrawStartPlayButton(Rect canvasRect)
+        {
+            if (EditorApplication.isPlaying) return;
+
+            Color green = new Color(0.30f, 0.85f, 0.45f);
+            Color greenBright = new Color(0.45f, 1f, 0.55f);
+
+            string label = "▶  " + ToolLang.Get("Play", "Запустить");
+            GUIStyle measureSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
+            Vector2 sz = measureSt.CalcSize(new GUIContent(label));
+            float padX = 14f, padY = 6f;
+            float btnW = sz.x + padX * 2f;
+            float btnH = sz.y + padY * 2f;
+            // Под canvas-toolbar (48px высоты у DrawCanvasTopbar) + отступ.
+            float btnY = canvasRect.y + 48f + 8f;
+            float btnX = canvasRect.xMax - 12f - btnW;
+            Rect btnRect = new Rect(btnX, btnY, btnW, btnH);
+
+            Event e = Event.current;
+            bool hover = btnRect.Contains(e.mousePosition);
+
+            EditorGUI.DrawRect(btnRect, hover ? greenBright : green);
+            DrawRectBorder(btnRect, new Color(0.05f, 0.18f, 0.08f, 0.55f));
+            EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Link);
+
+            var st = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.05f, 0.18f, 0.08f) }
+            };
+            GUI.Label(btnRect, label, st);
+
+            if (e.type == EventType.MouseDown && e.button == 0 && hover)
+            {
+                if (NovellaHubWindow.Instance != null)
+                    NovellaHubWindow.Instance.StartPlaytest();
+                e.Use();
+            }
+
+            // Подсказка слева от кнопки — что такое Play Mode и зачем он.
+            if (NovellaSettingsModule.ShowGuide)
+            {
+                string hint = ToolLang.Get(
+                    "Play Mode = preview your story exactly as players will see it. Buttons work, dialogue advances, choices count. Use it to test scenes before publishing — UI edits made during Play don't save, so you can experiment safely.",
+                    "Игровой режим = превью твоей истории так, как её увидят игроки. Кнопки работают, диалоги идут, выборы учитываются. Нужен чтобы проверять сцены перед публикацией — правки UI во время Play не сохраняются, можно безопасно эксперементировать.");
+                GUIStyle hintSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.UpperRight,
+                    wordWrap = true,
+                    normal = { textColor = green }
+                };
+                float hintW = Mathf.Max(160f, Mathf.Min(420f, btnRect.x - canvasRect.x - 24f));
+                if (hintW > 100f)
+                {
+                    float hintH = hintSt.CalcHeight(new GUIContent(hint), hintW);
+                    Rect hintRect = new Rect(btnRect.x - 8f - hintW, btnRect.y, hintW, Mathf.Max(btnRect.height, hintH));
+                    EditorGUI.DrawRect(hintRect, new Color(0f, 0f, 0f, 0.55f));
+                    GUI.Label(hintRect, hint, hintSt);
+                }
+            }
+        }
+
+        // Сворачивает все root-канвасы дерева — добавляет их InstanceID в
+        // _collapsedNodes. Вызывается при входе в Кузницу на «новой» сессии
+        // (после Play / первого открытия Studio).
+        private void CollapseAllRootCanvases()
+        {
+            for (int i = 0; i < _allRects.Count; i++)
+            {
+                var rt = _allRects[i];
+                if (rt == null) continue;
+                var c = rt.GetComponent<Canvas>();
+                if (c != null && c.isRootCanvas)
+                {
+                    _collapsedNodes.Add(rt.GetInstanceID());
+                }
+            }
+        }
+
+        // Зелёная рамка вокруг canvas-превью + кликабельная плашка
+        // «🎮 ВЫЙТИ ✕» в правом верхнем углу — на той же позиции что и
+        // «▶ Запустить» в Edit-режиме. Первые ~0.5с после входа в Play
+        // кнопка показана но некликабельна (grace-период от случайного
+        // двойного клика).
+        private void DrawPlayModeOverlay(Rect modulePos, Rect canvasRect)
+        {
+            if (!EditorApplication.isPlaying) return;
+            if (!SessionState.GetBool(NovellaHubWindow.FORGE_PLAYTEST_KEY, false)) return;
+
+            Color green = new Color(0.30f, 0.85f, 0.45f);
+            Color greenBright = new Color(0.45f, 1f, 0.55f);
+            Color greenLocked = new Color(0.30f, 0.85f, 0.45f, 0.45f);
+            const float w = 3f;
+            EditorGUI.DrawRect(new Rect(canvasRect.x, canvasRect.y, canvasRect.width, w), green);
+            EditorGUI.DrawRect(new Rect(canvasRect.x, canvasRect.yMax - w, canvasRect.width, w), green);
+            EditorGUI.DrawRect(new Rect(canvasRect.x, canvasRect.y, w, canvasRect.height), green);
+            EditorGUI.DrawRect(new Rect(canvasRect.xMax - w, canvasRect.y, w, canvasRect.height), green);
+
+            // Grace-период — первые 500мс после старта Play. Кнопка серая и
+            // не реагирует на клик — защита от случайного двойного клика.
+            const double GRACE_SECONDS = 0.5;
+            double playStart = ParsePlayStartTime();
+            double elapsed = EditorApplication.timeSinceStartup - playStart;
+            bool grace = playStart > 0 && elapsed < GRACE_SECONDS;
+
+            // Плашка-кнопка в правом верхнем углу canvas — там же где была
+            // «▶ Запустить» в Edit-режиме.
+            string label = grace
+                ? "⏳  " + ToolLang.Get("EXIT", "ВЫЙТИ")
+                : "✕  " + ToolLang.Get("EXIT PLAY MODE", "ВЫЙТИ ИЗ ИГРОВОГО РЕЖИМА");
+            GUIStyle measureSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
+            Vector2 labelSize = measureSt.CalcSize(new GUIContent(label));
+            float padX = 14f, padY = 6f;
+            float btnW = labelSize.x + padX * 2f;
+            float btnH = labelSize.y + padY * 2f;
+            float btnY = canvasRect.y + 48f + 8f;
+            float btnX = canvasRect.xMax - 12f - btnW;
+            // Подстрахуемся: вне видимой области модуля не рисуем.
+            btnY = Mathf.Min(btnY, modulePos.yMax - btnH - 4f);
+            Rect btnRect = new Rect(btnX, btnY, btnW, btnH);
+
+            Event e = Event.current;
+            bool hover = !grace && btnRect.Contains(e.mousePosition);
+
+            EditorGUI.DrawRect(btnRect, grace ? greenLocked : (hover ? greenBright : green));
+            DrawRectBorder(btnRect, new Color(0.05f, 0.18f, 0.08f, 0.55f));
+            if (!grace) EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Link);
+
+            GUIStyle labelSt = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.05f, 0.18f, 0.08f) }
+            };
+            GUI.Label(btnRect, label, labelSt);
+
+            if (!grace && e.type == EventType.MouseDown && e.button == 0 && hover)
+            {
+                EditorApplication.delayCall += () => { EditorApplication.isPlaying = false; };
+                e.Use();
+            }
+
+            // Пока grace активен — просим Unity перерисовывать окно, чтобы
+            // кнопка «отомкнулась» через 0.5с без клика юзера.
+            if (grace) _window?.Repaint();
+
+            // Подсказка СЛЕВА от плашки (на той же позиции, как у «▶ Запустить»).
+            if (NovellaSettingsModule.ShowGuide)
+            {
+                string hint = ToolLang.Get(
+                    "Click the green button to exit Play Mode. While Play is running, you can preview your story exactly as players will see it (try clicking buttons, advancing dialogue). UI edits made now are NOT saved — Unity reverts them when Play stops.",
+                    "Нажми зелёную кнопку чтобы выйти из игрового режима. Пока Play идёт, ты видишь свою историю так же как её увидят игроки (можешь кликать кнопки, листать диалоги). Правки UI сейчас НЕ сохраняются — Unity откатит их при выходе.");
+                GUIStyle hintSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.UpperRight,
+                    wordWrap = true,
+                    normal = { textColor = green }
+                };
+                float hintW = Mathf.Max(160f, Mathf.Min(420f, btnRect.x - canvasRect.x - 24f));
+                if (hintW > 100f)
+                {
+                    float hintH = hintSt.CalcHeight(new GUIContent(hint), hintW);
+                    Rect hintRect = new Rect(btnRect.x - 8f - hintW, btnRect.y, hintW, Mathf.Max(btnRect.height, hintH));
+                    EditorGUI.DrawRect(hintRect, new Color(0f, 0f, 0f, 0.55f));
+                    GUI.Label(hintRect, hint, hintSt);
+                }
+            }
+        }
+
+        private static double ParsePlayStartTime()
+        {
+            string s = SessionState.GetString(NovellaHubWindow.FORGE_PLAY_STARTED_AT_KEY, "");
+            if (string.IsNullOrEmpty(s)) return 0;
+            return double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : 0;
         }
 
         // Убирает из _selectedList все null и «destroyed companion» ссылки.
@@ -846,7 +1053,7 @@ namespace NovellaEngine.Editor
             {
                 var esGo = new GameObject("EventSystem");
                 esGo.AddComponent<UnityEngine.EventSystems.EventSystem>();
-                esGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+                esGo.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
                 Undo.RegisterCreatedObjectUndo(esGo, "Create EventSystem");
             }
 
@@ -862,39 +1069,36 @@ namespace NovellaEngine.Editor
 
         private void FindReferences()
         {
-            _camera = Camera.main;
-            if (_camera == null) _camera = UnityEngine.Object.FindAnyObjectByType<Camera>(FindObjectsInactive.Include);
-
-            _player = UnityEngine.Object.FindAnyObjectByType<NovellaPlayer>(FindObjectsInactive.Include);
-            _launcher = UnityEngine.Object.FindAnyObjectByType<StoryLauncher>(FindObjectsInactive.Include);
-
-            _canvas = null;
-
-            if (_player != null && _player.DialoguePanel != null) _canvas = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
-            else if (_launcher != null && _launcher.StoriesContainer != null) _canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
-
-            if (_canvas == null)
-            {
-                if (_player != null) _canvas = _player.GetComponentInParent<Canvas>(true) ?? _player.GetComponentInChildren<Canvas>(true);
-                else if (_launcher != null) _canvas = _launcher.GetComponentInParent<Canvas>(true) ?? _launcher.GetComponentInChildren<Canvas>(true);
-            }
-
-            if (_canvas == null)
-            {
-                var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                _canvas = allCanvases.FirstOrDefault(c => c.isRootCanvas) ?? allCanvases.FirstOrDefault();
-            }
-
-            // В Prefabs-режиме определяем какой prefab сейчас открыт в mock-сцене.
-            // Берём первого potомка [Novella]_PrefabEditor_Canvas который
-            // является prefab-instance, и через PrefabUtility получаем путь.
+            // В Prefabs-режиме mock-сцена загружена additive поверх gameplay.
+            // Camera.main / FindAnyObjectByType возвращают объекты ИЗ ЛЮБОЙ
+            // загруженной сцены — так мы бы взяли gameplay-камеру, а не нашу
+            // PrefabEditor-камеру. Поэтому в Prefab-режиме скоупим поиск
+            // строго на mock-сцену через GetSceneByPath + GetRootGameObjects.
             if (_mode == ForgeMode.Prefabs)
             {
+                _camera = null;
+                _canvas = null;
+                _player = null;
+                _launcher = null;
+
+                var mockScene = UnityEditor.SceneManagement.EditorSceneManager
+                    .GetSceneByPath(NovellaPrefabSceneHelper.MOCK_SCENE_PATH);
+                if (mockScene.IsValid() && mockScene.isLoaded)
+                {
+                    foreach (var root in mockScene.GetRootGameObjects())
+                    {
+                        if (root == null) continue;
+                        if (_camera == null) _camera = root.GetComponentInChildren<Camera>(true);
+                        if (_canvas == null) _canvas = root.GetComponentInChildren<Canvas>(true);
+                        if (_camera != null && _canvas != null) break;
+                    }
+                }
+
                 _currentPrefabAssetPath = null;
                 _currentPrefabInstance  = null;
-                var canvasGo = GameObject.Find(NovellaPrefabSceneHelper.CANVAS_NAME);
-                if (canvasGo != null)
+                if (_canvas != null)
                 {
+                    var canvasGo = _canvas.gameObject;
                     for (int i = 0; i < canvasGo.transform.childCount; i++)
                     {
                         var child = canvasGo.transform.GetChild(i).gameObject;
@@ -909,6 +1113,31 @@ namespace NovellaEngine.Editor
                             }
                         }
                     }
+                }
+            }
+            else
+            {
+                _camera = Camera.main;
+                if (_camera == null) _camera = UnityEngine.Object.FindAnyObjectByType<Camera>(FindObjectsInactive.Include);
+
+                _player = UnityEngine.Object.FindAnyObjectByType<NovellaPlayer>(FindObjectsInactive.Include);
+                _launcher = UnityEngine.Object.FindAnyObjectByType<StoryLauncher>(FindObjectsInactive.Include);
+
+                _canvas = null;
+
+                if (_player != null && _player.DialoguePanel != null) _canvas = _player.DialoguePanel.GetComponentInParent<Canvas>(true);
+                else if (_launcher != null && _launcher.StoriesContainer != null) _canvas = _launcher.StoriesContainer.GetComponentInParent<Canvas>(true);
+
+                if (_canvas == null)
+                {
+                    if (_player != null) _canvas = _player.GetComponentInParent<Canvas>(true) ?? _player.GetComponentInChildren<Canvas>(true);
+                    else if (_launcher != null) _canvas = _launcher.GetComponentInParent<Canvas>(true) ?? _launcher.GetComponentInChildren<Canvas>(true);
+                }
+
+                if (_canvas == null)
+                {
+                    var allCanvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                    _canvas = allCanvases.FirstOrDefault(c => c.isRootCanvas) ?? allCanvases.FirstOrDefault();
                 }
             }
 
@@ -1320,19 +1549,23 @@ namespace NovellaEngine.Editor
             if (NovellaSettingsModule.ShowGuide && _allRects.Count > 0 && string.IsNullOrEmpty(_treeFilter))
             {
                 GUILayout.Space(4);
-                Rect hintRect = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
-                EditorGUI.DrawRect(hintRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10f));
-                DrawRectBorder(hintRect, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f));
-                var hintTipSt = new GUIStyle(EditorStyles.miniLabel)
+                // Стиль идентичен DrawFieldHint: левая полоска акцентного цвета,
+                // мягкий акцентный фон, hint-цвет текста — одинаково везде.
+                string altHint = ToolLang.Get(
+                    "Alt + click on ▼/▶ — expand/collapse the whole subtree at once.",
+                    "Alt + клик по ▼/▶ — раскрыть или свернуть всё поддерево разом.");
+                var hintTipSt = new GUIStyle(EditorStyles.label)
                 {
-                    fontSize = 10,
-                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 11,
                     wordWrap = true,
+                    padding = new RectOffset(8, 8, 6, 6)
                 };
-                hintTipSt.normal.textColor = C_TEXT_2;
-                GUI.Label(hintRect, ToolLang.Get(
-                    "💡 Alt + click on ▼/▶ — expand/collapse the whole subtree at once.",
-                    "💡 Alt + клик по ▼/▶ — раскрыть или свернуть всё поддерево разом."), hintTipSt);
+                hintTipSt.normal.textColor = NovellaSettingsModule.GetHintColor();
+                Rect hintRect = GUILayoutUtility.GetRect(new GUIContent("💡 " + altHint), hintTipSt);
+                Color acc = NovellaSettingsModule.GetAccentColor();
+                EditorGUI.DrawRect(hintRect, new Color(acc.r, acc.g, acc.b, 0.07f));
+                EditorGUI.DrawRect(new Rect(hintRect.x, hintRect.y, 3, hintRect.height), acc);
+                GUI.Label(hintRect, "💡 " + altHint, hintTipSt);
                 GUILayout.Space(4);
             }
 
@@ -1471,12 +1704,24 @@ namespace NovellaEngine.Editor
             Rect sceneR   = new Rect(r.x,                  r.y, halfW, r.height);
             Rect prefabsR = new Rect(r.x + halfW + 4f,     r.y, halfW, r.height);
 
+            // В Play Mode блокируем переключение режимов: Unity не даёт
+            // открывать/закрывать сцены в Single, а additive путь конфликтует
+            // с MainCamera/Player из gameplay-сцены (FindReferences хватает
+            // не те объекты). Активная вкладка остаётся выделенной, неактивная —
+            // серой и некликабельной.
+            bool inPlay = EditorApplication.isPlaying;
+            bool sceneDisabled   = inPlay && _mode != ForgeMode.Scene;
+            bool prefabsDisabled = inPlay && _mode != ForgeMode.Prefabs;
+
             DrawModeBtn(sceneR,   _mode == ForgeMode.Scene,   "",
                 ToolLang.Get("Scene",   "Сцена"),
-                () => SwitchMode(ForgeMode.Scene));
+                () => SwitchMode(ForgeMode.Scene),
+                disabled: sceneDisabled);
+
             DrawModeBtn(prefabsR, _mode == ForgeMode.Prefabs, "",
                 ToolLang.Get("Prefabs", "Префабы"),
-                () => SwitchMode(ForgeMode.Prefabs));
+                () => SwitchMode(ForgeMode.Prefabs),
+                disabled: prefabsDisabled);
         }
 
         // Список префабов в левой панели (Prefabs-режим).
@@ -2949,11 +3194,6 @@ namespace NovellaEngine.Editor
             DrawTogglesGroup(g2);
         }
 
-        // Запомненная ссылка на «обычную» сцену (та что была активна до
-        // переключения в Prefabs-режим). При возврате в Scene-режим
-        // загружаем её заново.
-        private string _sceneBeforePrefabsPath;
-
         // Текущий путь к prefab-asset который сейчас открыт в mock-сцене.
         // Нужен для save-back через PrefabUtility.SaveAsPrefabAssetAndConnect.
         private string _currentPrefabAssetPath;
@@ -2966,9 +3206,10 @@ namespace NovellaEngine.Editor
         private bool _prefabStructureExpanded = true;
         private Vector2 _prefabStructureScroll;
 
-        private void DrawModeBtn(Rect r, bool active, string icon, string label, System.Action onClick)
+        private void DrawModeBtn(Rect r, bool active, string icon, string label, System.Action onClick, bool disabled = false)
         {
-            bool hover = r.Contains(Event.current.mousePosition);
+            bool inside = r.Contains(Event.current.mousePosition);
+            bool hover = !disabled && inside;
             Color bg = active
                 ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f)
                 : (hover ? new Color(1, 1, 1, 0.06f) : Color.clear);
@@ -2977,13 +3218,22 @@ namespace NovellaEngine.Editor
                 EditorGUI.DrawRect(new Rect(r.x, r.yMax - 2, r.width, 2), C_ACCENT);
 
             var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
-            st.normal.textColor = active ? C_ACCENT : C_TEXT_2;
+            st.normal.textColor = disabled ? C_TEXT_4 : (active ? C_ACCENT : C_TEXT_2);
             string text = string.IsNullOrEmpty(icon) ? label : (icon + "  " + label);
-            GUI.Label(r, text, st);
+            GUI.Label(r, new GUIContent(text, disabled ? ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме") : null), st);
 
-            if (Event.current.type == EventType.MouseDown && hover)
+            if (Event.current.type == EventType.MouseDown && inside)
             {
-                onClick?.Invoke();
+                if (disabled)
+                {
+                    NovellaToast.Push(
+                        ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме"),
+                        NovellaToast.Kind.Warning, 1.2f);
+                }
+                else
+                {
+                    onClick?.Invoke();
+                }
                 Event.current.Use();
             }
         }
@@ -2994,45 +3244,41 @@ namespace NovellaEngine.Editor
         private void SwitchMode(ForgeMode target)
         {
             if (_mode == target) return;
+            // Кнопка Префабов задизейблена в Play (см. DrawSidebarModeSwitch).
+            // Но добавим страховку — если SwitchMode позвали программно, не падаем.
+            if (EditorApplication.isPlaying) return;
+
             EditorApplication.delayCall += () =>
             {
                 if (target == ForgeMode.Prefabs)
                 {
-                    // Запоминаем где были чтобы вернуться при выходе из Prefabs.
-                    var cur = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
-                    if (cur.IsValid() && cur.path != NovellaPrefabSceneHelper.MOCK_SCENE_PATH)
-                        _sceneBeforePrefabsPath = cur.path;
+                    // Подгружаем mock-сцену additive — gameplay-сцена остаётся в
+                    // памяти. SaveCurrentModifiedScenesIfUserWantsTo НЕ зовём,
+                    // потому что мы не закрываем gameplay; правки в ней останутся.
+                    if (!NovellaPrefabSceneHelper.OpenMockSceneAdditive()) return;
 
-                    // Сохраняем dirty-сцену если нужно.
-                    if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                        return;
-
-                    NovellaPrefabSceneHelper.OpenMockScene();
                     // Чистим mock-сцену от любых левых объектов
                     // (например, оставшийся MainMenu из прошлой сессии).
                     NovellaPrefabSceneHelper.CleanupMockScene();
+                    // Создаём Canvas/Camera/EventSystem заранее — иначе
+                    // FindReferences не найдёт их и Кузница покажет welcome-
+                    // экран с пресетами MainMenu/Gameplay, что для prefab-режима
+                    // неуместно.
+                    NovellaPrefabSceneHelper.EnsureMockSceneChrome();
                     _mode = ForgeMode.Prefabs;
                     _currentPrefabAssetPath = null;
                     FindReferences();
                     RefreshRectsCache();
                     RefreshPrefabsList();
                     _window?.Repaint();
-                    // Список префабов теперь в левой панели Кузницы — отдельное
-                    // окно браузера не нужно.
                 }
                 else // target == Scene
                 {
-                    // Сохраняем mock-сцену если dirty (с подтверждением Apply prefab'а).
-                    if (!UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                        return;
+                    // Снимаем mock-сцену с additive-загрузки. Gameplay-сцена,
+                    // которая всё это время лежала рядом, автоматически становится
+                    // active (или мы это делаем явно внутри Close).
+                    NovellaPrefabSceneHelper.CloseMockSceneAdditive();
 
-                    if (!string.IsNullOrEmpty(_sceneBeforePrefabsPath) &&
-                        System.IO.File.Exists(_sceneBeforePrefabsPath))
-                    {
-                        UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
-                            _sceneBeforePrefabsPath,
-                            UnityEditor.SceneManagement.OpenSceneMode.Single);
-                    }
                     _mode = ForgeMode.Scene;
                     _currentPrefabAssetPath = null;
                     FindReferences();
