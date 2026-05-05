@@ -5,8 +5,9 @@ using UnityEngine.Video;
 namespace NovellaEngine.Editor.Tutorials
 {
     /// <summary>
-    /// Отрисовка визуальных подсказок туториала — 5 стилей.
-    /// Все методы рисуют в текущий GUI-контекст (вызываются из IMGUIContainer окна).
+    /// Отрисовка визуальных подсказок туториала — 5 стилей с плавными
+    /// анимациями: target rect интерполируется при смене шага,
+    /// outline glow многослойный, spotlight «дышит».
     /// </summary>
     internal static class NovellaTutorialOverlay
     {
@@ -16,6 +17,74 @@ namespace NovellaEngine.Editor.Tutorials
         private static RenderTexture _videoRT;
         private static VideoClip _activeClip;
 
+        // ─── Smooth target interpolation ───
+        // _displayedTarget плавно догоняет _actualTarget — при смене шага
+        // подсветка не «телепортируется», а перетекает за ~280мс.
+        // Track owner: разные окна могут одновременно иметь свои оверлеи,
+        // используем хост-окно как ключ.
+        private static EditorWindow _targetOwner;
+        private static Rect _displayedTarget;
+        private static Rect _previousTarget;
+        private static double _targetChangedAt;
+        private const float TARGET_INTERPOLATION_DURATION = 0.28f;
+
+        // Сбросить состояние перехода (вызывать при старте/конце туториала или
+        // при смене окна-хоста).
+        public static void ResetTransitionState()
+        {
+            _targetOwner = null;
+            _displayedTarget = default;
+            _previousTarget = default;
+            _targetChangedAt = 0;
+        }
+
+        // Возвращает «отображаемый» rect — интерполирован между предыдущим и
+        // текущим target'ом. Кладём сюда логику плавного перехода один раз —
+        // и spotlight, и outline, и стрелка используют единый rect.
+        private static Rect GetSmoothTarget(EditorWindow window, Rect actualTarget)
+        {
+            // Сравниваем target по координатам с epsilon — Resolve может вернуть
+            // микро-сдвиги при ресайзе и постоянно дёргать интерполяцию.
+            const float EPS = 0.5f;
+            bool windowChanged = _targetOwner != window;
+            bool targetChanged = !ApproxRect(_displayedTarget, actualTarget, EPS);
+
+            if (windowChanged || _displayedTarget == default)
+            {
+                _targetOwner = window;
+                _displayedTarget = actualTarget;
+                _previousTarget = actualTarget;
+                _targetChangedAt = EditorApplication.timeSinceStartup;
+                return actualTarget;
+            }
+            if (targetChanged && !ApproxRect(_previousTarget, actualTarget, EPS))
+            {
+                _previousTarget = _displayedTarget;
+                _displayedTarget = actualTarget;
+                _targetChangedAt = EditorApplication.timeSinceStartup;
+            }
+
+            float t = Mathf.Clamp01((float)((EditorApplication.timeSinceStartup - _targetChangedAt) / TARGET_INTERPOLATION_DURATION));
+            // Ease-in-out cubic — мягкое начало и плавное замедление.
+            float eased = t < 0.5f
+                ? 4f * t * t * t
+                : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
+            return LerpRect(_previousTarget, actualTarget, eased);
+        }
+
+        private static bool ApproxRect(Rect a, Rect b, float eps)
+            => Mathf.Abs(a.x - b.x) < eps && Mathf.Abs(a.y - b.y) < eps
+            && Mathf.Abs(a.width - b.width) < eps && Mathf.Abs(a.height - b.height) < eps;
+
+        private static Rect LerpRect(Rect a, Rect b, float t)
+            => new Rect(Mathf.Lerp(a.x, b.x, t), Mathf.Lerp(a.y, b.y, t),
+                        Mathf.Lerp(a.width, b.width, t), Mathf.Lerp(a.height, b.height, t));
+
+        // Public-доступ для других кусков туториала (DrawTextPanel) чтобы
+        // и стрелка от панели тоже целилась в smooth-target.
+        public static Rect GetCurrentSmoothTarget(EditorWindow window, Rect actualTarget)
+            => GetSmoothTarget(window, actualTarget);
+
         // ─────────────── ОСНОВНОЙ DRAW ───────────────
 
         public static void Draw(EditorWindow window, NovellaTutorialStep step, Rect target, float introAnim, double stepStartTime)
@@ -23,40 +92,47 @@ namespace NovellaEngine.Editor.Tutorials
             float winW = window.position.width;
             float winH = window.position.height;
 
-            // 1) Затемнение/обводка/палец/стрелка/тултип
+            // Smooth target — единый источник истины для всех visual-стилей.
+            Rect smooth = GetSmoothTarget(window, target);
+
             switch (step.HintStyle)
             {
                 case ETutorialHintStyle.Spotlight:
-                    DrawSpotlight(target, winW, winH, step.AccentColor, introAnim);
+                    DrawSpotlight(smooth, winW, winH, step.AccentColor, introAnim);
                     break;
                 case ETutorialHintStyle.Outline:
-                    DrawOutline(target, step.AccentColor, introAnim);
+                    DrawOutline(smooth, step.AccentColor, introAnim);
                     break;
                 case ETutorialHintStyle.PointingFinger:
-                    DrawSpotlight(target, winW, winH, step.AccentColor, introAnim * 0.6f);
-                    DrawPointingFinger(target, introAnim);
+                    DrawSpotlight(smooth, winW, winH, step.AccentColor, introAnim * 0.6f);
+                    DrawPointingFinger(smooth, introAnim);
                     break;
                 case ETutorialHintStyle.Arrow:
-                    DrawSpotlight(target, winW, winH, step.AccentColor, introAnim * 0.6f);
+                    DrawSpotlight(smooth, winW, winH, step.AccentColor, introAnim * 0.6f);
                     // стрелка рисуется в DrawTextPanel — там она знает положение панели
                     break;
                 case ETutorialHintStyle.Tooltip:
-                    DrawOutline(target, step.AccentColor, introAnim * 0.7f);
+                    DrawOutline(smooth, step.AccentColor, introAnim * 0.7f);
                     break;
             }
         }
 
         // ─────────────── SPOTLIGHT ───────────────
+        // Затемняющий слой «дышит» — alpha колеблется ±0.04 с периодом ~2с,
+        // едва заметная пульсация которая удерживает внимание.
 
         private static void DrawSpotlight(Rect target, float w, float h, Color accent, float alpha)
         {
+            float breath = Mathf.Sin((float)EditorApplication.timeSinceStartup * 2.0f) * 0.04f;
+            float dimA = (0.74f + breath) * alpha;
+
             if (target.width < 1 || target.height < 1)
             {
-                EditorGUI.DrawRect(new Rect(0, 0, w, h), new Color(0, 0, 0, 0.78f * alpha));
+                EditorGUI.DrawRect(new Rect(0, 0, w, h), new Color(0, 0, 0, dimA));
                 return;
             }
 
-            Color dim = new Color(0, 0, 0, 0.78f * alpha);
+            Color dim = new Color(0, 0, 0, dimA);
             EditorGUI.DrawRect(new Rect(0, 0, w, target.y), dim);
             EditorGUI.DrawRect(new Rect(0, target.yMax, w, h - target.yMax), dim);
             EditorGUI.DrawRect(new Rect(0, target.y, target.x, target.height), dim);
@@ -65,26 +141,32 @@ namespace NovellaEngine.Editor.Tutorials
             DrawOutline(target, accent, alpha);
         }
 
-        // ─────────────── OUTLINE (пульсация) ───────────────
+        // ─────────────── OUTLINE (многослойный glow) ───────────────
+        // Раньше была одинарная пульсирующая рамка + одна inflated-копия.
+        // Теперь — 4 концентрических кольца с экспоненциально-убывающей альфой
+        // (глоу-эффект как в современных UI-фреймворках).
 
         private static void DrawOutline(Rect target, Color accent, float alpha)
         {
             if (target.width < 1 || target.height < 1) return;
 
-            float blink = (Mathf.Sin((float)EditorApplication.timeSinceStartup * 4.5f) + 1f) / 2f;
-            Color outline = accent;
-            outline.a = (0.55f + blink * 0.45f) * alpha;
+            float pulse = Mathf.Sin((float)EditorApplication.timeSinceStartup * 3.2f) * 0.5f + 0.5f;
+            float baseAlpha = (0.65f + pulse * 0.35f) * alpha;
 
-            // Внешний glow
-            Handles.color = outline;
-            Handles.DrawSolidRectangleWithOutline(target, Color.clear, outline);
-
-            // Двойная обводка для эффекта свечения
-            Color glow = outline;
-            glow.a *= 0.45f;
-            Rect inflated = new Rect(target.x - 3, target.y - 3, target.width + 6, target.height + 6);
-            Handles.color = glow;
-            Handles.DrawSolidRectangleWithOutline(inflated, Color.clear, glow);
+            // 4 концентрических кольца, alpha убывает экспоненциально.
+            // Каждое следующее на 4px шире и в 0.45 раз тусклее — даёт мягкий
+            // halo-эффект вокруг таргета.
+            for (int i = 4; i >= 0; i--)
+            {
+                float inflate = i * 4f;
+                float ringAlpha = baseAlpha * Mathf.Pow(0.45f, i);
+                Color ring = accent;
+                ring.a = ringAlpha;
+                Rect r = new Rect(target.x - inflate, target.y - inflate,
+                                   target.width + inflate * 2f, target.height + inflate * 2f);
+                Handles.color = ring;
+                Handles.DrawSolidRectangleWithOutline(r, Color.clear, ring);
+            }
             Handles.color = Color.white;
         }
 

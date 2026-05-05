@@ -14,205 +14,213 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp-Editor::NovellaEngine.Editor.Tutorials.NovellaTutorialAsset
   TutorialKey: CharacterEditor
   TitleEN: Actors & Variables
-  TitleRU: "\u041F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0438 \u0438 \u041F\u0435\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0435"
-  DescriptionEN: Define actors, multi-layered Paper Dolls, and global variables.
-  DescriptionRU: "\u0421\u043E\u0437\u0434\u0430\u0434\u0438\u043C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439
-    \u0441 \u043C\u043D\u043E\u0433\u043E\u0441\u043B\u043E\u0439\u043D\u043E\u0439
-    \u0433\u0440\u0430\u0444\u0438\u043A\u043E\u0439 \u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0435."
+  TitleRU: "Персонажи и Переменные"
+  DescriptionEN: Make actors with multi-layer Paper Dolls (clothes / emotions) and global story variables.
+  DescriptionRU: "Создаём персонажей с многослойными Paper Dolls (одежда/эмоции) и глобальные переменные сюжета."
   Icon: "\U0001F9B8"
   OrderIndex: 2
   HostWindow: 1
   Steps:
-  - TitleEN: Welcome to Characters Module
-    TitleRU: "\u041C\u043E\u0434\u0443\u043B\u044C \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439"
-    BodyEN: Create, manage and edit all your story actors here. <i>Main Characters</i>
-      and <i>Favorites</i> are auto-grouped at the top so you can find them instantly.
-    BodyRU: "\u0421\u043E\u0437\u0434\u0430\u0432\u0430\u0439, \u0440\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u0443\u0439
-      \u0438 \u0443\u043F\u0440\u0430\u0432\u043B\u044F\u0439 \u0432\u0441\u0435\u043C\u0438
-      \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0430\u043C\u0438 \u0437\u0434\u0435\u0441\u044C.
-      <i>\u0413\u043B\u0430\u0432\u043D\u044B\u0435 \u0433\u0435\u0440\u043E\u0438</i>
-      \u0438 <i>\u0418\u0437\u0431\u0440\u0430\u043D\u043D\u044B\u0435</i> \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438
-      \u0433\u0440\u0443\u043F\u043F\u0438\u0440\u0443\u044E\u0442\u0441\u044F \u0441\u0432\u0435\u0440\u0445\u0443
-      \u0441\u043F\u0438\u0441\u043A\u0430."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+  - TitleEN: "Actors — Who Speaks Your Story"
+    TitleRU: "Актёры — кто рассказывает историю"
+    BodyEN: "An <b>Actor</b> is any character that can speak, appear on screen, or be referenced in dialogue. The protagonist, side characters, even the narrator — all actors.\n\nFor each actor you'll define:\n• A <b>name</b> + portrait (shown in dialogue boxes)\n• <b>Emotions</b> — different facial sprites (happy, sad, angry…)\n• <b>Outfits</b> — full-body sprites or layered Paper Doll parts\n\nNo coding. Just art + a few clicks."
+    BodyRU: "<b>Актёр</b> — это любой персонаж, который может говорить, появляться на экране или упоминаться в диалоге. Протагонист, второстепенные, даже рассказчик — все актёры.\n\nДля каждого актёра нужно задать:\n• <b>Имя</b> + портрет (рисуется в окне диалога)\n• <b>Эмоции</b> — разные спрайты лица (радость, грусть, злость…)\n• <b>Наряды</b> — полные спрайты или слои Paper Doll\n\nКода не нужно. Только арт и пара кликов."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
       y: 0
-      width: 1
-      height: 0.1
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 4
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 5
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Characters Database
-    TitleRU: "\u0411\u0430\u0437\u0430 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439"
-    BodyEN: This is your <b>characters database</b>. Click <b>+ Create New Character</b>
-      at the top to add your first actor.
-    BodyRU: "\u042D\u0442\u043E <b>\u0431\u0430\u0437\u0430 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439</b>.
-      \u041D\u0430\u0436\u043C\u0438 <b>+ \u0421\u043E\u0437\u0434\u0430\u0442\u044C
-      \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0430</b> \u0441\u0432\u0435\u0440\u0445\u0443,
-      \u0447\u0442\u043E\u0431\u044B \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C
-      \u043F\u0435\u0440\u0432\u043E\u0433\u043E \u0430\u043A\u0442\u0451\u0440\u0430."
+  - TitleEN: "Characters List"
+    TitleRU: "Список персонажей"
+    BodyEN: "On the left is your <b>cast</b>. As you add characters they appear here, automatically sorted: <b>Main Character</b> first, then <i>Favorites</i>, then everyone else alphabetically.\n\nClick a character to load them into the editor on the right.\n\nThe little gear ⚙ next to a character opens quick-actions: rename, mark as favorite, duplicate, delete."
+    BodyRU: "Слева — твой <b>каст</b>. По мере добавления персонажи появляются здесь, отсортированные автоматически: <b>Главный герой</b> первый, потом <i>Избранные</i>, потом остальные по алфавиту.\n\nКлик по персонажу — он загружается в редактор справа.\n\nШестерёнка ⚙ рядом с именем — быстрые действия: переименовать, в избранное, дублировать, удалить."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.06
+      y: 0.08
+      width: 0.24
+      height: 0.85
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 0
+    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    PanelAnchor: 4
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Create a New Character"
+    TitleRU: "Создать персонажа"
+    BodyEN: "The <b>+ New Character</b> button at the top of the list creates a fresh actor. You'll be asked for a name (you can rename later).\n\nFirst character you create can be marked as <b>Main Character</b> — that's the protagonist whose wardrobe the player can later customize in-game (if you enable that flow in Lesson 5)."
+    BodyRU: "Кнопка <b>+ Новый персонаж</b> сверху списка создаёт нового актёра. Спросит имя (потом можно переименовать).\n\nПервого можно пометить как <b>Главного героя</b> — это протагонист, гардероб которого игрок сможет менять прямо в игре (если включишь этот флоу в Уроке 5)."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.06
+      y: 0.07
+      width: 0.24
+      height: 0.08
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 2
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Paper Doll & Emotions"
+    TitleRU: "Paper Doll и Эмоции"
+    BodyEN: "The big preview on the right is the character's <b>Paper Doll</b> — a layered sprite system.\n\nLayers stack from back to front: body → underwear → outfit → hair → accessories → face/emotion. You drag your sprites into the slots; the engine handles compositing at runtime.\n\nThe <b>Emotions tab</b> lets you add multiple face sprites. In the graph editor you'll just say «Anna: happy» and the right face appears."
+    BodyRU: "Большое превью справа — <b>Paper Doll</b> персонажа, слоистая спрайт-система.\n\nСлои стэкаются от заднего к переднему: тело → бельё → наряд → волосы → аксессуары → лицо/эмоция. Ты бросаешь свои спрайты в слоты, движок собирает их в рантайме.\n\nВкладка <b>Эмоции</b> — добавляешь несколько спрайтов лица. В редакторе графа просто пишешь «Аня: радость» — нужное лицо появится автоматически."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.32
+      y: 0.08
+      width: 0.64
+      height: 0.7
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 0
+    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    PanelAnchor: 3
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Wardrobe — Outfits That Change"
+    TitleRU: "Гардероб — наряды по ходу истории"
+    BodyEN: "The <b>Wardrobe</b> tab lets you save full outfit presets (e.g. <i>«school uniform»</i>, <i>«beach»</i>, <i>«formal dress»</i>).\n\nLater in the graph you can switch outfits with one node — perfect for «next morning, Anna changes into pyjamas» kind of moments. No need to redraw the character.\n\n<color=#FFC72C>Tip:</color> if you only ever need <b>one</b> outfit per character, you can skip the wardrobe entirely — just drop sprites directly into the Paper Doll slots."
+    BodyRU: "Вкладка <b>Гардероб</b> — сохраняешь готовые наборы одежды (например <i>«школьная форма»</i>, <i>«пляж»</i>, <i>«вечернее платье»</i>).\n\nПотом в графе одной нодой переключаешь наряд — идеально для «утром Аня переоделась в пижаму». Перерисовывать персонажа не нужно.\n\n<color=#FFC72C>Совет:</color> если у персонажа всего <b>один</b> наряд за всю игру — гардероб можно вообще не трогать, просто кинь спрайты прямо в слоты Paper Doll."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.32
+      y: 0.08
+      width: 0.64
+      height: 0.1
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 2
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Variables — Story Memory"
+    TitleRU: "Переменные — память истории"
+    BodyEN: "Switch to the <b>Variables</b> module from the sidebar (next to Characters). This is where you define story-wide values:\n\n• <b>int</b> — affection points, money, health\n• <b>bool</b> — flags like «metAnnaBefore» or «hasKey»\n• <b>string</b> — player's chosen name\n\nEvery variable has a default starting value. In the graph you'll <i>set</i>, <i>add to</i> and <i>check</i> them with no-code nodes — that's how branching stories actually work."
+    BodyRU: "Переключись в модуль <b>Переменные</b> на сайдбаре (рядом с Персонажами). Здесь живут значения, которые помнит вся история:\n\n• <b>int</b> — очки симпатии, деньги, здоровье\n• <b>bool</b> — флаги типа «встречалаАнюРаньше» или «естьКлюч»\n• <b>string</b> — имя, которое игрок ввёл\n\nУ каждой переменной есть стартовое значение. В графе ты <i>задаёшь</i>, <i>прибавляешь</i> и <i>проверяешь</i> их no-code-нодами — так и работают ветвящиеся истории."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
-      y: 0.05
-      width: 0.22
-      height: 0.92
+      y: 0.08
+      width: 0.05
+      height: 0.85
     ManualRectUsePercent: 1
     TargetPadding: 6
-    HintStyle: 0
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    HintStyle: 2
+    AccentColor: {r: 1, g: 0.78, b: 0.3, a: 1}
+    PanelAnchor: 4
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: ID vs Display Name
-    TitleRU: "ID \u0438 \u0418\u043C\u044F \u2014 \u0432 \u0447\u0451\u043C \u0440\u0430\u0437\u043D\u0438\u0446\u0430"
-    BodyEN: "<b>Character ID</b> is the internal identifier used in code and graph
-      references \u2014 must be unique, no spaces.\n\n<b>Display Name</b> is what
-      the <b>player sees</b> in dialogues. Set per language.\n\nTip: turn on <b>\U0001F4A1
-      Tips</b> at the top of the inspector to see field hints."
-    BodyRU: "<b>Character ID</b> \u2014 \u0432\u043D\u0443\u0442\u0440\u0435\u043D\u043D\u0438\u0439
-      \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440
-      \u0434\u043B\u044F \u043A\u043E\u0434\u0430 \u0438 \u0441\u0441\u044B\u043B\u043E\u043A
-      \u0432 \u0433\u0440\u0430\u0444\u0435, \u0434\u043E\u043B\u0436\u0435\u043D
-      \u0431\u044B\u0442\u044C \u0443\u043D\u0438\u043A\u0430\u043B\u0435\u043D \u0438
-      \u0431\u0435\u0437 \u043F\u0440\u043E\u0431\u0435\u043B\u043E\u0432.\n\n<b>Display
-      Name</b> \u2014 \u044D\u0442\u043E \u0442\u043E, \u0447\u0442\u043E <b>\u0443\u0432\u0438\u0434\u0438\u0442
-      \u0438\u0433\u0440\u043E\u043A</b> \u0432 \u0434\u0438\u0430\u043B\u043E\u0433\u0435.
-      \u0417\u0430\u0434\u0430\u0451\u0442\u0441\u044F \u0434\u043B\u044F \u043A\u0430\u0436\u0434\u043E\u0433\u043E
-      \u044F\u0437\u044B\u043A\u0430.\n\n\u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430:
-      \u0432\u043A\u043B\u044E\u0447\u0438 <b>\U0001F4A1 \u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0438</b>
-      \u0441\u0432\u0435\u0440\u0445\u0443 \u0438\u043D\u0441\u043F\u0435\u043A\u0442\u043E\u0440\u0430,
-      \u0447\u0442\u043E\u0431\u044B \u0443\u0432\u0438\u0434\u0435\u0442\u044C \u043F\u043E\u044F\u0441\u043D\u0435\u043D\u0438\u044F
-      \u043A \u043F\u043E\u043B\u044F\u043C."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+  - TitleEN: "You're Ready"
+    TitleRU: "Готово"
+    BodyEN: "Recap:\n\n✅ Create a character → name + portrait\n✅ Drop sprites into Paper Doll slots\n✅ Add a few emotion faces\n✅ (Optional) Save outfit presets in Wardrobe\n✅ Define a couple of variables for branching\n\nNow you have a cast and a memory. Next lesson: <b>the story graph</b>, where they actually start talking."
+    BodyRU: "Резюме:\n\n✅ Создай персонажа → имя + портрет\n✅ Кинь спрайты в слоты Paper Doll\n✅ Добавь пару эмоций для лица\n✅ (По желанию) сохрани наряды в Гардеробе\n✅ Заведи пару переменных для ветвлений\n\nТеперь у тебя есть каст и память. Следующий урок — <b>граф истории</b>, где они начнут говорить."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
-      x: 0.22
-      y: 0.05
-      width: 0.34
-      height: 0.92
+      x: 0
+      y: 0
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
-    HintStyle: 0
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    HintStyle: 4
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 5
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
-    AllowSkip: 1
-    HideNextButton: 0
-  - TitleEN: Paper Doll System
-    TitleRU: "\u0421\u0438\u0441\u0442\u0435\u043C\u0430 \u0441\u043B\u043E\u0451\u0432
-      (Paper Doll)"
-    BodyEN: "Build characters <b>layer by layer</b>: Body \u2192 Clothes \u2192 Face
-      \u2192 Hair \u2192 Accessories. Re-order with \u25B2\u25BC buttons. Each layer
-      can have its own offset, scale and tint."
-    BodyRU: "\u0421\u043E\u0431\u0438\u0440\u0430\u0439 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439
-      \u043F\u043E <b>\u0441\u043B\u043E\u044F\u043C</b>: \u0422\u0435\u043B\u043E
-      \u2192 \u041E\u0434\u0435\u0436\u0434\u0430 \u2192 \u041B\u0438\u0446\u043E
-      \u2192 \u0412\u043E\u043B\u043E\u0441\u044B \u2192 \u0410\u043A\u0441\u0435\u0441\u0441\u0443\u0430\u0440\u044B.
-      \u041A\u043D\u043E\u043F\u043A\u0438 \u25B2\u25BC \u043C\u0435\u043D\u044F\u044E\u0442
-      \u043F\u043E\u0440\u044F\u0434\u043E\u043A. \u0423 \u043A\u0430\u0436\u0434\u043E\u0433\u043E
-      \u0441\u043B\u043E\u044F \u0441\u0432\u043E\u0439 \u0441\u0434\u0432\u0438\u0433,
-      \u043C\u0430\u0441\u0448\u0442\u0430\u0431 \u0438 \u043E\u0442\u0442\u0435\u043D\u043E\u043A."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
-    ManualRect:
-      serializedVersion: 2
-      x: 0.22
-      y: 0.3
-      width: 0.34
-      height: 0.45
-    ManualRectUsePercent: 1
-    TargetPadding: 6
-    HintStyle: 1
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
-    Video: {fileID: 0}
-    Image: {fileID: 0}
-    ImageFPS: 12
-    ImageFrameCount: 1
-    AdvanceMode: 0
-    ActionTrigger: 0
-    ActionTextRegex: 
-    AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
-    AllowSkip: 1
-    HideNextButton: 0
-  - TitleEN: Emotions are presets
-    TitleRU: "\u042D\u043C\u043E\u0446\u0438\u0438 \u2014 \u044D\u0442\u043E \u043F\u0440\u0435\u0441\u0435\u0442\u044B"
-    BodyEN: "An <b>Emotion preset</b> overrides only the layers you choose. Example:
-      \"Smile\" replaces just the <i>Face</i> layer \u2014 body and clothes stay
-      untouched. Use <code>character.SetEmotion(\"Smile\")</code> in dialogue."
-    BodyRU: "<b>\u042D\u043C\u043E\u0446\u0438\u044F</b> \u2014 \u044D\u0442\u043E
-      \u043F\u0440\u0435\u0441\u0435\u0442, \u043A\u043E\u0442\u043E\u0440\u044B\u0439
-      \u043F\u043E\u0434\u043C\u0435\u043D\u044F\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E
-      \u0443\u043A\u0430\u0437\u0430\u043D\u043D\u044B\u0435 \u0441\u043B\u043E\u0438.
-      \u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \xAB\u0423\u043B\u044B\u0431\u043A\u0430\xBB
-      \u043F\u043E\u0434\u043C\u0435\u043D\u044F\u0435\u0442 \u0442\u043E\u043B\u044C\u043A\u043E
-      \u0441\u043B\u043E\u0439 <i>Face</i>, \u0442\u0435\u043B\u043E \u0438 \u043E\u0434\u0435\u0436\u0434\u0430
-      \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F. \u0412 \u0434\u0438\u0430\u043B\u043E\u0433\u0435
-      \u0432\u044B\u0437\u044B\u0432\u0430\u0439 <code>character.SetEmotion(\"Smile\")</code>."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
-    ManualRect:
-      serializedVersion: 2
-      x: 0.22
-      y: 0.55
-      width: 0.34
-      height: 0.4
-    ManualRectUsePercent: 1
-    TargetPadding: 6
-    HintStyle: 0
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
-    Video: {fileID: 0}
-    Image: {fileID: 0}
-    ImageFPS: 12
-    ImageFrameCount: 1
-    AdvanceMode: 0
-    ActionTrigger: 0
-    ActionTextRegex: 
-    AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0

@@ -14,109 +14,88 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp-Editor::NovellaEngine.Editor.Tutorials.NovellaTutorialAsset
   TutorialKey: GraphEditor
   TitleEN: Graph Editor
-  TitleRU: "\u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0413\u0440\u0430\u0444\u0430"
-  DescriptionEN: Connect dialogue, choices, audio and logic into your story.
-  DescriptionRU: "\u0421\u043E\u0435\u0434\u0438\u043D\u044F\u0439 \u0434\u0438\u0430\u043B\u043E\u0433\u0438,
-    \u0432\u044B\u0431\u043E\u0440\u044B, \u0430\u0443\u0434\u0438\u043E \u0438 \u043B\u043E\u0433\u0438\u043A\u0443
-    \u0432 \u043E\u0434\u043D\u0443 \u0438\u0441\u0442\u043E\u0440\u0438\u044E."
+  TitleRU: "Редактор Графа"
+  DescriptionEN: Write your story by connecting Dialogue, Choice, Audio, Logic and many other nodes — no scripting required.
+  DescriptionRU: "Пишем историю, соединяя ноды Диалогов, Выборов, Аудио, Логики и многие другие — без кода."
   Icon: "\U0001F5FA"
   OrderIndex: 3
   HostWindow: 10
   Steps:
-  - TitleEN: Welcome to the Graph Editor
-    TitleRU: "\u0414\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C
-      \u0432 \u0420\u0435\u0434\u0430\u043A\u0442\u043E\u0440 \u0413\u0440\u0430\u0444\u0430"
-    BodyEN: This is the <b>heart of Novella Engine</b>. Your story logic, branches
-      and dialogues all live here. Each node is a step in your scenario.
-    BodyRU: "\u042D\u0442\u043E <b>\u0441\u0435\u0440\u0434\u0446\u0435 Novella Engine</b>.
-      \u041B\u043E\u0433\u0438\u043A\u0430 \u0438\u0441\u0442\u043E\u0440\u0438\u0438,
-      \u0432\u0435\u0442\u0432\u043B\u0435\u043D\u0438\u044F \u0438 \u0434\u0438\u0430\u043B\u043E\u0433\u0438
-      \u0436\u0438\u0432\u0443\u0442 \u0437\u0434\u0435\u0441\u044C. \u041A\u0430\u0436\u0434\u0430\u044F
-      \u043D\u043E\u0434\u0430 \u2014 \u0448\u0430\u0433 \u0441\u0446\u0435\u043D\u0430\u0440\u0438\u044F."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+  - TitleEN: "What is a Story Graph?"
+    TitleRU: "Что такое Граф истории?"
+    BodyEN: "Your story isn't a script — it's a <b>flowchart</b>. Each box (called a <b>node</b>) is one event: a line of dialogue, a player choice, a music change, a variable update.\n\nLines between boxes show <b>what comes after what</b>. Branching is just splitting one line into two.\n\nThis is exactly how visual novel writers and game designers actually plan stories. We just removed the part where you had to translate it into code."
+    BodyRU: "Твоя история — это не сценарий, а <b>блок-схема</b>. Каждый прямоугольник (<b>нода</b>) — одно событие: реплика, выбор игрока, смена музыки, изменение переменной.\n\nЛинии между нодами показывают, <b>что за чем идёт</b>. Ветвление — это просто две линии вместо одной.\n\nИменно так сценаристы новелл реально планируют истории. Мы убрали только ту часть, где это надо было переводить в код."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
       y: 0
-      width: 1
-      height: 0.12
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 4
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 5
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Node Inspector
-    TitleRU: "\u0418\u043D\u0441\u043F\u0435\u043A\u0442\u043E\u0440 \u043D\u043E\u0434\u044B"
-    BodyEN: <b>Click any node</b> to open its <b>Inspector</b> on the right. There
-      you edit text, pick characters, attach audio and configure logic.
-    BodyRU: "<b>\u041D\u0430\u0436\u043C\u0438 \u043D\u0430 \u043B\u044E\u0431\u0443\u044E
-      \u043D\u043E\u0434\u0443</b>, \u0447\u0442\u043E\u0431\u044B \u043E\u0442\u043A\u0440\u044B\u0442\u044C
-      \u0435\u0451 <b>\u0418\u043D\u0441\u043F\u0435\u043A\u0442\u043E\u0440</b>
-      \u0441\u043F\u0440\u0430\u0432\u0430. \u0422\u0430\u043C \u043D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u0442\u0441\u044F
-      \u0442\u0435\u043A\u0441\u0442, \u0432\u044B\u0431\u043E\u0440 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0435\u0439,
-      \u0437\u0432\u0443\u043A \u0438 \u043B\u043E\u0433\u0438\u043A\u0430."
+  - TitleEN: "The Canvas"
+    TitleRU: "Холст"
+    BodyEN: "This whole big area is your <b>canvas</b>. Infinite in size — you can pan around with <b>middle-mouse drag</b> and zoom with the <b>scroll wheel</b>.\n\nThe little gray dots are just a grid for orientation. The <b>Start</b> node (green, top-left) is where every story begins."
+    BodyRU: "Весь этот большой холст — твоё <b>рабочее поле</b>. Бесконечное — двигаешься <b>средней кнопкой мыши</b>, зум <b>колёсиком</b>.\n\nТочки на фоне — просто сетка для ориентира. Зелёная нода <b>Start</b> сверху слева — оттуда всегда начинается история."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
-      x: 0.65
+      x: 0.05
       y: 0.08
-      width: 0.34
-      height: 0.9
+      width: 0.7
+      height: 0.85
     ManualRectUsePercent: 1
     TargetPadding: 6
-    HintStyle: 1
+    HintStyle: 0
     AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    PanelAnchor: 4
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Minimap
-    TitleRU: "\u041C\u0438\u043D\u0438\u043A\u0430\u0440\u0442\u0430"
-    BodyEN: The <b>Minimap</b> in the bottom-left helps you navigate large story
-      graphs. Click and drag inside it to jump around.
-    BodyRU: "<b>\u041C\u0438\u043D\u0438\u043A\u0430\u0440\u0442\u0430</b> \u0432
-      \u043B\u0435\u0432\u043E\u043C \u043D\u0438\u0436\u043D\u0435\u043C \u0443\u0433\u043B\u0443
-      \u043F\u043E\u043C\u043E\u0433\u0430\u0435\u0442 \u043E\u0440\u0438\u0435\u043D\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C\u0441\u044F
-      \u0432 \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0433\u0440\u0430\u0444\u0430\u0445.
-      \u041A\u043B\u0438\u043A\u043D\u0438 \u0438 \u0442\u044F\u043D\u0438 \u0432\u043D\u0443\u0442\u0440\u0438
-      \u043D\u0435\u0451, \u0447\u0442\u043E\u0431\u044B \u043F\u0440\u044B\u0433\u043D\u0443\u0442\u044C
-      \u0432 \u043D\u0443\u0436\u043D\u043E\u0435 \u043C\u0435\u0441\u0442\u043E."
+  - TitleEN: "Adding Nodes"
+    TitleRU: "Добавляем ноды"
+    BodyEN: "<b>Right-click</b> anywhere on the canvas to open the <b>Create Node</b> menu. The most useful ones to start:\n\n💬 <b>Dialogue</b> — someone says something\n🔀 <b>Choice</b> — player picks one option\n🎵 <b>Audio</b> — play music or SFX\n🖼 <b>Background</b> — change the scene image\n👤 <b>Show / Hide Character</b> — bring an actor on-screen\n\nNodes appear where you right-clicked. Drag them around to organize your flow."
+    BodyRU: "<b>ПКМ</b> по холсту — открывается меню <b>Создать ноду</b>. Самые ходовые:\n\n💬 <b>Диалог</b> — кто-то говорит реплику\n🔀 <b>Выбор</b> — игрок выбирает вариант\n🎵 <b>Аудио</b> — музыка или SFX\n🖼 <b>Фон</b> — смена картинки сцены\n👤 <b>Показать / Скрыть персонажа</b> — вывод актёра на экран\n\nНоды появляются там, куда ты кликнул. Можно таскать мышью, чтобы упорядочить флоу."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
-      x: 0.01
-      y: 0.72
-      width: 0.2
-      height: 0.25
+      x: 0.2
+      y: 0.2
+      width: 0.5
+      height: 0.55
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 2
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
     PanelAnchor: 0
     Video: {fileID: 0}
     Image: {fileID: 0}
@@ -124,33 +103,24 @@ MonoBehaviour:
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Connect nodes by dragging
-    TitleRU: "\u0421\u043E\u0435\u0434\u0438\u043D\u044F\u0439 \u043D\u043E\u0434\u044B,
-      \u043F\u0440\u043E\u0442\u044F\u0433\u0438\u0432\u0430\u044F \u0441\u0432\u044F\u0437\u0438"
-    BodyEN: "Drag from a node's <b>output port</b> to another node's <b>input port</b>.
-      Typical flow: <b>Start \u2192 Dialogue \u2192 Branch</b>. Right-click empty
-      space to add new nodes."
-    BodyRU: "\u0422\u044F\u043D\u0438 \u043E\u0442 <b>\u0432\u044B\u0445\u043E\u0434\u043D\u043E\u0433\u043E
-      \u043F\u043E\u0440\u0442\u0430</b> \u043D\u043E\u0434\u044B \u043A <b>\u0432\u0445\u043E\u0434\u043D\u043E\u043C\u0443</b>
-      \u0434\u0440\u0443\u0433\u043E\u0439. \u0422\u0438\u043F\u0438\u0447\u043D\u044B\u0439
-      \u043F\u043E\u0440\u044F\u0434\u043E\u043A: <b>\u0421\u0442\u0430\u0440\u0442
-      \u2192 \u0414\u0438\u0430\u043B\u043E\u0433 \u2192 \u0420\u0430\u0437\u0432\u0438\u043B\u043A\u0430</b>.
-      \u041F\u0440\u0430\u0432\u044B\u0439 \u043A\u043B\u0438\u043A \u0432 \u043F\u0443\u0441\u0442\u043E\u0442\u0435
-      \u2014 \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043D\u043E\u0434\u0443."
+  - TitleEN: "Connecting Nodes"
+    TitleRU: "Соединение нод"
+    BodyEN: "Each node has <b>ports</b> — small dots on its left/right edges.\n\n• <b>Right port (output)</b> = «what happens after this node»\n• <b>Left port (input)</b> = «what flows into this node»\n\n<b>Click & drag</b> from an output port to another node's input port to draw a connection. The line snaps in.\n\nBranches: <i>Choice</i> nodes have one output per option — connect each to a different next node, and that's a story branch."
+    BodyRU: "У каждой ноды есть <b>порты</b> — маленькие кружки на левом и правом краях.\n\n• <b>Правый порт (выход)</b> = «что идёт после этой ноды»\n• <b>Левый порт (вход)</b> = «что приходит в эту ноду»\n\n<b>Клик и тяни</b> от выхода к входу другой ноды — линия защёлкнется.\n\nВетвление: у нод <i>Выбор</i> по одному выходу на каждый вариант. Подключаешь каждый к своей ноде — получаешь развилку."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
-      x: 0
-      y: 0.12
-      width: 0.65
-      height: 0.85
+      x: 0.3
+      y: 0.3
+      width: 0.4
+      height: 0.35
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 0
@@ -162,8 +132,95 @@ MonoBehaviour:
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Editing a Node"
+    TitleRU: "Редактирование ноды"
+    BodyEN: "<b>Click on a node</b> to select it — the <b>inspector</b> on the right shows all its fields.\n\nFor a <i>Dialogue</i> node you'll see: who's speaking (pick from your characters list), the line of text, optional emotion, optional voice file.\n\nNo XML, no JSON, no scripting — just fill the fields in plain language. The engine generates the runtime instructions for you."
+    BodyRU: "<b>Клик по ноде</b> — она выделяется, справа в <b>инспекторе</b> появляются все её поля.\n\nДля ноды <i>Диалог</i> увидишь: кто говорит (выбираешь из списка персонажей), реплика, опционально эмоция, опционально голосовой файл.\n\nНикакого XML, JSON или скриптов — просто заполняешь поля обычным текстом. Движок сам сгенерирует инструкции для рантайма."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.7
+      y: 0.08
+      width: 0.3
+      height: 0.85
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 3
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Logic & Variables in the Graph"
+    TitleRU: "Логика и переменные в графе"
+    BodyEN: "Remember the variables you set up in Lesson 2? You use them here:\n\n⚙ <b>Set Variable</b> — change a value (e.g. «affection += 1»)\n❓ <b>If Variable</b> — branch based on a value («if affection > 5, kiss scene; else, just nod»)\n⏳ <b>Wait</b> / <b>Delay</b> — slow down pacing\n\nThese are your no-code building blocks for branching narratives — write the most complex routes without ever touching C#."
+    BodyRU: "Помнишь переменные из Урока 2? Они работают здесь:\n\n⚙ <b>Установить переменную</b> — меняешь значение (например «affection += 1»)\n❓ <b>Если переменная</b> — ветвление по значению («если affection > 5 — сцена с поцелуем, иначе просто кивок»)\n⏳ <b>Ждать</b> / <b>Задержка</b> — управление темпом\n\nЭто твои no-code-кирпичики для самых сложных ветвлений. Любую развилку без единой строчки C#."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 0
+      height: 0
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 4
+    AccentColor: {r: 1, g: 0.78, b: 0.3, a: 1}
+    PanelAnchor: 5
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Auto-Layout & Test Play"
+    TitleRU: "Авто-выравнивание и тест-плей"
+    BodyEN: "Two more buttons worth knowing:\n\n📐 <b>Auto-Layout</b> (top toolbar) — re-arranges every node into a clean tree. After a long writing session your graph turns into spaghetti — one click cleans it up.\n\n▶ <b>Test Play</b> — runs the story right inside the editor starting from any node. Click a node, hit Test Play, see how it actually plays. No need to make a build.\n\nThat's the whole graph editor. Time to write a real story."
+    BodyRU: "Ещё две полезные кнопки:\n\n📐 <b>Авто-выравнивание</b> (верхняя панель) — раскладывает все ноды в аккуратное дерево. После долгого письма граф превращается в макароны — один клик и всё чисто.\n\n▶ <b>Тест-плей</b> — запускает историю прямо в редакторе с любой ноды. Кликнул, нажал — увидел как играется. Билд не нужен.\n\nЭто весь редактор графа. Пора писать историю."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.05
+      y: 0.05
+      width: 0.7
+      height: 0.06
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 2
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0

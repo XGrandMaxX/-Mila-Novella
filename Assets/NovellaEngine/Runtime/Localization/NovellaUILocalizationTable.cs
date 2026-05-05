@@ -184,6 +184,131 @@ namespace NovellaEngine.Data
             return sb.ToString();
         }
 
+        // ─── CSV import / export ────────────────────────────────────────────────
+        // Формат: первая строка-заголовок «Key,Category,LANG1,LANG2,...».
+        // Каждая последующая строка — один ключ. Пустые ячейки = «нет перевода».
+        // Подходит для редактирования в Excel / Google Sheets и обмена с
+        // внешними переводчиками. Языки в шапке должны совпадать с теми,
+        // которые есть в LocalizationSettings — но импортёр толерантный, добавит
+        // отсутствующие языки в таблицу как новые TranslationEntry.
+
+        public string ExportCsv(List<string> langs)
+        {
+            if (langs == null || langs.Count == 0)
+                langs = new List<string> { DefaultLanguage };
+
+            var sb = new StringBuilder();
+            sb.Append("Key,Category");
+            foreach (var l in langs) { sb.Append(','); sb.Append(EscapeCsv(l)); }
+            sb.Append('\n');
+
+            for (int i = 0; i < Entries.Count; i++)
+            {
+                var e = Entries[i];
+                if (e == null || string.IsNullOrEmpty(e.Key)) continue;
+                sb.Append(EscapeCsv(e.Key));
+                sb.Append(',');
+                sb.Append(EscapeCsv(e.Category ?? ""));
+                foreach (var l in langs)
+                {
+                    sb.Append(',');
+                    sb.Append(EscapeCsv(e.Get(l) ?? ""));
+                }
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        public bool ImportCsv(string csv)
+        {
+            if (string.IsNullOrEmpty(csv)) return false;
+            try
+            {
+                var rows = ParseCsv(csv);
+                if (rows.Count < 2) return false;
+
+                var headers = rows[0];
+                if (headers.Count < 3) return false;
+                if (headers[0].Trim() != "Key" || headers[1].Trim() != "Category") return false;
+
+                var langs = new List<string>();
+                for (int i = 2; i < headers.Count; i++) langs.Add(headers[i].Trim());
+
+                Entries.Clear();
+                for (int r = 1; r < rows.Count; r++)
+                {
+                    var row = rows[r];
+                    if (row.Count == 0 || string.IsNullOrWhiteSpace(row[0])) continue;
+                    var entry = new Entry { Key = row[0], Category = row.Count > 1 ? row[1] : "" };
+                    for (int c = 0; c < langs.Count; c++)
+                    {
+                        int colIdx = c + 2;
+                        string val = colIdx < row.Count ? row[colIdx] : "";
+                        if (!string.IsNullOrEmpty(val))
+                            entry.Values.Add(new TranslationEntry { LanguageID = langs[c], Text = val });
+                    }
+                    Entries.Add(entry);
+                }
+                _cache = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[NovellaUILocalization] CSV import failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string EscapeCsv(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            bool needs = s.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0;
+            if (!needs) return s;
+            return "\"" + s.Replace("\"", "\"\"") + "\"";
+        }
+
+        private static List<List<string>> ParseCsv(string csv)
+        {
+            var rows = new List<List<string>>();
+            var current = new List<string>();
+            var field = new StringBuilder();
+            bool inQuotes = false;
+            for (int i = 0; i < csv.Length; i++)
+            {
+                char c = csv[i];
+                if (inQuotes)
+                {
+                    if (c == '"')
+                    {
+                        if (i + 1 < csv.Length && csv[i + 1] == '"') { field.Append('"'); i++; }
+                        else inQuotes = false;
+                    }
+                    else field.Append(c);
+                }
+                else
+                {
+                    if (c == '"') { inQuotes = true; }
+                    else if (c == ',') { current.Add(field.ToString()); field.Clear(); }
+                    else if (c == '\n' || c == '\r')
+                    {
+                        if (c == '\r' && i + 1 < csv.Length && csv[i + 1] == '\n') i++;
+                        current.Add(field.ToString()); field.Clear();
+                        if (current.Count > 0 && !(current.Count == 1 && string.IsNullOrEmpty(current[0])))
+                            rows.Add(current);
+                        current = new List<string>();
+                    }
+                    else field.Append(c);
+                }
+            }
+            if (field.Length > 0 || current.Count > 0)
+            {
+                current.Add(field.ToString());
+                if (current.Count > 0 && !(current.Count == 1 && string.IsNullOrEmpty(current[0])))
+                    rows.Add(current);
+            }
+            return rows;
+        }
+
         public bool ImportJson(string json)
         {
             try

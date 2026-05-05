@@ -128,8 +128,9 @@ namespace NovellaEngine.Editor
 
         private const string MARKER_MAINMENU = "[Novella]_MainMenuPanel";
         private const string MARKER_GAMEPLAY = "[Novella]_GameplayPanel";
+        private const string MARKER_EMPTY    = "[Novella]_EmptyCanvasMarker";
 
-        private enum AppliedPreset { None, MainMenu, Gameplay }
+        private enum AppliedPreset { None, MainMenu, Gameplay, Empty }
 
         private struct SceneRow
         {
@@ -615,8 +616,20 @@ namespace NovellaEngine.Editor
 
         private void ShowMoreMenu(SceneRow sc)
         {
+            bool isSystem = NovellaPrefabSceneHelper.IsSystemScene(sc.Path);
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent(ToolLang.Get("Rename…", "Переименовать…")), false, () => RenameScene(sc));
+            // Rename / Duplicate запрещены для системной сцены —
+            // её путь захардкожен в NovellaPrefabSceneHelper.MOCK_SCENE_PATH.
+            if (isSystem)
+            {
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get("Rename… (system scene)", "Переименовать… (системная сцена)")));
+                menu.AddDisabledItem(new GUIContent(ToolLang.Get("Duplicate (system scene)", "Дублировать (системная сцена)")));
+            }
+            else
+            {
+                menu.AddItem(new GUIContent(ToolLang.Get("Rename…", "Переименовать…")), false, () => RenameScene(sc));
+                menu.AddItem(new GUIContent(ToolLang.Get("Duplicate", "Дублировать")), false, () => DuplicateScene(sc));
+            }
             menu.AddItem(new GUIContent(ToolLang.Get("Open in folder", "Открыть в папке")), false, () =>
             {
                 EditorUtility.RevealInFinder(sc.Path);
@@ -626,7 +639,6 @@ namespace NovellaEngine.Editor
                 var asset = AssetDatabase.LoadAssetAtPath<Object>(sc.Path);
                 if (asset != null) EditorGUIUtility.PingObject(asset);
             });
-            menu.AddItem(new GUIContent(ToolLang.Get("Duplicate", "Дублировать")), false, () => DuplicateScene(sc));
             menu.ShowAsContext();
         }
 
@@ -714,13 +726,26 @@ namespace NovellaEngine.Editor
 
                 GUILayout.Space(12);
 
-                Rect editR = GUILayoutUtility.GetRect(28, 28, GUILayout.Width(28), GUILayout.Height(28));
-                if (DrawInlineHeaderBtn(editR, "✎", C_TEXT_1, ToolLang.Get("Rename scene", "Переименовать сцену")))
+                bool canRename = !NovellaPrefabSceneHelper.IsSystemScene(sc.Path);
+                if (canRename)
                 {
-                    _isEditingName = true;
-                    _editingNamePath = sc.Path;
-                    _stagedName = sc.Name;
-                    _focusInlineEdit = true;
+                    Rect editR = GUILayoutUtility.GetRect(28, 28, GUILayout.Width(28), GUILayout.Height(28));
+                    if (DrawInlineHeaderBtn(editR, "✎", C_TEXT_1, ToolLang.Get("Rename scene", "Переименовать сцену")))
+                    {
+                        _isEditingName = true;
+                        _editingNamePath = sc.Path;
+                        _stagedName = sc.Name;
+                        _focusInlineEdit = true;
+                    }
+                }
+                else
+                {
+                    Rect lockR = GUILayoutUtility.GetRect(28, 28, GUILayout.Width(28), GUILayout.Height(28));
+                    var lockSt = new GUIStyle(EditorStyles.label) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
+                    lockSt.normal.textColor = C_TEXT_4;
+                    GUI.Label(lockR, new GUIContent("🔒", ToolLang.Get(
+                        "System scene — name is hardcoded in the engine, can't be renamed.",
+                        "Системная сцена — имя зашито в движке, переименовать нельзя.")), lockSt);
                 }
 
                 if (sc.InBuild && sc.BuildIndex != 0)
@@ -1173,27 +1198,35 @@ namespace NovellaEngine.Editor
 
             float gridY = block.y + headH + 6;
             float gridGap = 10;
-            float cardW = (block.width - 28 - gridGap) / 2;
+            // Три карточки: Main Menu / Gameplay / Empty Canvas.
+            float cardW = (block.width - 28 - gridGap * 2) / 3;
 
-            Rect menuCard = new Rect(block.x + 14, gridY, cardW, gridH - 10);
-            Rect gpCard = new Rect(block.x + 14 + cardW + gridGap, gridY, cardW, gridH - 10);
+            Rect menuCard  = new Rect(block.x + 14,                         gridY, cardW, gridH - 10);
+            Rect gpCard    = new Rect(block.x + 14 + cardW + gridGap,       gridY, cardW, gridH - 10);
+            Rect emptyCard = new Rect(block.x + 14 + (cardW + gridGap) * 2, gridY, cardW, gridH - 10);
 
             // ApplyPreset надо вызывать ЧЕРЕЗ delayCall — он делает много
             // тяжёлых операций со сценой (создание GameObjects, AssetDatabase
             // CreateAsset/SaveAssets, EditorSceneManager.MarkSceneDirty/SaveScene),
             // и если выполнять прямо в onClick посреди OnGUI — IMGUI-стек
-            // разваливается, и End-вызовы DrawBody падают «EndLayoutGroup
-            // must be called first / Stack empty». ClearPreset рядом уже
-            // обёрнут в delayCall — теперь и ApplyPreset тоже.
+            // разваливается. ClearPreset рядом уже обёрнут в delayCall —
+            // теперь и ApplyPreset тоже.
+            bool isAnyApplied = applied != AppliedPreset.None;
             DrawPresetCard(menuCard, "📱", ToolLang.Get("Main Menu", "Главное Меню"),
                 ToolLang.Get("Menu with character editor and story selection.", "Меню с редактором персонажа и выбором истории."),
-                C_PURPLE, applied == AppliedPreset.MainMenu, applied == AppliedPreset.Gameplay, AppliedPreset.Gameplay,
+                C_PURPLE, applied == AppliedPreset.MainMenu, isAnyApplied && applied != AppliedPreset.MainMenu, applied,
                 () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.MainMenu));
 
             DrawPresetCard(gpCard, "🎮", ToolLang.Get("Gameplay", "Игровая сцена"),
                 ToolLang.Get("Canvas with dialogue box, character displays and CG layer.", "Canvas с диалоговым окном, персонажами и слоем CG."),
-                C_ACCENT, applied == AppliedPreset.Gameplay, applied == AppliedPreset.MainMenu, AppliedPreset.MainMenu,
+                C_ACCENT, applied == AppliedPreset.Gameplay, isAnyApplied && applied != AppliedPreset.Gameplay, applied,
                 () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Gameplay));
+
+            DrawPresetCard(emptyCard, "⬜", ToolLang.Get("Empty canvas", "Пустой холст"),
+                ToolLang.Get("Bare minimum to run the engine — Camera, Canvas, EventSystem, NovellaPlayer. You build the UI yourself in UI Forge.",
+                             "Минимум для работы движка — Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
+                new Color(0.55f, 0.85f, 1f), applied == AppliedPreset.Empty, isAnyApplied && applied != AppliedPreset.Empty, applied,
+                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Empty));
 
             GUILayout.Space(14);
         }
@@ -1347,21 +1380,24 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(r, C_BG_SIDE);
             EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), C_BORDER);
 
+            bool isSystem = NovellaPrefabSceneHelper.IsSystemScene(sc.Path);
+
             float bx = r.x + 16;
             float by = r.y + 12;
             float bh = 32;
 
             string openLabel = sc.IsOpen
                 ? "✓ " + ToolLang.Get("Already open", "Уже открыта")
-                : "▶ " + ToolLang.Get("Switch to scene", "Переключиться на сцену");
+                : (isSystem ? "🔒 " + ToolLang.Get("System scene", "Системная сцена")
+                            : "▶ " + ToolLang.Get("Switch to scene", "Переключиться на сцену"));
             float w1 = 180;
-            if (DrawActionButton(new Rect(bx, by, w1, bh), openLabel, fill: false, danger: false, disabled: sc.IsOpen))
+            if (DrawActionButton(new Rect(bx, by, w1, bh), openLabel, fill: false, danger: false, disabled: sc.IsOpen || isSystem))
                 EditorApplication.delayCall += () => OpenScene(sc);
 
             float rightX = r.xMax - 16;
             float wDel = 100;
             rightX -= wDel;
-            if (DrawActionButton(new Rect(rightX, by, wDel, bh), "🗑 " + ToolLang.Get("Delete", "Удалить"), fill: false, danger: true))
+            if (DrawActionButton(new Rect(rightX, by, wDel, bh), "🗑 " + ToolLang.Get("Delete", "Удалить"), fill: false, danger: true, disabled: isSystem))
                 EditorApplication.delayCall += () => DeleteSceneWithConfirm(sc);
             rightX -= 8;
 
@@ -1374,12 +1410,25 @@ namespace NovellaEngine.Editor
             }
             else
             {
-                if (DrawActionButton(new Rect(rightX, by, wBuild, bh), "✓ " + ToolLang.Get("Add to build", "В сборку"), fill: false, danger: false))
+                if (DrawActionButton(new Rect(rightX, by, wBuild, bh), "✓ " + ToolLang.Get("Add to build", "В сборку"), fill: false, danger: false, disabled: isSystem))
                     EditorApplication.delayCall += () => AddToBuild(sc);
             }
         }
         private void RenameSceneInline(SceneRow sc, string newName)
         {
+            // Защита от программного вызова: если кто-то попытается переименовать
+            // системную сцену, MOCK_SCENE_PATH перестанет указывать на нужный файл
+            // и Кузница UI потеряет свою sandbox-сцену для редактора префабов.
+            if (NovellaPrefabSceneHelper.IsSystemScene(sc.Path))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Cannot rename", "Нельзя переименовать"),
+                    ToolLang.Get(
+                        "System scene 'NovellaTestScene' is hardcoded in the engine — renaming would break UI Forge prefab editor.",
+                        "Имя системной сцены «NovellaTestScene» зашито в движке — переименование сломает редактор префабов в Кузнице UI."),
+                    "OK");
+                return;
+            }
             string err = AssetDatabase.RenameAsset(sc.Path, newName);
             if (!string.IsNullOrEmpty(err))
             {
@@ -1452,6 +1501,13 @@ namespace NovellaEngine.Editor
         private void OpenScene(SceneRow sc)
         {
             if (sc.IsOpen) return;
+            if (NovellaPrefabSceneHelper.IsSystemScene(sc.Path))
+            {
+                _window?.ShowNotification(new GUIContent(ToolLang.Get(
+                    "System scene — used by UI Forge as prefab sandbox. Open it via UI Forge → Prefabs tab.",
+                    "Системная сцена — её использует Кузница UI как песочницу для префабов. Открыть через Кузницу → Префабы.")), 2.5f);
+                return;
+            }
             if (!PromptSaveIfDirty()) return;
 
             EditorSceneManager.OpenScene(sc.Path);
@@ -1462,6 +1518,13 @@ namespace NovellaEngine.Editor
 
         private void AddToBuild(SceneRow sc)
         {
+            if (NovellaPrefabSceneHelper.IsSystemScene(sc.Path))
+            {
+                _window?.ShowNotification(new GUIContent(ToolLang.Get(
+                    "System scene cannot be added to Build.",
+                    "Системную сцену нельзя добавить в сборку.")), 2.5f);
+                return;
+            }
             var list = EditorBuildSettings.scenes.ToList();
             if (list.Any(s => s.path == sc.Path)) return;
             list.Add(new EditorBuildSettingsScene(sc.Path, true));
@@ -1608,6 +1671,16 @@ namespace NovellaEngine.Editor
 
         private void DeleteSceneWithConfirm(SceneRow sc)
         {
+            if (NovellaPrefabSceneHelper.IsSystemScene(sc.Path))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Cannot delete system scene", "Нельзя удалить системную сцену"),
+                    ToolLang.Get(
+                        "'NovellaTestScene' is used by UI Forge as a prefab editor sandbox. Without it the prefab editor cannot work.",
+                        "«NovellaTestScene» используется Кузницей UI как песочница для редактора префабов. Без неё редактор префабов не работает."),
+                    "OK");
+                return;
+            }
             if (sc.IsOpen)
             {
                 EditorUtility.DisplayDialog(
@@ -1644,11 +1717,13 @@ namespace NovellaEngine.Editor
         {
             if (GameObject.Find(MARKER_MAINMENU) != null) return AppliedPreset.MainMenu;
             if (GameObject.Find(MARKER_GAMEPLAY) != null) return AppliedPreset.Gameplay;
+            if (GameObject.Find(MARKER_EMPTY)    != null) return AppliedPreset.Empty;
             return AppliedPreset.None;
         }
 
         private void ApplyPreset(SceneRow sc, AppliedPreset preset)
         {
+            if (BlockedByPlayMode()) return;
             if (!sc.IsOpen)
             {
                 if (!PromptSaveIfDirty()) return;
@@ -1670,6 +1745,7 @@ namespace NovellaEngine.Editor
 
             if (preset == AppliedPreset.MainMenu) PerformMainMenuSetup();
             else if (preset == AppliedPreset.Gameplay) PerformGameplaySetup();
+            else if (preset == AppliedPreset.Empty) PerformEmptyCanvasSetup();
 
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
@@ -1679,6 +1755,8 @@ namespace NovellaEngine.Editor
 
         private void ClearPreset()
         {
+            if (BlockedByPlayMode()) return;
+
             // Старая версия искала через GameObject.Find и StartsWith("[Novella]") —
             // это пропускало (а) отключенные объекты, (б) холсты которые юзер
             // переименовал, (в) канвасы добавленные позже через UI Forge.
@@ -1737,8 +1815,24 @@ namespace NovellaEngine.Editor
         // из Кузницы UI welcome-экрана). Внутри тот же поток что и при клике
         // на карточку пресета в «Сценах и Меню»: проверка существующего пресета,
         // PerformXxxSetup, MarkSceneDirty + SaveScene.
+        // Гард: пресеты модифицируют сцену через EditorSceneManager, который
+        // не работает в Play Mode (MarkSceneDirty / SaveScene бросают
+        // InvalidOperationException). Тихо отказываемся и сообщаем юзеру.
+        private static bool BlockedByPlayMode()
+        {
+            if (!EditorApplication.isPlaying) return false;
+            EditorUtility.DisplayDialog(
+                ToolLang.Get("Cannot apply preset in Play Mode", "Нельзя применять пресет в игровом режиме"),
+                ToolLang.Get(
+                    "Scene presets modify the scene file — Unity blocks this while Play is running. Stop Play, then apply the preset.",
+                    "Пресеты сцены меняют файл сцены — Unity не разрешает это во время Play. Останови Play и применi пресет."),
+                "OK");
+            return true;
+        }
+
         public static void ApplyMainMenuPresetToActiveScene()
         {
+            if (BlockedByPlayMode()) return;
             // Используем экземпляр модуля — без него методы Perform не работают.
             // Если Hub открыт, у нас точно есть модуль. Если нет — создаём
             // временный (он бесстейтовый для целей этой операции).
@@ -1748,8 +1842,16 @@ namespace NovellaEngine.Editor
 
         public static void ApplyGameplayPresetToActiveScene()
         {
+            if (BlockedByPlayMode()) return;
             var mod = FindModuleInstance() ?? new NovellaSceneManagerModule();
             mod.ApplyPresetToActiveScene(AppliedPreset.Gameplay);
+        }
+
+        public static void ApplyEmptyCanvasPresetToActiveScene()
+        {
+            if (BlockedByPlayMode()) return;
+            var mod = FindModuleInstance() ?? new NovellaSceneManagerModule();
+            mod.ApplyPresetToActiveScene(AppliedPreset.Empty);
         }
 
         private static NovellaSceneManagerModule FindModuleInstance()
@@ -1783,6 +1885,7 @@ namespace NovellaEngine.Editor
 
             if (preset == AppliedPreset.MainMenu) PerformMainMenuSetup();
             else if (preset == AppliedPreset.Gameplay) PerformGameplaySetup();
+            else if (preset == AppliedPreset.Empty) PerformEmptyCanvasSetup();
 
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
             EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
@@ -2229,6 +2332,48 @@ namespace NovellaEngine.Editor
         // ═════════════════════════════════════════════════════════
         // SETUP — Gameplay
         // ═════════════════════════════════════════════════════════
+
+        // ─── Empty Canvas preset ────────────────────────────────────────────
+        // Минимальный сетап: Camera + Canvas + EventSystem + NovellaPlayer
+        // (без привязок). Юзер сам соберёт UI в Кузнице, а движок-обязательные
+        // компоненты уже на месте — игра не сломается из-за «забыл добавить».
+        private void PerformEmptyCanvasSetup()
+        {
+            EnsureMainCamera();
+            EnsureEventSystem();
+            var canvas = CreateCanvas("[Novella]_Canvas");
+            AddPresetMarker(canvas.gameObject, "Empty");
+
+            // Marker-объект чтобы DetectAppliedPreset видел этот пресет
+            // (даже когда юзер удалит весь UI с Canvas).
+            var marker = new GameObject(MARKER_EMPTY);
+            marker.transform.SetParent(canvas.transform, false);
+            var markerRT = marker.AddComponent<RectTransform>();
+            markerRT.anchorMin = Vector2.zero; markerRT.anchorMax = Vector2.one;
+            markerRT.offsetMin = Vector2.zero; markerRT.offsetMax = Vector2.zero;
+            AddPresetMarker(marker, "Empty");
+
+            // NovellaPlayer — без него историю не запустить. Привязки оставляем
+            // пустыми; юзер заполнит их через ⚙ Логика когда соберёт UI.
+            var pGO = new GameObject("[Novella]_Player");
+            AddPresetMarker(pGO, "Empty");
+            pGO.AddComponent<NovellaPlayer>();
+
+            // Подсказка-лейбл по центру холста — сразу видно «здесь надо
+            // что-то добавить». Юзер удалит когда наполнит сцену.
+            var hint = CreateUIText(marker, "Hint_PlaceContentHere",
+                ToolLang.Get("Empty canvas — drag UI elements here from UI Forge.",
+                             "Пустой холст — добавляй сюда UI элементы через Кузницу UI."),
+                24, FontStyle.Italic);
+            var hintRT = hint.GetComponent<RectTransform>();
+            hintRT.anchorMin = new Vector2(0.5f, 0.5f);
+            hintRT.anchorMax = new Vector2(0.5f, 0.5f);
+            hintRT.pivot     = new Vector2(0.5f, 0.5f);
+            hintRT.sizeDelta = new Vector2(700, 80);
+            hintRT.anchoredPosition = Vector2.zero;
+            var hintText = hint.GetComponent<TMPro.TMP_Text>();
+            if (hintText != null) hintText.color = new Color(1f, 1f, 1f, 0.30f);
+        }
 
         private void PerformGameplaySetup()
         {

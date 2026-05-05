@@ -470,6 +470,34 @@ namespace NovellaEngine.Editor
             var spacer = new VisualElement { style = { flexGrow = 1 } };
             toolbarContainer.Add(spacer);
 
+            // Счётчик слов и время чтения главы. Показывается справа перед
+            // Inspector. Считаем максимум среди языков (один и тот же
+            // диалог в RU/EN может отличаться в 2 раза по словам).
+            // Явный тип — иначе тернарка сводится к (int, double) без имён
+            // и .words/.readingMinutes не находятся.
+            (int words, double readingMinutes) stats = _currentTree != null
+                ? _currentTree.GetWordStats()
+                : (0, 0.0);
+            string statsText = stats.words > 0
+                ? string.Format(ToolLang.Get(
+                    "📖 {0} words · ~{1} min", "📖 {0} слов · ~{1} мин"),
+                    stats.words.ToString("N0", System.Globalization.CultureInfo.InvariantCulture),
+                    System.Math.Max(1, (int)System.Math.Round(stats.readingMinutes)))
+                : ToolLang.Get("📖 (empty)", "📖 (пусто)");
+            var statsLbl = new Label(statsText)
+            {
+                tooltip = ToolLang.Get(
+                    "Word count and approximate reading time across this chapter (max across languages, ~200 wpm).",
+                    "Слова и примерное время чтения по главе (берётся максимум среди языков, ~200 слов/мин)."),
+                style = {
+                    color = new Color(0.85f, 0.85f, 0.9f),
+                    marginRight = 12, marginLeft = 6,
+                    alignSelf = Align.Center,
+                    fontSize = 12,
+                }
+            };
+            toolbarContainer.Add(statsLbl);
+
             var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 550 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
             toolbarContainer.Add(toggleInspectorBtn);
 

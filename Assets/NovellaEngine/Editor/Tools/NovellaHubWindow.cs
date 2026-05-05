@@ -206,6 +206,180 @@ namespace NovellaEngine.Editor
         // Ставится из ShowWindow и потребляется один раз; на reload’е скриптов не срабатывает.
         private static bool _shouldAnimateOpen;
 
+        // Регистрация обработчика «misconfig: игровая сцена = сцене меню»
+        // выкинутого StoryLauncher'ом. Срабатывает один раз при загрузке
+        // домена и переживает scene reload в Play.
+        [InitializeOnLoadMethod]
+        private static void RegisterRuntimeErrorHandlers()
+        {
+            NovellaEngine.Runtime.StoryLauncher.OnSameSceneAsMenuError = HandleSameSceneError;
+            NovellaEngine.Runtime.StoryLauncher.OnGameSceneNotInBuildError = HandleGameSceneNotInBuildError;
+            MigrateStoriesToResources();
+        }
+
+        // Юзер кликнул историю → у неё валидная игровая сцена, но её нет
+        // в Build Settings. Auto-fix: находим .unity-файл по имени, добавляем
+        // в Build Settings, останавливаем Play и сообщаем «готово, нажми ещё раз».
+        // Это убирает шаг где юзер должен лезть в File → Build Profiles.
+        private static void HandleGameSceneNotInBuildError(string sceneName, NovellaEngine.Data.NovellaStory story)
+        {
+            string scenePath = null;
+            if (story != null && story.GameSceneAsset != null)
+            {
+                scenePath = AssetDatabase.GetAssetPath(story.GameSceneAsset);
+            }
+            if (string.IsNullOrEmpty(scenePath))
+            {
+                // Fallback: ищем .unity по имени где угодно в Assets/.
+                var guids = AssetDatabase.FindAssets("t:Scene " + sceneName);
+                foreach (var g in guids)
+                {
+                    var p = AssetDatabase.GUIDToAssetPath(g);
+                    if (System.IO.Path.GetFileNameWithoutExtension(p) == sceneName) { scenePath = p; break; }
+                }
+            }
+
+            if (string.IsNullOrEmpty(scenePath) || !System.IO.File.Exists(scenePath))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Scene file not found", "Файл сцены не найден"),
+                    ToolLang.Get(
+                        "Story's gameplay scene '" + sceneName + "' is missing on disk. Open Story Settings → reassign 'Игровая сцена'.",
+                        "Файл игровой сцены «" + sceneName + "» не найден на диске. Открой Настройки истории → переназначь «Игровая сцена»."),
+                    "OK");
+                return;
+            }
+
+            bool ok = EditorUtility.DisplayDialog(
+                ToolLang.Get("Add gameplay scene to Build?", "Добавить игровую сцену в Build?"),
+                ToolLang.Get(
+                    "The gameplay scene '" + sceneName + "' (" + scenePath + ") is not in Build Settings, so SceneManager.LoadScene won't find it.\n\nAdd it automatically and stop Play so you can press 'New game' again?",
+                    "Игровая сцена «" + sceneName + "» (" + scenePath + ") не в Build Settings — SceneManager.LoadScene её не найдёт.\n\nДобавить автоматически и остановить Play чтобы запустить историю заново?"),
+                ToolLang.Get("Add & stop Play", "Добавить и остановить Play"),
+                ToolLang.Get("Cancel", "Отмена"));
+            if (!ok) return;
+
+            // Auto-add to Build Settings.
+            var list = EditorBuildSettings.scenes.ToList();
+            if (!list.Any(s => s.path == scenePath))
+            {
+                list.Add(new EditorBuildSettingsScene(scenePath, true));
+                EditorBuildSettings.scenes = list.ToArray();
+            }
+
+            EditorApplication.isPlaying = false;
+
+            // После выхода из Play показать понятную notification.
+            void OnExit(PlayModeStateChange c)
+            {
+                if (c != PlayModeStateChange.EnteredEditMode) return;
+                EditorApplication.playModeStateChanged -= OnExit;
+                EditorApplication.delayCall += () =>
+                {
+                    if (Instance != null)
+                    {
+                        Instance.ShowNotification(new GUIContent(ToolLang.Get(
+                            "Scene added to Build Settings. Press Play and try again.",
+                            "Сцена добавлена в Build Settings. Жми Play и пробуй снова.")), 3f);
+                    }
+                };
+            }
+            EditorApplication.playModeStateChanged += OnExit;
+        }
+
+        // Миграция NovellaStory + NovellaTree из старого пути
+        // (Runtime/Data/Stories) в Resources/Stories — иначе StoryLauncher
+        // не находит истории через Resources.LoadAll в build-сборке.
+        // Запускается один раз при загрузке домена; если уже всё на месте,
+        // ничего не делает.
+        private static void MigrateStoriesToResources()
+        {
+            const string OLD_DIR = "Assets/NovellaEngine/Runtime/Data/Stories";
+            const string NEW_DIR = "Assets/NovellaEngine/Resources/Stories";
+
+            if (!Directory.Exists(OLD_DIR)) return;
+
+            var oldFiles = Directory.GetFiles(OLD_DIR, "*.asset", SearchOption.TopDirectoryOnly);
+            if (oldFiles.Length == 0) return;
+
+            if (!Directory.Exists(NEW_DIR))
+            {
+                Directory.CreateDirectory(NEW_DIR);
+                AssetDatabase.Refresh();
+            }
+
+            int moved = 0;
+            foreach (var src in oldFiles)
+            {
+                string srcAsset = src.Replace('\\', '/');
+                string fileName = Path.GetFileName(srcAsset);
+                string dst = NEW_DIR + "/" + fileName;
+                string err = AssetDatabase.MoveAsset(srcAsset, dst);
+                if (string.IsNullOrEmpty(err)) moved++;
+                else Debug.LogWarning($"[Novella Engine] Couldn't move '{srcAsset}' → '{dst}': {err}");
+            }
+
+            if (moved > 0)
+            {
+                AssetDatabase.SaveAssets();
+                Debug.Log($"[Novella Engine] Migrated {moved} story/chapter assets from '{OLD_DIR}' to '{NEW_DIR}' so they're picked up by Resources.LoadAll at runtime.");
+            }
+        }
+
+        // Юзер кликнул историю в Play, но игровая сцена совпадает со сценой
+        // меню → показываем диалог. Согласие → останавливаем Play, открываем
+        // Novella Studio → Главная → настройки этой истории с подсветкой
+        // поля «Игровая сцена».
+        private static void HandleSameSceneError(NovellaEngine.Data.NovellaStory story)
+        {
+            string title = story != null ? story.Title : "(no story)";
+            bool stop = EditorUtility.DisplayDialog(
+                ToolLang.Get("Cannot start the story", "Нельзя запустить историю"),
+                ToolLang.Get(
+                    "Story '" + title + "' has the menu scene assigned as its gameplay scene — clicking 'play' just reloads the menu.\n\nStop Play and open Story Settings to pick a different scene?",
+                    "У истории «" + title + "» в качестве игровой сцены назначена сцена меню — клик «играть» просто перезагружает меню.\n\nОстановить Play и открыть настройки чтобы выбрать другую сцену?"),
+                ToolLang.Get("Stop & open settings", "Остановить и открыть настройки"),
+                ToolLang.Get("Cancel", "Отмена"));
+            if (!stop) return;
+
+            EditorApplication.isPlaying = false;
+
+            // Ждём фактического выхода из Play (isPlaying=false занимает 1-2
+            // фрейма). Только после EnteredEditMode безопасно открывать окна.
+            void OnExit(PlayModeStateChange c)
+            {
+                if (c != PlayModeStateChange.EnteredEditMode) return;
+                EditorApplication.playModeStateChanged -= OnExit;
+
+                EditorApplication.delayCall += () =>
+                {
+                    ShowWindow();
+                    if (Instance != null) Instance.SwitchToModule(0);
+
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (story != null)
+                        {
+                            // Story есть — открываем её настройки с подсветкой
+                            // поля «Игровая сцена».
+                            NovellaStorySettingsPopup.OpenWithGameSceneHighlight(story);
+                        }
+                        else
+                        {
+                            // Story нет — направляем в Dashboard создавать.
+                            EditorUtility.DisplayDialog(
+                                ToolLang.Get("No active story", "Нет активной истории"),
+                                ToolLang.Get(
+                                    "Pick or create a story first — click '+ Новая история' on the Home dashboard.",
+                                    "Сначала выбери или создай историю — кнопка «+ Новая история» на Главной."),
+                                "OK");
+                        }
+                    };
+                };
+            }
+            EditorApplication.playModeStateChanged += OnExit;
+        }
+
         // Ключ-маркер: Play Mode запущен через кнопку «Тестировать» в Кузнице.
         // SessionState — переживает domain reload, но не переживает перезапуск Unity.
         public const string FORGE_PLAYTEST_KEY = "Novella_ForgePlaytest";
@@ -236,6 +410,52 @@ namespace NovellaEngine.Editor
         // 0=Home, 3=UIForge, 1=Characters, 2=Scenes, 4=Variables, 5=Build, 6=Console, 7=Settings
         private static readonly int[] _sidebarOrder = { 0, 3, 1, 2, 4, 5, 6, 7 };
 
+        // Helpers для прогрессивной разблокировки.
+        private static bool HasAnyStory()
+            => AssetDatabase.FindAssets("t:NovellaStory").Length > 0;
+
+        private static bool HasAnyUserScene()
+        {
+            var guids = AssetDatabase.FindAssets("t:Scene", new[] { "Assets" });
+            for (int i = 0; i < guids.Length; i++)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[i]);
+                if (!NovellaPrefabSceneHelper.IsSystemScene(path)) return true;
+            }
+            return false;
+        }
+
+        // Public-обёртки для других модулей (например UIForge решает показывать
+        // ли кнопку ▶ Запустить).
+        public static bool HasAnyStoryStatic() => HasAnyStory();
+        public static bool HasAnyUserSceneStatic() => HasAnyUserScene();
+
+        /// <summary>
+        /// Есть ли в EditorPrefs валидная активная история?
+        /// Кнопка ▶ Play (в Hub-топбаре и в UI Forge) показывается только когда true.
+        /// Запускать игру без выбранной активной истории нельзя — StoryLauncher
+        /// не знает что грузить.
+        /// </summary>
+        public static bool HasActiveStorySelected()
+        {
+            string lastId = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
+            if (string.IsNullOrEmpty(lastId)) return false;
+            string path = AssetDatabase.GUIDToAssetPath(lastId);
+            if (string.IsNullOrEmpty(path)) return false;
+            var s = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
+            return s != null;
+        }
+
+        // Доступен ли модуль с учётом прогрессивной разблокировки и Play Mode.
+        // Используется в SyncModuleStates для визуальной подсветки.
+        private static bool IsModuleUnlocked(int idx)
+        {
+            if (EditorApplication.isPlaying && !_modulesAllowedInPlay.Contains(idx)) return false;
+            if (idx == 2 && !HasAnyStory()) return false;
+            if (idx == 3 && !HasAnyUserScene()) return false;
+            return true;
+        }
+
         public void SwitchToModule(int index)
         {
             if (_modules == null || index < 0 || index >= _modules.Count) return;
@@ -247,6 +467,33 @@ namespace NovellaEngine.Editor
                 ShowNotification(new GUIContent(
                     ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме")), 1.2f);
                 return;
+            }
+
+            // Прогрессивная разблокировка модулей — чтобы юзер не путался:
+            //   • Сцены и Меню (2) — нужна хотя бы одна история.
+            //   • Кузница UI (3)   — нужна хотя бы одна юзерская сцена
+            //                        (системная NovellaTestScene не считается).
+            if (index == 2 && !HasAnyStory())
+            {
+                ShowNotification(new GUIContent(ToolLang.Get(
+                    "Create a story first — Главная → '+ Новая история'.",
+                    "Сначала создай историю — Главная → «+ Новая история».")), 2.5f);
+                return;
+            }
+            if (index == 3 && !HasAnyUserScene())
+            {
+                ShowNotification(new GUIContent(ToolLang.Get(
+                    "Create a scene first — Сцены и Меню → New scene.",
+                    "Сначала создай сцену — Сцены и Меню → New scene.")), 2.5f);
+                return;
+            }
+
+            // Уходим из Кузницы UI → если она в Prefab-режиме, выгружаем
+            // mock-сцену (gameplay-сцена остаётся как была). Без этого mock
+            // продолжает «висеть» в Hierarchy пока юзер не вернётся в Кузницу.
+            if (_currentModuleIndex == 3 && index != 3)
+            {
+                NovellaUIForge.Instance?.OnLeavingForgeModule();
             }
 
             _currentModuleIndex = index;
@@ -475,6 +722,9 @@ namespace NovellaEngine.Editor
                 }
             }
             RefreshActiveStoryLabel();
+            // Истории / сцены могли быть созданы / удалены — обновляем
+            // визуальное состояние модулей (серость заблокированных).
+            SyncModuleStates();
         }
 
         // Стреляет когда пользователь меняет настройки в Settings-модуле.
@@ -860,6 +1110,16 @@ namespace NovellaEngine.Editor
             if (_root == null) return;
             var nameEl = _root.Q<Label>("activeStoryName");
             if (nameEl != null) nameEl.text = GetActiveStoryName();
+
+            // Play-кнопка в топбаре скрывается без активной истории.
+            // Без этой синхронизации кнопка показывается с момента BuildTopBar
+            // до первой смены истории — даже если истории нет.
+            var playBtn = _root.Q<Button>("topbarPlayBtn");
+            if (playBtn != null)
+            {
+                playBtn.style.display = HasActiveStorySelected()
+                    ? DisplayStyle.Flex : DisplayStyle.None;
+            }
         }
 
         private void OpenStorySwitcher()
@@ -1375,7 +1635,10 @@ namespace NovellaEngine.Editor
 
             // Play — переключает в Кузницу UI и жмёт Play.
             // Любые правки в Play-режиме Unity не сохраняет автоматически.
+            // Скрывается, если нет активной истории — запускать всё равно нечего,
+            // и юзер только запутается, нажав «Play» без выбранной истории.
             var test = new Button(() => StartPlaytest()) { text = "▶  " + ToolLang.Get("Play", "Запустить") };
+            test.name = "topbarPlayBtn"; // для последующего поиска и refresh видимости
             test.AddToClassList("ns-btn");
             test.AddToClassList("ns-btn--play");
             test.style.backgroundColor = new Color(0.30f, 0.85f, 0.45f);
@@ -1384,6 +1647,8 @@ namespace NovellaEngine.Editor
             test.tooltip = ToolLang.Get(
                 "Run the active story — opens UI Forge and enters Play Mode. Changes made in Play are discarded on exit.",
                 "Запустить активную историю — откроется Кузница UI и Play. Изменения в Play не сохраняются.");
+            test.style.display = HasActiveStorySelected()
+                ? DisplayStyle.Flex : DisplayStyle.None;
             actions.Add(test);
 
             var newStory = new Button(() => {
@@ -1543,7 +1808,6 @@ namespace NovellaEngine.Editor
         private void SyncModuleStates()
         {
             if (_modButtons == null) return;
-            bool inPlay = EditorApplication.isPlaying;
             for (int i = 0; i < _modButtons.Count; i++)
             {
                 var b = _modButtons[i];
@@ -1551,9 +1815,11 @@ namespace NovellaEngine.Editor
                 if (i == _currentModuleIndex) b.AddToClassList("ns-mod--active");
                 else b.RemoveFromClassList("ns-mod--active");
 
-                // В Play Mode неактивные модули (кроме разрешённых) — серые.
-                bool blocked = inPlay && !_modulesAllowedInPlay.Contains(i);
-                b.style.opacity = blocked ? 0.45f : 1f;
+                // Серым — заблокированные модули (Play Mode гард или прогрессивная
+                // разблокировка). Юзер всё равно может кликнуть → получит
+                // notification с инструкцией куда идти сначала.
+                bool unlocked = IsModuleUnlocked(i);
+                b.style.opacity = unlocked ? 1f : 0.45f;
             }
             if (_crumbCurrent != null) _crumbCurrent.text = GetModuleLabelLocalized(_currentModuleIndex);
 
@@ -2097,7 +2363,9 @@ namespace NovellaEngine.Editor
 
         private void CreateNewStory()
         {
-            string baseDir = "Assets/NovellaEngine/Runtime/Data/Stories";
+            // КРИТИЧНО: путь должен быть под Resources/, иначе StoryLauncher не
+            // найдёт историю в build-сборке через Resources.LoadAll<NovellaStory>("Stories").
+            string baseDir = "Assets/NovellaEngine/Resources/Stories";
             if (!Directory.Exists(baseDir))
             {
                 Directory.CreateDirectory(baseDir);
@@ -2142,6 +2410,14 @@ namespace NovellaEngine.Editor
         private string _pendingTreePath;
         private bool _saved;
 
+        // Подсветка поля «Игровая сцена» — включается через
+        // OpenWithGameSceneHighlight когда юзера сюда направили из ошибки
+        // «игровая сцена = сцене меню». Пульсирующая жёлтая рамка вокруг
+        // секции, гаснет через ~6 секунд.
+        private bool _highlightGameScene;
+        private double _highlightStartedAt;
+        private const double HIGHLIGHT_DURATION = 6.0;
+
         public static void ShowWindow(NovellaStory story, Action onClose)
         {
             var win = GetWindow<NovellaStorySettingsPopup>(true, ToolLang.Get("Story Settings", "Настройки истории"), true);
@@ -2155,6 +2431,18 @@ namespace NovellaEngine.Editor
             win.minSize = new Vector2(540, 420);
             win.maxSize = new Vector2(900, 800);
             win.ShowUtility();
+        }
+
+        // Открыть окно с пульсирующей подсветкой секции «Игровая сцена».
+        // Используется когда юзер пришёл сюда чтобы исправить misconfig
+        // «gameplay scene = menu scene».
+        public static void OpenWithGameSceneHighlight(NovellaStory story)
+        {
+            ShowWindow(story, null);
+            var win = GetWindow<NovellaStorySettingsPopup>();
+            win._highlightGameScene  = true;
+            win._highlightStartedAt  = EditorApplication.timeSinceStartup;
+            win.Repaint();
         }
 
         public static void ShowWindowForNew(NovellaStory pendingStory, NovellaTree pendingTree,
@@ -2234,6 +2522,12 @@ namespace NovellaEngine.Editor
             Story.Description = EditorGUILayout.TextArea(Story.Description, GUILayout.Height(50));
 
             GUILayout.Space(14);
+
+            // Оборачиваем секцию «Игровая сцена» в Vertical чтобы поймать её
+            // bounding rect — нужен для пульсирующей подсветки когда юзера
+            // сюда направили из ошибки «gameplay scene = menu scene».
+            Rect gameSceneSectionRect = EditorGUILayout.BeginVertical();
+
             DrawSectionLabel(ToolLang.Get("GAMEPLAY SCENE", "ИГРОВАЯ СЦЕНА"));
             DrawHelpHint(ToolLang.Get(
                 "Which Unity scene should run when the player picks this story. Click to pick from the Novella Gallery (Assets/NovellaEngine/Scenes).",
@@ -2265,6 +2559,8 @@ namespace NovellaEngine.Editor
             }
 
             // Если сцена выбрана но не в Build Settings — предупреждаем + кнопка добавить.
+            // Кроме системной сцены (NovellaTestScene) — её нельзя в build,
+            // потому что это песочница для редактора префабов.
             if (Story.GameSceneAsset != null)
             {
                 string scenePath = AssetDatabase.GetAssetPath(Story.GameSceneAsset);
@@ -2273,7 +2569,7 @@ namespace NovellaEngine.Editor
                 {
                     if (s.path == scenePath && s.enabled) { inBuild = true; break; }
                 }
-                if (!inBuild)
+                if (!inBuild && !NovellaPrefabSceneHelper.IsSystemScene(scenePath))
                 {
                     if (NovellaSettingsModule.ColoredButton("➕ " + ToolLang.Get("Add to Build", "В сборку"),
                         new Color(0.95f, 0.66f, 0.30f), null, GUILayout.Width(140), GUILayout.Height(22)))
@@ -2315,6 +2611,26 @@ namespace NovellaEngine.Editor
                 hintSt.normal.textColor = new Color(1f, 0.65f, 0.5f);
                 GUILayout.Label("⚠ " + ToolLang.Get("Pick a gameplay scene — without it the story can't play.",
                                                      "Выбери игровую сцену — без неё история не сможет запуститься."), hintSt);
+            }
+
+            EditorGUILayout.EndVertical();
+
+            // Пульсирующая жёлтая рамка вокруг секции «Игровая сцена» — гаснет
+            // через ~6с. Включается через OpenWithGameSceneHighlight.
+            if (_highlightGameScene && Event.current.type == EventType.Repaint)
+            {
+                double age = EditorApplication.timeSinceStartup - _highlightStartedAt;
+                if (age < HIGHLIGHT_DURATION)
+                {
+                    float pulse = Mathf.Sin((float)age * 6f) * 0.5f + 0.5f;
+                    float alpha = Mathf.Lerp(0.5f, 0.95f, pulse);
+                    Color hl = new Color(1f, 0.85f, 0.2f, alpha);
+                    Rect r = new Rect(gameSceneSectionRect.x - 2, gameSceneSectionRect.y - 2,
+                                       gameSceneSectionRect.width + 4, gameSceneSectionRect.height + 4);
+                    DrawThickBorder(r, hl, 3);
+                    Repaint();
+                }
+                else _highlightGameScene = false;
             }
 
             GUILayout.Space(14);
@@ -2517,6 +2833,14 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), c);
             EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), c);
             EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), c);
+        }
+
+        private static void DrawThickBorder(Rect r, Color c, int thickness)
+        {
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, thickness), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - thickness, r.width, thickness), c);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, thickness, r.height), c);
+            EditorGUI.DrawRect(new Rect(r.xMax - thickness, r.y, thickness, r.height), c);
         }
     }
 }

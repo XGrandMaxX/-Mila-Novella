@@ -318,14 +318,47 @@ namespace NovellaEngine.Runtime.UI
 
                 case BindingAction.LoadLastSave:
                 {
-                    string lastStoryName = PlayerPrefs.GetString("SelectedStoryID", "");
-                    if (string.IsNullOrEmpty(lastStoryName)) { Debug.LogWarning("[NovellaUIBinding] LoadLastSave: нет последнего сохранения."); break; }
-                    var stories = Resources.LoadAll<NovellaEngine.Data.NovellaStory>("");
-                    NovellaEngine.Data.NovellaStory match = null;
-                    foreach (var s in stories) if (s != null && s.name == lastStoryName) { match = s; break; }
                     var launcher = UnityEngine.Object.FindFirstObjectByType<StoryLauncher>();
-                    if (match != null && launcher != null) launcher.TryLaunchStory(match);
-                    else Debug.LogWarning($"[NovellaUIBinding] LoadLastSave: история '{lastStoryName}' или StoryLauncher не найдены.");
+                    if (launcher == null) { Debug.LogWarning("[NovellaUIBinding] LoadLastSave: StoryLauncher не найден в сцене."); break; }
+
+                    string lastStoryName = PlayerPrefs.GetString("SelectedStoryID", "");
+                    if (string.IsNullOrEmpty(lastStoryName))
+                    {
+                        // Сейва ещё нет — мягко перенаправляем на стартовый
+                        // экран выбора истории вместо ругательного warning.
+                        Debug.Log("[NovellaUIBinding] LoadLastSave: ещё ничего не сохранено — открываем выбор истории.");
+                        launcher.ShowPanel(launcher.StoriesPanel);
+                        break;
+                    }
+
+                    NovellaEngine.Data.NovellaStory match = null;
+                    var stories = Resources.LoadAll<NovellaEngine.Data.NovellaStory>("");
+                    foreach (var s in stories) if (s != null && s.name == lastStoryName) { match = s; break; }
+#if UNITY_EDITOR
+                    // Fallback в Editor: история могла не оказаться в Resources/
+                    // (старый ассет не мигрировал). Ищем через AssetDatabase.
+                    if (match == null)
+                    {
+                        var guids = UnityEditor.AssetDatabase.FindAssets("t:NovellaStory");
+                        foreach (var g in guids)
+                        {
+                            var p = UnityEditor.AssetDatabase.GUIDToAssetPath(g);
+                            var s = UnityEditor.AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaStory>(p);
+                            if (s != null && s.name == lastStoryName) { match = s; break; }
+                        }
+                    }
+#endif
+
+                    if (match != null)
+                    {
+                        launcher.TryLaunchStory(match);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[NovellaUIBinding] LoadLastSave: история '{lastStoryName}' не найдена (возможно ассет удалён). Сбрасываем сейв и открываем выбор истории.");
+                        PlayerPrefs.DeleteKey("SelectedStoryID");
+                        launcher.ShowPanel(launcher.StoriesPanel);
+                    }
                     break;
                 }
 

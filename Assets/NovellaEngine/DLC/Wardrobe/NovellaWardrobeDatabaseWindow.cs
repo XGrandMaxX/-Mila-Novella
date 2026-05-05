@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿// Editor-only window. DLC-папка лежит вне Editor/ → этот файл компилируется
+// в Assembly-CSharp (runtime), который не имеет доступа к UnityEditor —
+// поэтому весь класс под #if UNITY_EDITOR. В сборке игры он просто исчезает.
+#if UNITY_EDITOR
+using UnityEngine;
 using UnityEditor;
 using NovellaEngine.Data;
 using System.Collections.Generic;
@@ -284,3 +288,4 @@ namespace NovellaEngine.DLC.Wardrobe
         }
     }
 }
+#endif

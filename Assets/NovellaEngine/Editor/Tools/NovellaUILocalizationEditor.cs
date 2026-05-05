@@ -163,13 +163,21 @@ namespace NovellaEngine.Editor
 
             GUILayout.Space(8);
 
-            if (GUILayout.Button("📥 " + ToolLang.Get("Import", "Импорт"), GUILayout.Height(22), GUILayout.Width(96)))
+            if (GUILayout.Button("📥 " + ToolLang.Get("Import JSON", "Импорт JSON"), GUILayout.Height(22), GUILayout.Width(110)))
             {
                 ImportJson();
             }
-            if (GUILayout.Button("📤 " + ToolLang.Get("Export", "Экспорт"), GUILayout.Height(22), GUILayout.Width(96)))
+            if (GUILayout.Button("📤 " + ToolLang.Get("Export JSON", "Экспорт JSON"), GUILayout.Height(22), GUILayout.Width(110)))
             {
                 ExportJson();
+            }
+            if (GUILayout.Button("📥 " + ToolLang.Get("Import CSV", "Импорт CSV"), GUILayout.Height(22), GUILayout.Width(100)))
+            {
+                ImportCsv();
+            }
+            if (GUILayout.Button("📤 " + ToolLang.Get("Export CSV", "Экспорт CSV"), GUILayout.Height(22), GUILayout.Width(100)))
+            {
+                ExportCsv();
             }
 
             GUILayout.Space(8);
@@ -740,6 +748,42 @@ namespace NovellaEngine.Editor
             string p = EditorUtility.SaveFilePanel(ToolLang.Get("Export JSON", "Экспорт JSON"), "", "novella_ui_loc", "json");
             if (string.IsNullOrEmpty(p)) return;
             File.WriteAllText(p, _table.ExportJson());
+            EditorUtility.RevealInFinder(p);
+        }
+
+        // ─── CSV ────────────────────────────────────────────────────────────────
+        // Удобно для редактирования переводов в Excel / Google Sheets и
+        // обмена с переводчиками — не все хотят возиться с JSON.
+
+        private void ImportCsv()
+        {
+            string p = EditorUtility.OpenFilePanel(ToolLang.Get("Import CSV", "Импорт CSV"), "", "csv");
+            if (string.IsNullOrEmpty(p)) return;
+            string txt = File.ReadAllText(p, System.Text.Encoding.UTF8);
+            Undo.RecordObject(_table, "Import CSV");
+            if (_table.ImportCsv(txt))
+            {
+                EditorUtility.SetDirty(_table);
+                AssetDatabase.SaveAssets();
+                Repaint();
+            }
+            else
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Failed", "Ошибка"),
+                    ToolLang.Get(
+                        "CSV import failed. Expected first row: 'Key,Category,LANG1,LANG2,...' (e.g. 'Key,Category,EN,RU').",
+                        "Импорт не удался. Первая строка должна быть «Key,Category,LANG1,LANG2,…» (например «Key,Category,EN,RU»)."),
+                    "OK");
+            }
+        }
+
+        private void ExportCsv()
+        {
+            string p = EditorUtility.SaveFilePanel(ToolLang.Get("Export CSV", "Экспорт CSV"), "", "novella_ui_loc", "csv");
+            if (string.IsNullOrEmpty(p)) return;
+            var langs = _settings != null ? _settings.Languages : new System.Collections.Generic.List<string> { _table.DefaultLanguage };
+            File.WriteAllText(p, _table.ExportCsv(langs), System.Text.Encoding.UTF8);
             EditorUtility.RevealInFinder(p);
         }
 

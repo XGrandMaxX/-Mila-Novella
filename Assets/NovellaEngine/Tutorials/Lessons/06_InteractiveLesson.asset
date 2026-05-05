@@ -14,76 +14,55 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp-Editor::NovellaEngine.Editor.Tutorials.NovellaTutorialAsset
   TutorialKey: InteractiveLesson
   TitleEN: Interactive Lesson
-  TitleRU: "\u0418\u043D\u0442\u0435\u0440\u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0439
-    \u0423\u0440\u043E\u043A"
-  DescriptionEN: Open a real example graph and see all systems working together.
-  DescriptionRU: "\u041E\u0442\u043A\u0440\u043E\u0435\u043C \u0440\u0435\u0430\u043B\u044C\u043D\u044B\u0439
-    \u0433\u0440\u0430\u0444-\u043F\u0440\u0438\u043C\u0435\u0440 \u0438 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0438\u043C
-    \u0432\u0441\u0435 \u0441\u0438\u0441\u0442\u0435\u043C\u044B \u0432\u043C\u0435\u0441\u0442\u0435."
-  Icon: "\u25B6"
+  TitleRU: "Интерактивный Урок"
+  DescriptionEN: A complete example story showing how every Novella system works together — read it, click around, learn by doing.
+  DescriptionRU: "Полноценный пример истории, где все системы Novella работают вместе — читай, кликай, учись на практике."
+  Icon: "▶️"
   OrderIndex: 6
   HostWindow: 12
   Steps:
-  - TitleEN: Welcome to the Interactive Lesson!
-    TitleRU: "\u0418\u043D\u0442\u0435\u0440\u0430\u043A\u0442\u0438\u0432\u043D\u044B\u0439
-      \u0423\u0440\u043E\u043A"
-    BodyEN: "Take a close look at this graph and see how nodes are connected. <b>Dialogue
-      \u2192 Branch \u2192 Audio \u2192 End</b> \u2014 all working together."
-    BodyRU: "\u0412\u043D\u0438\u043C\u0430\u0442\u0435\u043B\u044C\u043D\u043E \u0438\u0437\u0443\u0447\u0438
-      \u0433\u0440\u0430\u0444 \u0438 \u043F\u043E\u0441\u043C\u043E\u0442\u0440\u0438,
-      \u043A\u0430\u043A \u0441\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u044B \u043D\u043E\u0434\u044B.
-      <b>\u0414\u0438\u0430\u043B\u043E\u0433 \u2192 \u0420\u0430\u0437\u0432\u0438\u043B\u043A\u0430
-      \u2192 \u0410\u0443\u0434\u0438\u043E \u2192 \u041A\u043E\u043D\u0435\u0446</b>
-      \u2014 \u0432\u0441\u0451 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442
-      \u0432\u043C\u0435\u0441\u0442\u0435."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+  - TitleEN: "The Final Lesson — Learn by Doing"
+    TitleRU: "Финальный урок — учимся практикой"
+    BodyEN: "Five lessons of theory done. Now: <b>a complete working example</b>.\n\nThe graph in front of you is a real, runnable mini-story. It uses everything you've learned: actors, dialogue nodes, choices, variable changes, audio cues, branching endings.\n\nNo new theory here — just <b>read it, click on nodes, see how it's wired</b>. Then run it with <b>Test Play</b> and see it come alive."
+    BodyRU: "Пять уроков теории за плечами. Теперь — <b>полноценный рабочий пример</b>.\n\nГраф перед тобой — настоящая мини-история, которую можно запустить. В ней использовано всё, что прошёл: актёры, диалоги, выборы, изменения переменных, аудио, ветвящиеся концовки.\n\nНовой теории здесь нет — просто <b>читай, кликай по нодам, смотри как всё связано</b>. Потом нажми <b>Test Play</b> и увидь, как оно живёт."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
       y: 0
-      width: 1
-      height: 0.1
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 4
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 5
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Experiment freely
-    TitleRU: "\u042D\u043A\u0441\u043F\u0435\u0440\u0438\u043C\u0435\u043D\u0442\u0438\u0440\u0443\u0439
-      \u0441\u0432\u043E\u0431\u043E\u0434\u043D\u043E"
-    BodyEN: "Feel free to <b>delete, create and modify</b> nodes. Don't worry about
-      breaking things \u2014 this lesson graph auto-restores when you restart the
-      tutorial."
-    BodyRU: "\u041C\u043E\u0436\u0435\u0448\u044C \u0441\u043C\u0435\u043B\u043E
-      <b>\u0443\u0434\u0430\u043B\u044F\u0442\u044C, \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C
-      \u0438 \u043C\u0435\u043D\u044F\u0442\u044C</b> \u043D\u043E\u0434\u044B. \u041D\u0435
-      \u0431\u043E\u0439\u0441\u044F \u043D\u0438\u0447\u0435\u0433\u043E \u0441\u043B\u043E\u043C\u0430\u0442\u044C
-      \u2014 \u043E\u0431\u0443\u0447\u0430\u044E\u0449\u0438\u0439 \u0433\u0440\u0430\u0444
-      \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u0438\u0442\u0441\u044F
-      \u043F\u0440\u0438 \u043F\u0435\u0440\u0435\u0437\u0430\u043F\u0443\u0441\u043A\u0435
-      \u0443\u0440\u043E\u043A\u0430."
+  - TitleEN: "Take a Walk Through"
+    TitleRU: "Пройдись по графу"
+    BodyEN: "Pan around the canvas with <b>middle-mouse drag</b> and follow the flow:\n\n1. The <b>Start</b> node sets up the scene (background, music, character on stage).\n2. A few <b>Dialogue</b> nodes introduce the situation.\n3. A <b>Choice</b> node splits the path — different player picks lead to different branches.\n4. <b>Set Variable</b> nodes track player decisions.\n5. <b>If Variable</b> nodes check those values later for the ending.\n\nClick any node to read its content in the inspector — it's the same workflow as Lesson 3, just on a real story."
+    BodyRU: "Подвигайся по холсту <b>средней кнопкой мыши</b> и проследи поток:\n\n1. Нода <b>Start</b> готовит сцену (фон, музыка, персонаж на сцене).\n2. Пара нод <b>Диалог</b> вводит в ситуацию.\n3. Нода <b>Выбор</b> разветвляет путь — разные ответы игрока ведут в разные ветки.\n4. Ноды <b>Установить переменную</b> запоминают решения игрока.\n5. Ноды <b>Если переменная</b> проверяют эти значения для финала.\n\nКликни по любой ноде — её содержимое откроется в инспекторе. Тот же флоу, что в Уроке 3, только на настоящей истории."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
-      x: 0
-      y: 0.1
-      width: 1
-      height: 0.9
+      x: 0.05
+      y: 0.08
+      width: 0.9
+      height: 0.85
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 0
@@ -95,8 +74,95 @@ MonoBehaviour:
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Run It with Test Play"
+    TitleRU: "Запусти через Test Play"
+    BodyEN: "On the top toolbar, click the <b>▶ Test Play</b> button. The story starts playing right inside Unity — no full build needed.\n\nMake choices, watch how the story branches, see how variables change. When a branch leads to an ending, you can hit <b>Restart</b> and try the other path.\n\nThis is the most powerful workflow you have: <b>iterate fast</b>. Tweak a line of dialogue → save → Test Play again — the loop is seconds, not minutes."
+    BodyRU: "На верхней панели жми <b>▶ Test Play</b>. История начнёт играть прямо в Unity — полный билд не нужен.\n\nДелай выборы, смотри как ветвится сюжет, как меняются переменные. Дойдя до концовки, можно нажать <b>Restart</b> и попробовать другую ветку.\n\nЭто самый мощный флоу, который у тебя есть: <b>итерации в секундах</b>. Поменял реплику → сохранил → Test Play — цикл занимает секунды, а не минуты."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.05
+      y: 0.05
+      width: 0.7
+      height: 0.06
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 2
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Make It Yours"
+    TitleRU: "Сделай его своим"
+    BodyEN: "This example is yours to <b>edit, break, remix, learn from</b>. A few ideas:\n\n• Replace the dialogue text with your own — see how fast it is to retheme a story.\n• Add a third option to a choice — connect it to a new ending.\n• Add a new <b>Show Character</b> node before a dialogue — make a second actor join the scene.\n• Try installing a DLC module from Lesson 4 and dropping one of its new nodes in.\n\nNo wrong answers. The graph is just a file — duplicate it if you want to keep the original."
+    BodyRU: "Этот пример — твой, можно <b>редактировать, ломать, ремиксить, учиться</b>. Несколько идей:\n\n• Замени реплики на свои — увидь, как быстро перетемить историю.\n• Добавь третий вариант в Choice — подключи к новой концовке.\n• Добавь ноду <b>Показать персонажа</b> перед диалогом — пусть второй актёр выйдет на сцену.\n• Поставь модуль DLC из Урока 4 и подкинь его новую ноду в граф.\n\nНеправильных ответов нет. Граф — это просто файл, продублируй если хочешь сохранить оригинал."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 0
+      height: 0
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 4
+    AccentColor: {r: 1, g: 0.78, b: 0.3, a: 1}
+    PanelAnchor: 5
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "🎉 You Did It"
+    TitleRU: "🎉 Ты справился!"
+    BodyEN: "That's the whole onboarding. You now know:\n\n✅ How Unity scenes are organized for a Novella project\n✅ How to create characters with layered Paper Doll art\n✅ How to write branching stories in the visual graph\n✅ How to extend the engine with DLC modules\n✅ How to style UI and wire buttons without scripts\n✅ How a complete real-world story looks under the hood\n\nThe Welcome window is now unlocked — open <b>Novella Studio</b> from there and start building. <b>You're not a Unity user — you're a Novella creator.</b> 🚀"
+    BodyRU: "Это весь онбординг. Теперь ты умеешь:\n\n✅ Понимать, как устроены Unity-сцены под Novella-проект\n✅ Создавать персонажей со слоистой Paper-Doll графикой\n✅ Писать ветвящиеся истории в визуальном графе\n✅ Расширять движок модулями DLC\n✅ Стилизовать UI и привязывать кнопки без скриптов\n✅ Видеть, как настоящая история устроена под капотом\n\nWelcome-окно теперь разблокировано — открывай <b>Novella Studio</b> и начинай делать свою новеллу. <b>Ты больше не пользователь Unity — ты создатель Novella.</b> 🚀"
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 0
+      height: 0
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 4
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 5
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0

@@ -99,6 +99,10 @@ namespace NovellaEngine.Editor.Tutorials
             _stepStartTime = _tutorialStartTime;
             _textScrollPos = Vector2.zero;
 
+            // Сбрасываем состояние плавного перехода — иначе первый шаг
+            // нового туториала «приедет» с прошлой позиции.
+            NovellaTutorialOverlay.ResetTransitionState();
+
             OnTutorialStarted?.Invoke(asset);
             OnStepChanged?.Invoke(asset, 0);
             RepaintAll();
@@ -111,6 +115,7 @@ namespace NovellaEngine.Editor.Tutorials
             _activeAsset = null;
             _currentStep = 0;
             NovellaTutorialOverlay.DisposeVideo();
+            NovellaTutorialOverlay.ResetTransitionState();
             OnTutorialCompleted?.Invoke(asset);
             RepaintAll();
         }
@@ -157,7 +162,7 @@ namespace NovellaEngine.Editor.Tutorials
 
             ForceStopTutorial();
 
-            // Восстановление UX-флоу: после завершения/пропуска возвращаемся в Welcome.
+            // Восстановление UX-флоу: после завершения возвращаемся в Welcome.
             // Откладываем — чтобы успели завершиться все текущие OnGUI/IMGUI операции
             // во всех окнах, иначе можно поймать "Invalid GUILayout state".
             EditorApplication.delayCall += () =>
@@ -166,6 +171,27 @@ namespace NovellaEngine.Editor.Tutorials
                 CloseTutorialGraphWindows();
 
                 // И открываем Welcome поверх
+                NovellaEngine.Editor.NovellaWelcomeWindow.ShowWindow();
+            };
+        }
+
+        /// <summary>
+        /// «Закрыть» — пользователь выходит из туториала, но мы НЕ помечаем урок
+        /// пройденным и НЕ продвигаем общий прогресс. Welcome-окно после этого
+        /// откроется в том же состоянии (тот же selected, тот же locked).
+        /// Используется кнопкой "✕ Закрыть" в overlay-панели туториала.
+        /// </summary>
+        public static void CancelTutorial()
+        {
+            if (_activeAsset == null) return;
+
+            ForceStopTutorial();
+
+            // Возвращаемся в Welcome — но без отметки прогресса.
+            // (Если юзер просто хотел уйти — Welcome даст ему перепройти позже.)
+            EditorApplication.delayCall += () =>
+            {
+                CloseTutorialGraphWindows();
                 NovellaEngine.Editor.NovellaWelcomeWindow.ShowWindow();
             };
         }
@@ -209,9 +235,11 @@ namespace NovellaEngine.Editor.Tutorials
                 }
             }
 
-            // Принудительно репеинтим целевое окно для анимаций
-            var win = EditorWindow.focusedWindow;
-            if (win != null) win.Repaint();
+            // Принудительно репеинтим все окна — анимации (smooth target,
+            // breathing spotlight, multi-layer glow) ломаются если кадры
+            // не идут. RepaintAll дороговат, но активен только во время
+            // туториала (~короткое обучение).
+            RepaintAll();
         }
 
         private static NovellaTutorialStep CurrentStep()
@@ -317,36 +345,139 @@ namespace NovellaEngine.Editor.Tutorials
             float boxW = hasMedia ? 580f : 540f;
             float boxH = hasMedia ? 420f : 200f;
 
-            Rect panel = ComputePanelRect(target, w, h, boxW, boxH, step.PanelAnchor);
+            // Используем smooth-target от overlay чтобы стрелка/якорь панели
+            // тоже плавно следовали за интерполированным rect'ом, а не за raw.
+            Rect smoothTarget = NovellaTutorialOverlay.GetCurrentSmoothTarget(window, target);
+            Rect panel = ComputePanelRect(smoothTarget, w, h, boxW, boxH, step.PanelAnchor);
 
             // Стрелка от панели к цели (для Hint=Arrow)
-            if (step.HintStyle == ETutorialHintStyle.Arrow && target.width > 1)
+            if (step.HintStyle == ETutorialHintStyle.Arrow && smoothTarget.width > 1)
             {
-                NovellaTutorialOverlay.DrawArrowFromPanelToTarget(panel, target, step.AccentColor, intro);
+                NovellaTutorialOverlay.DrawArrowFromPanelToTarget(panel, smoothTarget, step.AccentColor, intro);
             }
 
-            // Сама панель — appearance анимация
-            float py = panel.y + (1f - intro) * 18f;
-            Rect drawRect = new Rect(panel.x, py, panel.width, panel.height);
+            // Appearance-анимация: scale-from-95% + slide-up + opacity.
+            // Панель появляется не «плоско», а с лёгким зумом — как в нативных
+            // современных UI (iOS popover / VS Code popups).
+            float scale = 0.94f + 0.06f * intro;
+            float invScale = 1f / scale;
+            float scaledW = panel.width * scale;
+            float scaledH = panel.height * scale;
+            float scaledX = panel.x + (panel.width - scaledW) * 0.5f;
+            float scaledY = panel.y + (panel.height - scaledH) * 0.5f + (1f - intro) * 14f;
+            Rect drawRect = new Rect(scaledX, scaledY, scaledW, scaledH);
 
-            // Тень
-            Rect shadow = new Rect(drawRect.x + 4, drawRect.y + 6, drawRect.width, drawRect.height);
-            EditorGUI.DrawRect(shadow, new Color(0, 0, 0, 0.45f * intro));
+            // ─── Многослойная тень для глубины ───
+            for (int s = 0; s < 4; s++)
+            {
+                float so = 2f + s * 5f;
+                float sa = (0.38f - s * 0.08f) * intro;
+                EditorGUI.DrawRect(new Rect(drawRect.x + so * 0.5f, drawRect.y + so, drawRect.width, drawRect.height),
+                    new Color(0, 0, 0, sa));
+            }
 
-            // Фон
-            EditorGUI.DrawRect(drawRect, new Color(0.11f, 0.12f, 0.16f, 0.97f * intro));
+            // ─── Основной фон с градиентом сверху-вниз ───
+            // Top — чуть светлее (acc-tinted), bottom — глубокий тёмный.
+            // Эффект «глянца» как у iOS-карточек.
+            // gradSteps = высота в px → 1px на шаг, banding невидим.
+            int gradSteps = Mathf.Max(40, Mathf.CeilToInt(drawRect.height));
+            float gradStepH = drawRect.height / gradSteps + 1f;
+            for (int gi = 0; gi < gradSteps; gi++)
+            {
+                float t = gi / (float)(gradSteps - 1);
+                Color top = new Color(0.16f, 0.17f, 0.22f, 0.97f * intro);
+                Color bot = new Color(0.09f, 0.10f, 0.14f, 0.97f * intro);
+                Color row = Color.Lerp(top, bot, t);
+                float gy = drawRect.y + drawRect.height * t;
+                EditorGUI.DrawRect(new Rect(drawRect.x, gy, drawRect.width, gradStepH), row);
+            }
 
-            // Цветной акцент сверху
-            Rect accentBar = new Rect(drawRect.x, drawRect.y, drawRect.width, 4);
-            EditorGUI.DrawRect(accentBar, step.AccentColor);
+            // ─── HEADER bar (30px) с акцентной заливкой и иконкой 🎓 ───
+            const float headerH = 30f;
+            Rect header = new Rect(drawRect.x, drawRect.y, drawRect.width, headerH);
+            // Градиент акцентного цвета: ярче слева, темнее справа.
+            // hSteps масштабируется по ширине (1px на шаг) — banding не виден.
+            int hSteps = Mathf.Max(80, Mathf.CeilToInt(header.width));
+            float hStepW = header.width / hSteps + 1f;
+            for (int hi = 0; hi < hSteps; hi++)
+            {
+                float t = hi / (float)(hSteps - 1);
+                Color leftC = new Color(step.AccentColor.r, step.AccentColor.g, step.AccentColor.b, 0.95f * intro);
+                Color rightC = new Color(step.AccentColor.r * 0.55f, step.AccentColor.g * 0.55f, step.AccentColor.b * 0.55f, 0.85f * intro);
+                Color col = Color.Lerp(leftC, rightC, t);
+                float gx = header.x + header.width * t;
+                EditorGUI.DrawRect(new Rect(gx, header.y, hStepW, header.height), col);
+            }
+            // Тонкая линия под header'ом.
+            EditorGUI.DrawRect(new Rect(header.x, header.yMax, header.width, 1),
+                new Color(0, 0, 0, 0.45f * intro));
 
-            // Внутренняя граница
-            Handles.color = new Color(step.AccentColor.r, step.AccentColor.g, step.AccentColor.b, 0.45f * intro);
-            Handles.DrawSolidRectangleWithOutline(drawRect, Color.clear, Handles.color);
+            // 🎓 иконка слева в header'е.
+            var hdrIconSt = new GUIStyle(EditorStyles.label) {
+                fontSize = 16, alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = new Color(1, 1, 1, intro) }
+            };
+            GUI.Label(new Rect(header.x + 12, header.y, 30, header.height), "🎓", hdrIconSt);
+
+            // Tutorial title в header'е (имя ассета или дефолт).
+            string tutTitle = _activeAsset != null
+                ? (ToolLang.IsRU ? _activeAsset.TitleRU : _activeAsset.TitleEN)
+                : ToolLang.Get("Tutorial", "Туториал");
+            if (string.IsNullOrEmpty(tutTitle)) tutTitle = ToolLang.Get("Tutorial", "Туториал");
+            var hdrTitleSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12, alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = new Color(1, 1, 1, intro) }
+            };
+            GUI.Label(new Rect(header.x + 42, header.y, header.width - 200, header.height), tutTitle, hdrTitleSt);
+
+            // ─── Step counter pill справа в header'е ───
+            // Большая, читаемая, на тёмной плашке поверх акцентного header'а.
+            if (_activeAsset != null && _activeAsset.Steps != null)
+            {
+                int totalSteps = _activeAsset.Steps.Count;
+                string counter = (_currentStep + 1) + " / " + totalSteps;
+                var pillSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 11,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, intro) }
+                };
+                Vector2 sz = pillSt.CalcSize(new GUIContent(counter));
+                float pillW = sz.x + 16;
+                Rect pill = new Rect(header.xMax - pillW - 12, header.y + 5, pillW, header.height - 10);
+                EditorGUI.DrawRect(pill, new Color(0, 0, 0, 0.40f * intro));
+                GUI.Label(pill, counter, pillSt);
+            }
+
+            // ─── Прогресс-бар (тонкий, под header'ом) ───
+            if (_activeAsset != null && _activeAsset.Steps != null && _activeAsset.Steps.Count > 1)
+            {
+                Rect track = new Rect(drawRect.x, header.yMax + 1, drawRect.width, 3);
+                EditorGUI.DrawRect(track, new Color(0, 0, 0, 0.30f * intro));
+                float p = (_currentStep + 1) / (float)_activeAsset.Steps.Count;
+                Rect fill = new Rect(track.x, track.y, track.width * p, track.height);
+                EditorGUI.DrawRect(fill, new Color(step.AccentColor.r, step.AccentColor.g, step.AccentColor.b, intro));
+            }
+
+            // ─── Внешний glow-обод вокруг всей панели ───
+            for (int g = 0; g < 3; g++)
+            {
+                float a = (0.55f - g * 0.18f) * intro;
+                Color border = new Color(step.AccentColor.r, step.AccentColor.g, step.AccentColor.b, a);
+                Rect br = new Rect(drawRect.x - g, drawRect.y - g, drawRect.width + g * 2, drawRect.height + g * 2);
+                Handles.color = border;
+                Handles.DrawSolidRectangleWithOutline(br, Color.clear, border);
+            }
             Handles.color = Color.white;
 
-            float padX = 22f, padY = 18f;
-            Rect inner = new Rect(drawRect.x + padX, drawRect.y + padY + 6, drawRect.width - padX * 2f, drawRect.height - padY * 2f - 50f);
+            // Inner area начинается ПОД header'ом + progress bar (~38px),
+            // иначе текст шага наезжает на title-полоску.
+            const float headerOffset = 42f;
+            float padX = 22f, padY = 16f;
+            Rect inner = new Rect(
+                drawRect.x + padX,
+                drawRect.y + headerOffset + padY,
+                drawRect.width - padX * 2f,
+                drawRect.height - headerOffset - padY - 50f);
 
             Color oldGui = GUI.color;
             GUI.color = new Color(1, 1, 1, intro);
@@ -414,15 +545,28 @@ namespace NovellaEngine.Editor.Tutorials
             double timeOnStep = EditorApplication.timeSinceStartup - _stepStartTime;
             int unlockIn = Mathf.CeilToInt((float)(step.MinHoldSeconds - timeOnStep));
 
-            // Skip
-            if (step.AllowSkip)
+            // Close — выйти из туториала, НЕ отмечая прогресс. Раньше эта
+            // кнопка называлась "Skip" и красным цветом дёргала CompleteTutorial,
+            // что фактически награждало пользователя за пропуск (открывался
+            // следующий урок). Теперь это нейтрально-серая «Закрыть»:
+            //   • прогресс не двигается
+            //   • следующий урок остаётся залоченным
+            //   • Welcome-окно открывается с тем же selected
+            // Награда за пройденный урок (анимация разблокировки) теперь
+            // случается ТОЛЬКО при честном Done на последнем шаге.
+            //
+            // На ПОСЛЕДНЕМ шаге кнопку Close скрываем — иначе пользователь
+            // случайно нажмёт её вместо «Завершить», и прогресс не зачтётся.
+            // Выйти из последнего шага можно только через Back или Finish.
+            bool isLastStep = (_currentStep == _activeAsset.Steps.Count - 1);
+            if (step.AllowSkip && !isLastStep)
             {
-                GUI.backgroundColor = new Color(0.55f, 0.32f, 0.32f);
-                if (GUILayout.Button(ToolLang.Get("Skip Tour", "Пропустить"), GUILayout.Width(120), GUILayout.Height(30)))
+                GUI.backgroundColor = new Color(0.30f, 0.32f, 0.38f);
+                if (GUILayout.Button("✕ " + ToolLang.Get("Close", "Закрыть"), GUILayout.Width(110), GUILayout.Height(30)))
                 {
                     // Откладываем — иначе _activeAsset = null прямо в середине этого OnGUI-кадра,
                     // и доступ к нему через 10 строк ниже падает с NRE.
-                    EditorApplication.delayCall += CompleteTutorial;
+                    EditorApplication.delayCall += CancelTutorial;
                 }
                 GUI.backgroundColor = Color.white;
             }

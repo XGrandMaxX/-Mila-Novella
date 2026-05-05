@@ -14,7 +14,23 @@ namespace NovellaEngine.Editor.Tutorials
     {
         private const string TUTORIALS_DIR = "Assets/NovellaEngine/Tutorials/Lessons";
 
-        [MenuItem("Tools/Novella Engine/Tutorials/Migrate Legacy Tutorials")]
+        [MenuItem("Tools/Novella Engine/Tutorials/Edit Tutorials…", priority = 0)]
+        public static void OpenTutorialsFolder()
+        {
+            var folderObj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(TUTORIALS_DIR);
+            if (folderObj != null) EditorGUIUtility.PingObject(folderObj);
+
+            var guids = AssetDatabase.FindAssets("t:NovellaTutorialAsset", new[] { TUTORIALS_DIR });
+            if (guids != null && guids.Length > 0)
+            {
+                var first = AssetDatabase.LoadAssetAtPath<NovellaTutorialAsset>(AssetDatabase.GUIDToAssetPath(guids[0]));
+                if (first != null) Selection.activeObject = first;
+            }
+
+            EditorApplication.ExecuteMenuItem("Window/General/Project");
+        }
+
+        [MenuItem("Tools/Novella Engine/Tutorials/Migrate Legacy Tutorials", priority = 100)]
         public static void MigrateMenu()
         {
             int created = MigrateIfNeeded(force: true);

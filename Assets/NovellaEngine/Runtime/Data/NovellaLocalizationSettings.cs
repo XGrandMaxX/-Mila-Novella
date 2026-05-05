@@ -3,19 +3,27 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using UnityEngine;
 
 namespace NovellaEngine.Data
 {
     /// <summary>
-    /// Маленький помощник для перевода самого интерфейса редактора
+    /// РџРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ СЏР·С‹РєР° РёРЅС‚РµСЂС„РµР№СЃР° РёРЅСЃС‚СЂСѓРјРµРЅС‚Р° (RU/EN).
+    /// Р’ Editor С…СЂР°РЅРёС‚СЃСЏ РІ EditorPrefs; РІ build-СЃР±РѕСЂРєРµ РёРіСЂС‹ EditorPrefs РЅРµС‚,
+    /// РїРѕСЌС‚РѕРјСѓ РІ СЂР°РЅС‚Р°Р№РјРµ РІРѕР·РІСЂР°С‰Р°РµРј РґРµС„РѕР»С‚РЅС‹Р№ СЏР·С‹Рє (RU) Рё Toggle = no-op.
     /// </summary>
     public static class ToolLang
     {
+#if UNITY_EDITOR
         public static bool IsRU => EditorPrefs.GetBool("NovellaGraph_IsRU", true);
-
         public static void Toggle() => EditorPrefs.SetBool("NovellaGraph_IsRU", !IsRU);
+#else
+        public static bool IsRU => true;
+        public static void Toggle() { /* runtime no-op */ }
+#endif
 
         public static string Get(string en, string ru) => IsRU ? ru : en;
     }
@@ -88,7 +96,7 @@ namespace NovellaEngine.Data
 
             foreach (var node in tree.Nodes)
             {
-                // Экспорт реплик диалога
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 if (node is DialogueNodeData dialData)
                 {
                     for (int i = 0; i < dialData.DialogueLines.Count; i++)
@@ -96,7 +104,7 @@ namespace NovellaEngine.Data
                         sb.AppendLine(CreateCSVRow(node.NodeID, $"Line_{i}", dialData.DialogueLines[i].LocalizedPhrase, langs));
                     }
                 }
-                // Экспорт вариантов выбора ветвления
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 else if (node is BranchNodeData branchData)
                 {
                     for (int i = 0; i < branchData.Choices.Count; i++)
@@ -104,7 +112,7 @@ namespace NovellaEngine.Data
                         sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", branchData.Choices[i].LocalizedText, langs));
                     }
                 }
-                // Экспорт вариантов (Истина/Ложь) условия
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅпїЅпїЅ/пїЅпїЅпїЅпїЅ) пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 else if (node is ConditionNodeData condData)
                 {
                     for (int i = 0; i < condData.Choices.Count; i++)
@@ -112,7 +120,7 @@ namespace NovellaEngine.Data
                         sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", condData.Choices[i].LocalizedText, langs));
                     }
                 }
-                // Экспорт вариантов рандома
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 else if (node is RandomNodeData rndData)
                 {
                     for (int i = 0; i < rndData.Choices.Count; i++)
@@ -120,7 +128,7 @@ namespace NovellaEngine.Data
                         sb.AppendLine(CreateCSVRow(node.NodeID, $"Choice_{i}", rndData.Choices[i].LocalizedText, langs));
                     }
                 }
-                // Экспорт текста заметок
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 else if (node is NoteNodeData noteData)
                 {
                     sb.AppendLine(CreateCSVRow(node.NodeID, "NoteText", noteData.LocalizedNoteText, langs));
@@ -162,7 +170,7 @@ namespace NovellaEngine.Data
                         if (int.TryParse(fieldType.Split('_')[1], out int lineIdx) && lineIdx < dialData.DialogueLines.Count)
                             targetString = dialData.DialogueLines[lineIdx].LocalizedPhrase;
                     }
-                    else if (fieldType == "Phrase") // Для совместимости со старыми файлами экспорта
+                    else if (fieldType == "Phrase") // пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                     {
                         if (dialData.DialogueLines.Count > 0) targetString = dialData.DialogueLines[0].LocalizedPhrase;
                     }

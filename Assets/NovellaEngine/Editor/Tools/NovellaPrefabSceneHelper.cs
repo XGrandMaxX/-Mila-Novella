@@ -20,6 +20,15 @@ namespace NovellaEngine.Editor
         public const string CANVAS_NAME     = "[Novella]_PrefabEditor_Canvas";
         public const string PREFAB_HOLDER   = "[Novella]_PrefabHolder";
 
+        // Системная сцена движка — её нельзя удалять / добавлять в Build /
+        // открывать из Сцен и Меню. Используется только Кузницей UI как
+        // песочница для редактора префабов.
+        public static bool IsSystemScene(string scenePath)
+        {
+            if (string.IsNullOrEmpty(scenePath)) return false;
+            return scenePath.Replace('\\', '/') == MOCK_SCENE_PATH;
+        }
+
         // Возвращает путь к mock-сцене. Если её нет — создаёт.
         public static string EnsureMockScene()
         {

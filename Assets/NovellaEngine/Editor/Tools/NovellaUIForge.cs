@@ -146,6 +146,18 @@ namespace NovellaEngine.Editor
         private Vector2 _treeScroll;
         private Vector2 _inspectorScroll;
 
+        // Двойной таб у инспектора: «📐 Вид» — старое содержимое (anchors, размер,
+        // цвет), «⚙ Логика» — настройки NovellaEngine-скриптов на выделенном
+        // объекте (drag-target поля для ассетов и т.п.). По умолчанию View.
+        private enum InspectorTab { View, Logic }
+        private InspectorTab _inspectorTab = InspectorTab.View;
+
+        // Закэшированный SerializedObject для текущего объекта в Logic-табе —
+        // пересоздаётся при смене selection. Использование SerializedObject
+        // даёт стандартное поведение Undo + multi-edit + valid drag-drop.
+        private SerializedObject _logicCachedSO;
+        private GameObject _logicCachedGO;
+
         // Свёрнутые ветки в дереве сцены — храним InstanceID, чтобы не держать
         // ссылки на удалённые объекты. Сессионное состояние, пересоздание окна
         // сбрасывает (намеренно — логика «по дефолту всё развернуто»).
@@ -155,6 +167,16 @@ namespace NovellaEngine.Editor
         // Хранит последнее значение, при котором мы свернули все root-канвасы.
         // -1 = ни разу не сворачивали → форсим collapse при первом входе.
         private int _lastCollapseSession = -1;
+
+        // Game mode: в Play-режиме клики на превью идут в EventSystem сцены
+        // (можно играть кнопками внутри Кузницы), в Edit-режиме — обычное
+        // выделение/перетаскивание элементов. Флаг персистится в EditorPrefs.
+        private const string PREF_GAME_MODE = "Novella_ForgeGameMode";
+        private bool _gameMode
+        {
+            get => EditorPrefs.GetBool(PREF_GAME_MODE, false);
+            set => EditorPrefs.SetBool(PREF_GAME_MODE, value);
+        }
         // 🔒 Заблокированные объекты — нельзя удалять/дублировать/переключать
         // active/двигать в дереве. Только редактор-only флаг (не влияет на игру).
         private HashSet<int> _lockedNodes = new HashSet<int>();
@@ -207,6 +229,21 @@ namespace NovellaEngine.Editor
                 _previewTexture.Release();
                 UnityEngine.Object.DestroyImmediate(_previewTexture);
                 _previewTexture = null;
+            }
+        }
+
+        // Вызывается NovellaHubWindow при выходе из вкладки Кузницы UI на
+        // другой модуль. Если мы в Prefabs-режиме, mock-сцена сейчас загружена
+        // additive — её нужно снять, иначе она «зависает» в Hierarchy пока
+        // юзер не вернётся в Кузницу.
+        public void OnLeavingForgeModule()
+        {
+            if (_mode == ForgeMode.Prefabs)
+            {
+                NovellaPrefabSceneHelper.CloseMockSceneAdditive();
+                _mode = ForgeMode.Scene;
+                _currentPrefabAssetPath = null;
+                _currentPrefabInstance = null;
             }
         }
 
@@ -348,16 +385,230 @@ namespace NovellaEngine.Editor
 
             DrawPlayModeOverlay(position, canvasRect);
             DrawStartPlayButton(canvasRect);
+            DrawGameModeToggle(canvasRect);
+        }
+
+        // Переключатель «🎮 Game / 🎨 Edit». Виден только в Play-режиме —
+        // в Edit-режиме нет смысла (клики и так редактируют сцену).
+        // В Game-режиме клики на превью пробрасываются в EventSystem сцены
+        // (см. HandleCanvasInput).
+        private void DrawGameModeToggle(Rect canvasRect)
+        {
+            if (!EditorApplication.isPlaying) return;
+
+            bool gameOn = _gameMode;
+            string label = gameOn
+                ? "🎮  " + ToolLang.Get("GAME MODE", "ИГРОВОЙ РЕЖИМ")
+                : "🎨  " + ToolLang.Get("EDIT MODE", "РЕЖИМ ПРАВКИ");
+            GUIStyle measureSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11 };
+            Vector2 sz = measureSt.CalcSize(new GUIContent(label));
+            float padX = 12f, padY = 5f;
+            float btnW = sz.x + padX * 2f;
+            float btnH = sz.y + padY * 2f;
+            float btnY = canvasRect.y + 48f + 8f; // под canvas-toolbar
+            float btnX = canvasRect.x + 12f;
+            Rect btnRect = new Rect(btnX, btnY, btnW, btnH);
+
+            // Единый стиль для обоих состояний: тёмный полупрозрачный фон +
+            // цветной нижний bar (синий = Игра, оранжевый = Правка). Hover
+            // лишь немного осветляет фон.
+            Color barColor = gameOn
+                ? new Color(0.30f, 0.62f, 0.95f)
+                : new Color(0.95f, 0.62f, 0.30f);
+            Event e = Event.current;
+            bool hover = btnRect.Contains(e.mousePosition);
+
+            EditorGUI.DrawRect(btnRect, hover
+                ? new Color(0.10f, 0.12f, 0.18f, 0.92f)
+                : new Color(0.06f, 0.08f, 0.12f, 0.88f));
+            DrawRectBorder(btnRect, new Color(0f, 0f, 0f, 0.6f));
+            // Цветной индикатор-полоска снизу.
+            EditorGUI.DrawRect(new Rect(btnRect.x, btnRect.yMax - 3f, btnRect.width, 3f), barColor);
+            EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Link);
+
+            var st = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 11,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = barColor }
+            };
+            GUI.Label(btnRect, label, st);
+
+            if (e.type == EventType.MouseDown && e.button == 0 && hover)
+            {
+                _gameMode = !gameOn;
+                // Снимаем выделение в Game-режиме — в превью игры рамка
+                // editor-выделения отвлекает.
+                if (_gameMode)
+                {
+                    _selectedList.Clear();
+                    _pingTarget = null;
+                }
+                e.Use();
+                _window?.Repaint();
+            }
+
+            // Подсказка ПОД кнопкой, узкая (макс 280px) — чтобы не наезжать на
+            // подсказку EXIT-кнопки в правом верхнем углу.
+            if (NovellaSettingsModule.ShowGuide)
+            {
+                string hint = gameOn
+                    ? ToolLang.Get(
+                        "Clicks INSIDE the preview go to the running game. Try clicking buttons / advancing dialogue.",
+                        "Клики по превью идут В работающую игру. Жми на кнопки / листай диалоги.")
+                    : ToolLang.Get(
+                        "Clicks select / move / resize UI. Switch to Game to play through the preview.",
+                        "Клики выделяют / двигают / меняют размер UI. Переключи на Игру чтобы играть через превью.");
+                var hintSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10, wordWrap = true,
+                    alignment = TextAnchor.UpperLeft,
+                    normal = { textColor = new Color(1f, 1f, 1f, 0.85f) }
+                };
+                float hintW = 280f;
+                float hintH = hintSt.CalcHeight(new GUIContent(hint), hintW - 12f);
+                Rect hintRect = new Rect(btnRect.x, btnRect.yMax + 6f, hintW, hintH + 8f);
+                EditorGUI.DrawRect(hintRect, new Color(0f, 0f, 0f, 0.65f));
+                GUI.Label(new Rect(hintRect.x + 6, hintRect.y + 4, hintW - 12, hintH), hint, hintSt);
+            }
+        }
+
+        // Доставляет клик из координат превью в реальную сцену через EventSystem.
+        // ExecuteHierarchy: если попали в дочерний Image (или Label), событие
+        // всплывёт на Button-родителя у которого висит IPointerClickHandler.
+        // Также вызываем Select() — чтобы InputField'ы становились активными
+        // и принимали клавиатурный ввод (см. ForwardKeyToSelectedInput).
+        private static void DispatchSceneClick(Vector2 sceneScreenPos)
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es == null) return;
+
+            var pd = new UnityEngine.EventSystems.PointerEventData(es)
+            {
+                position         = sceneScreenPos,
+                pressPosition    = sceneScreenPos,
+                button           = UnityEngine.EventSystems.PointerEventData.InputButton.Left,
+                clickCount       = 1,
+                clickTime        = Time.unscaledTime,
+                eligibleForClick = true,
+            };
+
+            var results = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+            es.RaycastAll(pd, results);
+            // Fallback: пробежать всем GraphicRaycaster напрямую (если стандартный
+            // pipeline не выдал хит — например Canvas в Overlay-режиме).
+            if (results.Count == 0)
+            {
+                var raycasters = UnityEngine.Object.FindObjectsByType<UnityEngine.UI.GraphicRaycaster>(
+                    FindObjectsSortMode.None);
+                foreach (var rc in raycasters)
+                {
+                    if (rc == null || !rc.isActiveAndEnabled) continue;
+                    rc.Raycast(pd, results);
+                }
+            }
+            if (results.Count == 0) return;
+
+            var hit = results[0];
+            pd.pointerPressRaycast   = hit;
+            pd.pointerCurrentRaycast = hit;
+            pd.pointerPress          = hit.gameObject;
+            pd.rawPointerPress       = hit.gameObject;
+
+            UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(hit.gameObject, pd,
+                UnityEngine.EventSystems.ExecuteEvents.pointerDownHandler);
+            UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(hit.gameObject, pd,
+                UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
+            var clickHandler = UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(hit.gameObject, pd,
+                UnityEngine.EventSystems.ExecuteEvents.pointerClickHandler);
+
+            // Когда включены 💡 Подсказки — лог что клик поймал. Удобно
+            // для диагностики «нажимаю и ничего не происходит».
+            if (NovellaSettingsModule.ShowGuide)
+            {
+                Debug.Log($"[Novella Game Mode] Click → {hit.gameObject.name}" +
+                          (clickHandler != null ? $" → handler on {clickHandler.name}" : " (no IPointerClickHandler in hierarchy)"));
+            }
+
+            // Явно ставим selection ТОЛЬКО для InputField'ов — иначе клик по
+            // Button'у переводит EventSystem в селектед-состояние на этой кнопке,
+            // что иногда ломает обработку следующего клика.
+            var legacyInput = hit.gameObject.GetComponentInParent<UnityEngine.UI.InputField>();
+            if (legacyInput != null) { es.SetSelectedGameObject(legacyInput.gameObject); return; }
+            var tmpInput = hit.gameObject.GetComponentInParent<TMPro.TMP_InputField>();
+            if (tmpInput != null) es.SetSelectedGameObject(tmpInput.gameObject);
+        }
+
+        // Помечен ли GameObject как «настраиваемый» — есть ли на нём скрипт
+        // из NovellaEngine.* namespace? Если да, в дереве показываем ⚙-иконку
+        // и в инспекторе доступен таб «Логика» с полями этого скрипта.
+        private static bool HasConfigurableScript(GameObject go)
+        {
+            if (go == null) return false;
+            var comps = go.GetComponents<MonoBehaviour>();
+            for (int i = 0; i < comps.Length; i++)
+            {
+                var c = comps[i];
+                if (c == null) continue;
+                var ns = c.GetType().Namespace;
+                if (ns != null && ns.StartsWith("NovellaEngine")) return true;
+            }
+            return false;
+        }
+
+        // Передаёт нажатую клавишу из IMGUI в выбранный InputField сцены.
+        // Поддерживает legacy UnityEngine.UI.InputField (ProcessEvent — public)
+        // и TMPro.TMP_InputField (ProcessEvent — internal в Unity 6, через
+        // reflection). Метод кэшируем чтобы не платить за GetMethod каждый клик.
+        private static System.Reflection.MethodInfo _tmpProcessEvent;
+        private static bool _tmpProcessEventResolved;
+        private static bool ForwardKeyToSelectedInput(Event e)
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es == null) return false;
+            var sel = es.currentSelectedGameObject;
+            if (sel == null) return false;
+
+            var legacy = sel.GetComponent<UnityEngine.UI.InputField>();
+            if (legacy != null) { legacy.ProcessEvent(e); return true; }
+
+            var tmp = sel.GetComponent<TMPro.TMP_InputField>();
+            if (tmp != null)
+            {
+                if (!_tmpProcessEventResolved)
+                {
+                    _tmpProcessEvent = typeof(TMPro.TMP_InputField).GetMethod("ProcessEvent",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic);
+                    _tmpProcessEventResolved = true;
+                }
+                if (_tmpProcessEvent != null)
+                {
+                    _tmpProcessEvent.Invoke(tmp, new object[] { e });
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // Зелёная плавающая кнопка «▶ Запустить» в правом верхнем углу canvas-
         // превью. Дублирует кнопку «Запустить» из топбара Хаба (на Главной).
-        // Прячется когда уже в Play (там её место занимает кнопка выхода).
-        // Если включены Подсказки — слева от кнопки выводится пояснение что
-        // такое Play Mode и зачем он.
+        // Прячется когда уже в Play (там её место занимает кнопка выхода)
+        // или когда мы в Prefab-режиме (тестировать префаб бессмысленно — он
+        // не запускается отдельно).
         private void DrawStartPlayButton(Rect canvasRect)
         {
             if (EditorApplication.isPlaying) return;
+            if (_mode == ForgeMode.Prefabs) return;
+            // Прячем если нет истории или нет юзерской сцены — запускать нечего.
+            // (В таком состоянии Кузница и так показывает welcome-экран с
+            // карточками пресетов; кнопка ▶ сбивала бы юзера с толку.)
+            if (!NovellaHubWindow.HasAnyStoryStatic() || !NovellaHubWindow.HasAnyUserSceneStatic()) return;
+            // Активная история должна быть выбрана — иначе StoryLauncher
+            // не сможет ничего загрузить и Play даст пустой экран.
+            if (!NovellaHubWindow.HasActiveStorySelected()) return;
 
             Color green = new Color(0.30f, 0.85f, 0.45f);
             Color greenBright = new Color(0.45f, 1f, 0.55f);
@@ -455,9 +706,9 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(canvasRect.x, canvasRect.y, w, canvasRect.height), green);
             EditorGUI.DrawRect(new Rect(canvasRect.xMax - w, canvasRect.y, w, canvasRect.height), green);
 
-            // Grace-период — первые 500мс после старта Play. Кнопка серая и
+            // Grace-период — первые 1.5с после старта Play. Кнопка серая и
             // не реагирует на клик — защита от случайного двойного клика.
-            const double GRACE_SECONDS = 0.5;
+            const double GRACE_SECONDS = 1.5;
             double playStart = ParsePlayStartTime();
             double elapsed = EditorApplication.timeSinceStartup - playStart;
             bool grace = playStart > 0 && elapsed < GRACE_SECONDS;
@@ -503,12 +754,14 @@ namespace NovellaEngine.Editor
             // кнопка «отомкнулась» через 0.5с без клика юзера.
             if (grace) _window?.Repaint();
 
-            // Подсказка СЛЕВА от плашки (на той же позиции, как у «▶ Запустить»).
+            // Подсказка ПОД плашкой, узкая (~280px), выровнена по правому
+            // краю кнопки. Под верхним рядом теперь две колонки подсказок:
+            // слева под Game-toggle, справа под Exit — они не пересекаются.
             if (NovellaSettingsModule.ShowGuide)
             {
                 string hint = ToolLang.Get(
-                    "Click the green button to exit Play Mode. While Play is running, you can preview your story exactly as players will see it (try clicking buttons, advancing dialogue). UI edits made now are NOT saved — Unity reverts them when Play stops.",
-                    "Нажми зелёную кнопку чтобы выйти из игрового режима. Пока Play идёт, ты видишь свою историю так же как её увидят игроки (можешь кликать кнопки, листать диалоги). Правки UI сейчас НЕ сохраняются — Unity откатит их при выходе.");
+                    "Click to exit Play Mode. UI edits made now are NOT saved — Unity reverts them when Play stops.",
+                    "Нажми чтобы выйти из игрового режима. Правки UI сейчас НЕ сохраняются — Unity откатит их при выходе.");
                 GUIStyle hintSt = new GUIStyle(EditorStyles.miniLabel)
                 {
                     fontSize = 10,
@@ -516,14 +769,11 @@ namespace NovellaEngine.Editor
                     wordWrap = true,
                     normal = { textColor = green }
                 };
-                float hintW = Mathf.Max(160f, Mathf.Min(420f, btnRect.x - canvasRect.x - 24f));
-                if (hintW > 100f)
-                {
-                    float hintH = hintSt.CalcHeight(new GUIContent(hint), hintW);
-                    Rect hintRect = new Rect(btnRect.x - 8f - hintW, btnRect.y, hintW, Mathf.Max(btnRect.height, hintH));
-                    EditorGUI.DrawRect(hintRect, new Color(0f, 0f, 0f, 0.55f));
-                    GUI.Label(hintRect, hint, hintSt);
-                }
+                float hintW = 280f;
+                float hintH = hintSt.CalcHeight(new GUIContent(hint), hintW - 12f);
+                Rect hintRect = new Rect(btnRect.xMax - hintW, btnRect.yMax + 6f, hintW, hintH + 8f);
+                EditorGUI.DrawRect(hintRect, new Color(0f, 0f, 0f, 0.65f));
+                GUI.Label(new Rect(hintRect.x + 6, hintRect.y + 4, hintW - 12, hintH), hint, hintSt);
             }
         }
 
@@ -815,6 +1065,19 @@ namespace NovellaEngine.Editor
                     "Диалоговое окно, слой персонажей, контейнер выборов. Создаёт NovellaPlayer со всеми связями и стартовый NovellaTree если у тебя его нет."),
                 ToolLang.Get("Apply preset", "Применить шаблон"),
                 () => ApplyGameplayPresetFromForge());
+
+            GUILayout.Space(14);
+
+            DrawStartCard(
+                "⬜",
+                ToolLang.Get("Empty canvas", "Пустой холст"),
+                new Color(0.55f, 0.85f, 1f),
+                ToolLang.Get(
+                    "Bare minimum to run the engine — Camera, Canvas, EventSystem, NovellaPlayer. You build the UI yourself in UI Forge.",
+                    "Минимум для работы движка — Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
+                ToolLang.Get("Apply preset", "Применить шаблон"),
+                () => ApplyEmptyPresetFromForge());
+
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -959,6 +1222,17 @@ namespace NovellaEngine.Editor
             EditorApplication.delayCall += () =>
             {
                 NovellaSceneManagerModule.ApplyGameplayPresetToActiveScene();
+                FindReferences();
+                RefreshRectsCache();
+                _window?.Repaint();
+            };
+        }
+
+        private void ApplyEmptyPresetFromForge()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                NovellaSceneManagerModule.ApplyEmptyCanvasPresetToActiveScene();
                 FindReferences();
                 RefreshRectsCache();
                 _window?.Repaint();
@@ -2560,12 +2834,36 @@ namespace NovellaEngine.Editor
             // Индикатор проблем «!» — теперь у самого правого края, потому
             // что lock/pickup/eye переехали слева.
             string warning = GetElementWarning(rt);
+            float rightEdge = row.xMax - 4;
             if (!string.IsNullOrEmpty(warning))
             {
-                Rect warnRect = new Rect(row.xMax - 26, row.y, 22, row.height);
+                Rect warnRect = new Rect(rightEdge - 22, row.y, 22, row.height);
                 var warnSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
                 warnSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
                 GUI.Label(warnRect, new GUIContent("!", warning), warnSt);
+                rightEdge -= 22;
+            }
+
+            // ⚙-иконка для объектов с настраиваемым NovellaEngine-скриптом.
+            // Клик → выделяем элемент + переключаем инспектор на «⚙ Логика».
+            if (HasConfigurableScript(rt.gameObject))
+            {
+                Rect gearRect = new Rect(rightEdge - 22, row.y, 22, row.height);
+                var gearSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
+                gearSt.normal.textColor = new Color(0.55f, 0.85f, 1f, 0.95f);
+                GUI.Label(gearRect, new GUIContent("⚙", ToolLang.Get(
+                    "This object has Novella scripts you can configure. Click to open Logic tab.",
+                    "На этом объекте есть Novella-скрипты с настройками. Клик — откроется вкладка «Логика».")), gearSt);
+                if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && gearRect.Contains(Event.current.mousePosition))
+                {
+                    _selectedList.Clear();
+                    _selectedList.Add(rt);
+                    _inspectorTab = InspectorTab.Logic;
+                    Event.current.Use();
+                    _window?.Repaint();
+                }
+                EditorGUIUtility.AddCursorRect(gearRect, MouseCursor.Link);
+                rightEdge -= 22;
             }
 
             // ─── Lock ─────────────────────────────────────────────────────
@@ -3209,31 +3507,18 @@ namespace NovellaEngine.Editor
         private void DrawModeBtn(Rect r, bool active, string icon, string label, System.Action onClick, bool disabled = false)
         {
             bool inside = r.Contains(Event.current.mousePosition);
-            bool hover = !disabled && inside;
-            Color bg = active
-                ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.30f)
-                : (hover ? new Color(1, 1, 1, 0.06f) : Color.clear);
-            EditorGUI.DrawRect(r, bg);
-            if (active)
-                EditorGUI.DrawRect(new Rect(r.x, r.yMax - 2, r.width, 2), C_ACCENT);
-
-            var st = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
-            st.normal.textColor = disabled ? C_TEXT_4 : (active ? C_ACCENT : C_TEXT_2);
             string text = string.IsNullOrEmpty(icon) ? label : (icon + "  " + label);
-            GUI.Label(r, new GUIContent(text, disabled ? ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме") : null), st);
 
-            if (Event.current.type == EventType.MouseDown && inside)
+            // Используем тот же сегмент-стиль что у инспекторских табов —
+            // единая визуальная семья.
+            DrawSegmentedTab(r, text, active, !disabled, () => onClick?.Invoke());
+
+            // Disabled-клик: показать toast вместо тишины.
+            if (disabled && Event.current.type == EventType.MouseDown && inside)
             {
-                if (disabled)
-                {
-                    NovellaToast.Push(
-                        ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме"),
-                        NovellaToast.Kind.Warning, 1.2f);
-                }
-                else
-                {
-                    onClick?.Invoke();
-                }
+                NovellaToast.Push(
+                    ToolLang.Get("Disabled in Play Mode", "Отключено в игровом режиме"),
+                    NovellaToast.Kind.Warning, 1.2f);
                 Event.current.Use();
             }
         }
@@ -3689,6 +3974,64 @@ namespace NovellaEngine.Editor
                 else if (scrollDelta < 0) _previewZoom = Mathf.Min(1.5f, _previewZoom + 0.05f);
                 e.Use();
                 return;
+            }
+
+            // Game-режим в Play: клавиатура → выбранный InputField (можно печатать
+            // в текстовых полях). Срабатывает независимо от позиции мыши, потому
+            // что фокус Forge-окна перехватывает все KeyDown — даже если курсор
+            // не над превью.
+            if (_gameMode && EditorApplication.isPlaying)
+            {
+                if ((e.type == EventType.KeyDown || e.type == EventType.KeyUp) && ForwardKeyToSelectedInput(e))
+                {
+                    // Принудительно пересобираем canvas + тикаем player-loop
+                    // чтобы наш RT-снимок обновился немедленно, иначе текст
+                    // в InputField появляется только при следующем render-тике.
+                    Canvas.ForceUpdateCanvases();
+                    EditorApplication.QueuePlayerLoopUpdate();
+                    if (_camera != null && _previewTexture != null)
+                    {
+                        var oldRT = _camera.targetTexture;
+                        _camera.targetTexture = _previewTexture;
+                        _camera.Render();
+                        _camera.targetTexture = oldRT;
+                    }
+                    _window?.Repaint();
+                    e.Use();
+                    return;
+                }
+            }
+
+            // Game-режим в Play: левый клик — пробрасываем в EventSystem сцены
+            // вместо обычного выделения/перетаскивания. Курсор-link для подсказки.
+            if (_gameMode && EditorApplication.isPlaying && drawRect.Contains(e.mousePosition))
+            {
+                EditorGUIUtility.AddCursorRect(drawRect, MouseCursor.Link);
+                if (e.type == EventType.MouseDown && e.button == 0)
+                {
+                    Vector2 local = e.mousePosition - drawRect.position;
+                    // Нормализуем в [0..1] и переводим в game-screen (Y инвертирован:
+                    // IMGUI top-down, screen bottom-up).
+                    float nx = local.x / Mathf.Max(1f, drawRect.width);
+                    float ny = 1f - (local.y / Mathf.Max(1f, drawRect.height));
+                    // Ключевой момент: _camera.targetTexture сбрасывается в null
+                    // ПОСЛЕ рендера превью, поэтому при raycast pixelRect камеры
+                    // равен размеру Game-окна Editor (а не targetW × targetH).
+                    // Берём _camera.pixelWidth/Height чтобы попасть туда же,
+                    // куда смотрит GraphicRaycaster.
+                    int sw = _camera != null ? _camera.pixelWidth  : targetW;
+                    int sh = _camera != null ? _camera.pixelHeight : targetH;
+                    Vector2 scenePos = new Vector2(nx * sw, ny * sh);
+                    DispatchSceneClick(scenePos);
+                    _window?.Repaint();
+                    e.Use();
+                    return;
+                }
+                if (e.type == EventType.MouseUp || e.type == EventType.MouseDrag)
+                {
+                    e.Use();
+                    return;
+                }
             }
 
             if (_dragging || _resizeHandle >= 0)
@@ -4214,6 +4557,17 @@ namespace NovellaEngine.Editor
             _inspectorScroll = GUILayout.BeginScrollView(_inspectorScroll, GUIStyle.none, GUI.skin.verticalScrollbar);
 
             DrawInspectorHeader();
+            DrawInspectorTabs();
+
+            // Logic-таб полностью заменяет вью-секции своим контентом —
+            // конфигурация Novella-скриптов на выделенном объекте.
+            if (_inspectorTab == InspectorTab.Logic)
+            {
+                DrawLogicTab();
+                GUILayout.EndScrollView();
+                GUILayout.EndArea();
+                return;
+            }
 
             // Секция prefab-asset действий: видна всегда когда открыт префаб
             // в Prefabs-режиме (независимо от текущего выделения).
@@ -4269,6 +4623,305 @@ namespace NovellaEngine.Editor
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        // Кнопки-табы инспектора: «📐 Вид» (визуал — anchors, размер, цвет) /
+        // «⚙ Логика» (поля Novella-скриптов на объекте). Logic-таб становится
+        // disabled если на выделенном нет настраиваемого скрипта.
+        // Растянуты на всю ширину инспектора (как Сцена/Префабы в сайдбаре).
+        private void DrawInspectorTabs()
+        {
+            GUILayout.Space(8);
+            // Используем Reserve-rect с ExpandWidth — он сам подхватит ширину
+            // BeginScrollView'а инспектора. Раньше была хардкод-ширина 300px,
+            // которая не масштабировалась при ресайзе панели.
+            float tabH = 26f;
+            Rect row = GUILayoutUtility.GetRect(0, tabH, GUILayout.ExpandWidth(true));
+            row = new Rect(row.x + 6, row.y, row.width - 12, row.height);
+
+            bool hasLogic = false;
+            if (FirstSelected != null) hasLogic = HasConfigurableScript(FirstSelected.gameObject);
+
+            // Если Logic-таб выбран, но на новом selection нет скриптов —
+            // авто-возврат на View, иначе пустая вкладка.
+            if (_inspectorTab == InspectorTab.Logic && !hasLogic)
+                _inspectorTab = InspectorTab.View;
+
+            float halfW = (row.width - 4f) * 0.5f;
+            Rect viewR  = new Rect(row.x,                  row.y, halfW, row.height);
+            Rect logicR = new Rect(row.x + halfW + 4f,     row.y, halfW, row.height);
+
+            DrawInspectorTabButton(viewR,
+                "📐  " + ToolLang.Get("View", "Вид"),
+                _inspectorTab == InspectorTab.View, true,
+                () => _inspectorTab = InspectorTab.View);
+
+            DrawInspectorTabButton(logicR,
+                "⚙  " + ToolLang.Get("Logic", "Логика"),
+                _inspectorTab == InspectorTab.Logic, hasLogic,
+                () => { if (hasLogic) _inspectorTab = InspectorTab.Logic; });
+
+            GUILayout.Space(6);
+        }
+
+        private void DrawInspectorTabButton(Rect r, string label, bool active, bool enabled, System.Action onClick)
+        {
+            DrawSegmentedTab(r, label, active, enabled, onClick);
+        }
+
+        // Универсальный «pill»-таб. Используется и в инспекторе (Вид/Логика),
+        // и в сайдбаре (Сцена/Префабы) — единый стиль везде.
+        // Active: насыщенный акцентный фон + светлый текст.
+        // Hover (если enabled и неактивный): тёмный фон чуть светлеет.
+        // Disabled: фон без hover, текст серый.
+        private void DrawSegmentedTab(Rect r, string label, bool active, bool enabled, System.Action onClick)
+        {
+            bool inside = r.Contains(Event.current.mousePosition);
+            bool hover = enabled && !active && inside;
+
+            Color bg;
+            if (active) bg = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.85f);
+            else if (hover) bg = new Color(1f, 1f, 1f, 0.10f);
+            else bg = new Color(1f, 1f, 1f, 0.04f);
+
+            EditorGUI.DrawRect(r, bg);
+            // Тёмная окантовка для контраста (одинаковая для всех состояний).
+            DrawRectBorder(r, new Color(0f, 0f, 0f, 0.55f));
+
+            var st = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 11,
+                alignment = TextAnchor.MiddleCenter,
+            };
+            if (!enabled) st.normal.textColor = C_TEXT_4;
+            else if (active) st.normal.textColor = NovellaSettingsModule.GetContrastingText(C_ACCENT);
+            else st.normal.textColor = C_TEXT_2;
+
+            GUI.Label(r, label, st);
+
+            if (enabled) EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+
+            if (enabled && Event.current.type == EventType.MouseDown && inside)
+            {
+                onClick?.Invoke();
+                Event.current.Use();
+                _window?.Repaint();
+            }
+        }
+
+        // Logic-таб: рисует поля каждого NovellaEngine-скрипта на выделенном
+        // объекте через стандартный SerializedObject (даёт корректный Undo,
+        // drag&drop объектов и поддерживает все типы полей). Pretty header
+        // вокруг каждого скрипта.
+        private void DrawLogicTab()
+        {
+            var rt = FirstSelected;
+            if (rt == null) return;
+            var go = rt.gameObject;
+
+            // Header с именем GO.
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(14);
+            var hSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 11 };
+            hSt.normal.textColor = C_TEXT_3;
+            string logicHeader = ("⚙ " + ToolLang.Get("LOGIC: ", "ЛОГИКА: ") + go.name).ToUpperInvariant();
+            // Double-click → пингуем GO в Unity Hierarchy.
+            var hdrRect = GUILayoutUtility.GetRect(new GUIContent(logicHeader), hSt);
+            GUI.Label(hdrRect, new GUIContent(logicHeader, ToolLang.Get(
+                "Double-click to ping this object in Unity Hierarchy.",
+                "Двойной клик — подсветить объект в Unity Hierarchy.")), hSt);
+            EditorGUIUtility.AddCursorRect(hdrRect, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2 && hdrRect.Contains(Event.current.mousePosition))
+            {
+                EditorGUIUtility.PingObject(go);
+                Selection.activeGameObject = go;
+                Event.current.Use();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(6);
+
+            // Кэшируем SerializedObject на этот GO.
+            if (_logicCachedGO != go || _logicCachedSO == null)
+            {
+                _logicCachedGO = go;
+                // SerializedObject строится по конкретным компонентам; для GO
+                // получим список и сделаем массив. Можно так: new SerializedObject(comp).
+                _logicCachedSO = null;
+            }
+
+            var comps = go.GetComponents<MonoBehaviour>();
+            int drawn = 0;
+            foreach (var c in comps)
+            {
+                if (c == null) continue;
+                var ns = c.GetType().Namespace;
+                if (ns == null || !ns.StartsWith("NovellaEngine")) continue;
+
+                drawn++;
+                DrawLogicComponentCard(c);
+            }
+
+            if (drawn == 0)
+            {
+                GUILayout.Space(10);
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(14);
+                var st = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, normal = { textColor = C_TEXT_3 } };
+                GUILayout.Label(ToolLang.Get(
+                    "No Novella scripts on this object — nothing to configure here.",
+                    "На объекте нет Novella-скриптов — настраивать нечего."), st);
+                GUILayout.Space(14);
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(20);
+        }
+
+        // Map: какие компоненты сейчас раскрыли «Дополнительно» (advanced
+        // поля). Нажал foldout — добавили, нажал снова — убрали.
+        private readonly HashSet<int> _logicAdvancedExpanded = new HashSet<int>();
+
+        // Карточка одного компонента. Если есть NovellaLogicSchema — рисуем
+        // понятные лейблы + подсказки + группы (основное / advanced).
+        // Если схемы нет — fallback в стандартный PropertyField для всех полей.
+        private void DrawLogicComponentCard(MonoBehaviour comp)
+        {
+            // Спец-кейсы: компоненты со своим custom-редактором (сложные типы
+            // которые плохо рисуются через PropertyField).
+            if (comp is NovellaEngine.Runtime.UI.NovellaUIBinding binding)
+            {
+                GUILayout.Space(8);
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(14);
+                GUILayout.BeginVertical(EditorStyles.helpBox);
+                NovellaLogicCustomEditors.DrawNovellaUIBinding(binding, NovellaSettingsModule.ShowGuide);
+                GUILayout.EndVertical();
+                GUILayout.Space(14);
+                GUILayout.EndHorizontal();
+                return;
+            }
+
+            var schema = NovellaLogicSchema.Get(comp.GetType());
+
+            GUILayout.Space(8);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(14);
+            GUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // Заголовок — friendly title из схемы или сырое имя класса.
+            // Двойной клик → открыть .cs-файл скрипта в IDE.
+            string title = schema != null
+                ? ToolLang.Get(schema.TitleEN ?? comp.GetType().Name, schema.TitleRU ?? comp.GetType().Name)
+                : comp.GetType().Name;
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
+            titleSt.normal.textColor = C_TEXT_1;
+            var titleContent = new GUIContent("📜 " + title, ToolLang.Get(
+                "Double-click to open the source script in your IDE.",
+                "Двойной клик — открыть исходник скрипта в IDE."));
+            var titleRect = GUILayoutUtility.GetRect(titleContent, titleSt);
+            GUI.Label(titleRect, titleContent, titleSt);
+            EditorGUIUtility.AddCursorRect(titleRect, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && Event.current.clickCount == 2 && titleRect.Contains(Event.current.mousePosition))
+            {
+                var ms = MonoScript.FromMonoBehaviour(comp);
+                if (ms != null) AssetDatabase.OpenAsset(ms);
+                Event.current.Use();
+            }
+
+            // Intro-текст под заголовком (объяснение «зачем этот скрипт»).
+            if (schema != null && (!string.IsNullOrEmpty(schema.IntroRU) || !string.IsNullOrEmpty(schema.IntroEN)))
+            {
+                var introSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true, padding = new RectOffset(2, 2, 2, 4) };
+                introSt.normal.textColor = C_TEXT_3;
+                GUILayout.Label(ToolLang.Get(schema.IntroEN, schema.IntroRU), introSt);
+            }
+
+            GUILayout.Space(4);
+
+            var so = new SerializedObject(comp);
+            so.Update();
+
+            if (schema != null)
+            {
+                // Основные поля.
+                bool drewMain = false;
+                foreach (var field in schema.Fields)
+                {
+                    if (field.Advanced) continue;
+                    DrawSchemaField(so, field);
+                    drewMain = true;
+                }
+                if (drewMain) GUILayout.Space(4);
+
+                // Advanced-секция — foldout.
+                bool hasAdvanced = false;
+                foreach (var f in schema.Fields) if (f.Advanced) { hasAdvanced = true; break; }
+                if (hasAdvanced)
+                {
+                    int compId = comp.GetInstanceID();
+                    bool open = _logicAdvancedExpanded.Contains(compId);
+                    var foldSt = new GUIStyle(EditorStyles.label) { fontSize = 10 };
+                    foldSt.normal.textColor = C_TEXT_3;
+                    if (GUILayout.Button((open ? "▼ " : "▶ ") + ToolLang.Get("Advanced (auto-detected)", "Дополнительно (авто-найдено)"), foldSt, GUILayout.Height(18)))
+                    {
+                        if (open) _logicAdvancedExpanded.Remove(compId);
+                        else _logicAdvancedExpanded.Add(compId);
+                    }
+                    if (open)
+                    {
+                        EditorGUI.indentLevel++;
+                        foreach (var field in schema.Fields)
+                        {
+                            if (!field.Advanced) continue;
+                            DrawSchemaField(so, field);
+                        }
+                        EditorGUI.indentLevel--;
+                    }
+                }
+            }
+            else
+            {
+                // Без схемы — стандартный fallback: все поля как есть.
+                var prop = so.GetIterator();
+                bool enterChildren = true;
+                while (prop.NextVisible(enterChildren))
+                {
+                    enterChildren = false;
+                    if (prop.name == "m_Script") continue;
+                    EditorGUILayout.PropertyField(prop, true);
+                }
+            }
+
+            so.ApplyModifiedProperties();
+
+            GUILayout.EndVertical();
+            GUILayout.Space(14);
+            GUILayout.EndHorizontal();
+        }
+
+        // Рисует одно поле по схеме: label из схемы, PropertyField для значения,
+        // подсказка под (когда включены 💡 Подсказки).
+        private void DrawSchemaField(SerializedObject so, NovellaLogicSchema.FieldEntry field)
+        {
+            var prop = so.FindProperty(field.PropertyName);
+            if (prop == null) return; // поле могли убрать из скрипта — игнорируем
+
+            string label = ToolLang.Get(field.LabelEN ?? field.PropertyName, field.LabelRU ?? field.PropertyName);
+            EditorGUILayout.PropertyField(prop, new GUIContent(label), true);
+
+            if (NovellaSettingsModule.ShowGuide && (!string.IsNullOrEmpty(field.HintRU) || !string.IsNullOrEmpty(field.HintEN)))
+            {
+                string hint = ToolLang.Get(field.HintEN, field.HintRU);
+                // Единый стиль с DrawFieldHint в View — left stripe + acc bg.
+                var hintSt = new GUIStyle(EditorStyles.label) { fontSize = 11, wordWrap = true, padding = new RectOffset(8, 8, 6, 6) };
+                hintSt.normal.textColor = NovellaSettingsModule.GetHintColor();
+                Rect hr = GUILayoutUtility.GetRect(new GUIContent("💡 " + hint), hintSt);
+                Color acc = NovellaSettingsModule.GetAccentColor();
+                EditorGUI.DrawRect(hr, new Color(acc.r, acc.g, acc.b, 0.07f));
+                EditorGUI.DrawRect(new Rect(hr.x, hr.y, 3, hr.height), acc);
+                GUI.Label(hr, "💡 " + hint, hintSt);
+                GUILayout.Space(2);
+            }
         }
 
         private void DrawInspectorHeader()
@@ -5130,64 +5783,27 @@ namespace NovellaEngine.Editor
                         if (rt.GetComponent<NovellaEngine.Runtime.UI.NovellaUIBinding>() == null)
                             NovellaEngine.Runtime.UI.NovellaUIBinding.GetOrAdd(rt.gameObject);
                     }
+                    // Сразу переключаем на Логику — все настройки binding'а
+                    // живут именно там, нечего юзеру искать вручную.
+                    _inspectorTab = InspectorTab.Logic;
                 }
             }
             else
             {
-                Undo.RecordObject(binding, "Edit UI Binding");
-
-                // Friendly name — главное поле, видно везде в пикерах.
-                GUILayout.Label(ToolLang.Get("Display name", "Имя для пикера"), EditorStyles.miniBoldLabel);
-                DrawFieldHint(ToolLang.Get(
-                    "Friendly name shown in graph node pickers and the Bindings overview. Doesn't affect the game — only how YOU find this element later.",
-                    "Дружелюбное имя — видно везде где этот элемент выбирается из ноды графа или таблицы Связей. На игру не влияет, нужно только тебе чтобы потом узнавать этот элемент в списке."));
-                string newName = EditorGUILayout.TextField(binding.Name);
-                if (newName != binding.Name) { binding.Name = newName; EditorUtility.SetDirty(binding); }
-
-                GUILayout.Space(8);
-                GUILayout.Label(ToolLang.Get("Localization key (optional)", "Ключ локализации (опц.)"), EditorStyles.miniBoldLabel);
-                DrawFieldHint(ToolLang.Get(
-                    "Connect this text to the localization table. When the player switches language, the text auto-updates. Leave empty if the text doesn't need translation.",
-                    "Связывает этот текст с таблицей локализации. При смене языка игроком текст обновится сам. Оставь пустым, если переводить не нужно."));
-                DrawKeyPickerRow(
-                    binding.LocalizationKey,
-                    newKey => { binding.LocalizationKey = newKey; EditorUtility.SetDirty(binding); binding.Refresh(); });
-
+                // Сам редактор binding'а (имя, локализация, переменная, click
+                // sequence, remove) переехал в таб «⚙ Логика». Здесь — только
+                // короткий шорткат туда, чтобы View оставался сфокусирован
+                // на визуале (anchors / position / colors).
+                var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+                st.normal.textColor = C_TEXT_3;
+                GUILayout.Label(ToolLang.Get(
+                    "This element is linked. Open the «⚙ Logic» tab to edit the name, localization, click action and other behavior.",
+                    "Элемент привязан. Открой вкладку «⚙ Логика» чтобы менять имя, локализацию, действие по клику и прочее поведение."), st);
                 GUILayout.Space(6);
-                GUILayout.Label(ToolLang.Get("Variable (substitutes {var})", "Переменная (вместо {var})"), EditorStyles.miniBoldLabel);
-                DrawFieldHint(ToolLang.Get(
-                    "Inserts a variable's value into the text. Write \"{var}\" inside the localized string and pick a variable here — at runtime \"{var}\" gets replaced with its current value. Example: \"HP: {var}\" + variable \"PlayerHP\" → \"HP: 42\".",
-                    "Подставляет значение переменной в текст. Вставь «{var}» внутрь локализованной строки и выбери переменную здесь — в рантайме «{var}» заменится на её текущее значение. Пример: «HP: {var}» + переменная «PlayerHP» → «HP: 42»."));
-                DrawVarPickerRow(
-                    binding.BoundVariable,
-                    newVar => { binding.BoundVariable = newVar; EditorUtility.SetDirty(binding); binding.Refresh(); });
-
-                bool hasButton = binding.GetComponent<UnityEngine.UI.Button>() != null;
-                if (hasButton)
+                if (NovellaSettingsModule.AccentButton("⚙  " + ToolLang.Get("Open Logic tab", "Открыть Логику"), GUILayout.Height(24)))
                 {
-                    GUILayout.Space(8);
-                    GUILayout.Label(ToolLang.Get("Click action", "По клику"), EditorStyles.miniBoldLabel);
-                    DrawFieldHint(ToolLang.Get(
-                        "What the button does when player clicks it. Can be a sequence of actions executed top-to-bottom with optional delays.",
-                        "Что произойдёт когда игрок кликнет по кнопке. Может быть последовательность действий — выполняются сверху вниз с опциональными задержками."));
-                    DrawClickActionEditor(binding);
+                    _inspectorTab = InspectorTab.Logic;
                 }
-
-                GUILayout.Space(10);
-                GUILayout.BeginHorizontal();
-                if (NovellaSettingsModule.NeutralButton(ToolLang.Get("Remove link", "Убрать связь"), GUILayout.Height(22)))
-                {
-                    if (UnityEditor.EditorUtility.DisplayDialog(
-                            ToolLang.Get("Remove binding?", "Убрать связь?"),
-                            ToolLang.Get("All graph nodes referring to this element will lose the link. Proceed?",
-                                         "Все ноды графа ссылающиеся на этот элемент потеряют связь. Продолжить?"),
-                            ToolLang.Get("Remove", "Убрать"),
-                            ToolLang.Get("Cancel", "Отмена")))
-                    {
-                        UnityEditor.Undo.DestroyObjectImmediate(binding);
-                    }
-                }
-                GUILayout.EndHorizontal();
             }
 
             GUILayout.EndVertical();

@@ -267,6 +267,10 @@ namespace NovellaEngine.Editor
             bool isVideo = ext == ".mp4" || ext == ".mov" || ext == ".webm" || ext == ".avi" || ext == ".gif";
             bool isPrefab = ext == ".prefab";
             bool isScene = ext == ".unity";
+            // Системную сцену движка (NovellaTestScene = песочница для
+            // редактора префабов) скрываем при фильтре Scene — её нельзя
+            // назначать как игровую.
+            if (isScene && NovellaPrefabSceneHelper.IsSystemScene(formattedFile)) return;
             bool isCustomUI = false;
 
             bool isGraph = ext == ".asset" && AssetDatabase.GetMainAssetTypeAtPath(formattedFile) == typeof(NovellaTree);

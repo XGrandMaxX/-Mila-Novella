@@ -55,6 +55,35 @@ namespace NovellaEngine.Editor
             // делегаты могут «остаться» если неаккуратно отписались).
             Application.logMessageReceivedThreaded -= OnLog;
             Application.logMessageReceivedThreaded += OnLog;
+
+            // Compile-ошибки идут НЕ через Debug.Log → Application.logMessageReceived
+            // их не ловит. Подписываемся на CompilationPipeline отдельно — чтобы
+            // в Novella Console видны были и ошибки компиляции, а не только
+            // runtime-логи. Errors only — warnings шумные.
+            UnityEditor.Compilation.CompilationPipeline.assemblyCompilationFinished -= OnAssemblyCompiled;
+            UnityEditor.Compilation.CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompiled;
+        }
+
+        private static void OnAssemblyCompiled(string assemblyPath,
+            UnityEditor.Compilation.CompilerMessage[] messages)
+        {
+            if (messages == null) return;
+            string asm = System.IO.Path.GetFileNameWithoutExtension(assemblyPath ?? "");
+            for (int i = 0; i < messages.Length; i++)
+            {
+                var m = messages[i];
+                if (m.type != UnityEditor.Compilation.CompilerMessageType.Error) continue;
+                string text = string.Format("[{0}] {1}({2},{3}): {4}",
+                    asm, m.file ?? "", m.line, m.column, m.message ?? "");
+                OnLog(text, "", LogType.Error);
+            }
+        }
+
+        // Внешний push — для случаев когда мы вручную хотим добавить запись
+        // в Novella Console (например лог из BuildReport-сообщений).
+        public static void Push(LogType type, string message, string stackTrace = "")
+        {
+            OnLog(message ?? "", stackTrace ?? "", type);
         }
 
         private static void OnLog(string condition, string stackTrace, LogType type)

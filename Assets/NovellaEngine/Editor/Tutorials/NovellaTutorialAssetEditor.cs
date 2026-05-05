@@ -148,14 +148,13 @@ namespace NovellaEngine.Editor.Tutorials
             // CARD
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            // Header row
+            // Header row 1: foldout с названием на всю строку + ▲▼🗑.
+            // Раньше бейджи стиля/продвижения были тут же — они «съедали»
+            // длинные названия. Теперь бейджи переехали отдельной строкой
+            // ниже, название отображается полностью.
             EditorGUILayout.BeginHorizontal();
 
             _foldouts[idx] = EditorGUILayout.Foldout(_foldouts[idx], $"  {idx + 1}.  {title}", true, new GUIStyle(EditorStyles.foldoutHeader) { fontSize = 12 });
-
-            // Бейджи стиля и продвижения
-            DrawBadge(GetHintLabel((ETutorialHintStyle)hintProp.enumValueIndex), HintColor((ETutorialHintStyle)hintProp.enumValueIndex));
-            DrawBadge(GetAdvanceLabel((ETutorialAdvanceMode)advProp.enumValueIndex), new Color(0.3f, 0.5f, 0.7f));
 
             GUILayout.FlexibleSpace();
 
@@ -177,6 +176,15 @@ namespace NovellaEngine.Editor.Tutorials
             GUI.backgroundColor = Color.white;
 
             EditorGUILayout.EndHorizontal();
+
+            // Header row 2: бейджи. Не наезжают на название и видны полностью.
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(16);
+            DrawBadge(GetHintLabel((ETutorialHintStyle)hintProp.enumValueIndex), HintColor((ETutorialHintStyle)hintProp.enumValueIndex));
+            DrawBadge(GetAdvanceLabel((ETutorialAdvanceMode)advProp.enumValueIndex), new Color(0.3f, 0.5f, 0.7f));
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
 
             if (_foldouts[idx])
             {

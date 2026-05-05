@@ -14,40 +14,58 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp-Editor::NovellaEngine.Editor.Tutorials.NovellaTutorialAsset
   TutorialKey: UIEditor
   TitleEN: UI Forge
-  TitleRU: "\u041A\u0443\u0437\u043D\u0438\u0446\u0430 UI"
-  DescriptionEN: Style dialogue frames, main menu and character wardrobe.
-  DescriptionRU: "\u0421\u0442\u0438\u043B\u0438\u0437\u0430\u0446\u0438\u044F \u0434\u0438\u0430\u043B\u043E\u0433\u043E\u0432,
-    \u043C\u0435\u043D\u044E \u0438 \u0433\u0430\u0440\u0434\u0435\u0440\u043E\u0431\u0430
-    \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0430."
+  TitleRU: "UI Кузница"
+  DescriptionEN: Style your dialogue boxes, customize the main menu and configure the wardrobe screen — all visual, no code.
+  DescriptionRU: "Стилизуй диалоги, настрой главное меню и экран гардероба — визуально, без кода."
   Icon: "\U0001F3A8"
   OrderIndex: 5
   HostWindow: 3
   Steps:
-  - TitleEN: Welcome to UI Forge
-    TitleRU: "\u041A\u0443\u0437\u043D\u0438\u0446\u0430 UI"
-    BodyEN: "Design every visual aspect of your game directly inside the Studio.
-      Tip: for advanced custom UI, learn Unity Canvas \u2014 UI Forge is a great
-      starting point but it's basic."
-    BodyRU: "\u0417\u0434\u0435\u0441\u044C \u043D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0435\u0442\u0441\u044F
-      \u0432\u0435\u0441\u044C \u0432\u0438\u0437\u0443\u0430\u043B \u0438\u0433\u0440\u044B
-      \u043F\u0440\u044F\u043C\u043E \u0432\u043D\u0443\u0442\u0440\u0438 \u0421\u0442\u0443\u0434\u0438\u0438.
-      \u0421\u043E\u0432\u0435\u0442: \u0434\u043B\u044F \u0441\u043B\u043E\u0436\u043D\u043E\u0433\u043E
-      \u043A\u0430\u0441\u0442\u043E\u043C\u043D\u043E\u0433\u043E UI \u0438\u0437\u0443\u0447\u0438
-      Unity Canvas \u2014 \u041A\u0443\u0437\u043D\u0438\u0446\u0430 UI \u2014 \u043E\u0442\u043B\u0438\u0447\u043D\u044B\u0439
-      \u0441\u0442\u0430\u0440\u0442, \u043D\u043E \u0431\u0430\u0437\u043E\u0432\u044B\u0439
-      \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+  - TitleEN: "What is UI Forge?"
+    TitleRU: "Что такое UI Кузница?"
+    BodyEN: "<b>UI Forge</b> is your visual UI editor — it shows your game's interface (dialogue boxes, menus, wardrobe screens) live and lets you tweak <b>colors, fonts, button positions, transitions</b> with no code.\n\nThink of it as <i>«Photoshop for your in-game UI»</i>, but with the actual game wired in. Click the <b>Play</b> button at the top right and you're playing the real game inside the editor."
+    BodyRU: "<b>UI Кузница</b> — визуальный редактор интерфейса. Показывает игровой UI (диалоги, меню, гардероб) в реальном времени и даёт менять <b>цвета, шрифты, позиции кнопок, анимации</b> без кода.\n\nКак <i>«Photoshop для UI игры»</i>, но с подключённой настоящей игрой. Жми <b>Play</b> справа сверху — и играешь прямо в редакторе."
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
       y: 0
-      width: 1
-      height: 0.12
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
     HintStyle: 4
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 5
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "The Live Canvas Preview"
+    TitleRU: "Живой превью Canvas"
+    BodyEN: "The big central area shows your <b>actual game canvas</b> as it'll look in-game. Whatever scene is open in Unity, that's what you see here.\n\nIf the canvas looks empty, no worries — Lesson 1 set up the <i>Game Scene</i> preset that already includes the basic UI. If you skipped it, the empty-state will show a button to <b>«Apply Game Canvas preset»</b> right inside this panel."
+    BodyRU: "Большая центральная область — твой <b>настоящий игровой Canvas</b> в том виде, в котором его увидит игрок. Какая сцена открыта в Unity — то и видишь здесь.\n\nЕсли пусто — не переживай. Урок 1 ставил пресет <i>Игровой Canvas</i>, который уже даёт базовый UI. Если пропустил — в пустом состоянии будет кнопка <b>«Применить пресет Игрового Canvas»</b> прямо здесь."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.25
+      y: 0.1
+      width: 0.55
+      height: 0.7
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 0
     AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
     PanelAnchor: 0
     Video: {fileID: 0}
@@ -56,77 +74,153 @@ MonoBehaviour:
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0
-  - TitleEN: Settings panel (left)
-    TitleRU: "\u041F\u0430\u043D\u0435\u043B\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A
-      (\u0441\u043B\u0435\u0432\u0430)"
-    BodyEN: Bind your <b>Story Graph</b>, customize <b>Dialogue frames</b>, <b>Menus</b>
-      and the <b>Character Wardrobe</b> flow.
-    BodyRU: "\u041F\u0440\u0438\u0432\u044F\u0437\u044B\u0432\u0430\u0439 <b>\u0413\u0440\u0430\u0444
-      \u0438\u0441\u0442\u043E\u0440\u0438\u0438</b>, \u043D\u0430\u0441\u0442\u0440\u0430\u0438\u0432\u0430\u0439
-      <b>\u0440\u0430\u043C\u043A\u0438 \u0434\u0438\u0430\u043B\u043E\u0433\u043E\u0432</b>,
-      <b>\u041C\u0435\u043D\u044E</b> \u0438 \u043F\u043E\u0442\u043E\u043A <b>\u0413\u0430\u0440\u0434\u0435\u0440\u043E\u0431\u0430
-      \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u0436\u0430</b>."
+  - TitleEN: "Selecting Elements"
+    TitleRU: "Выбор элементов"
+    BodyEN: "On the left is the <b>UI tree</b> — every button, panel, text label nested in your canvas. Click any item to <b>highlight it on the preview</b> and load its properties on the right.\n\nElements with a ⚙ icon next to them are wired to <b>Novella behavior scripts</b> (e.g. <i>NovellaUIBinding</i>, <i>StoryLauncher</i>). That's where the magic of the engine lives — no scary Unity scripts, just our friendly Logic editor."
+    BodyRU: "Слева — <b>дерево UI</b>: каждая кнопка, панель, текст внутри canvas. Клик по элементу — он <b>подсвечивается на превью</b> и его свойства открываются справа.\n\nЭлементы со значком ⚙ — на них висят <b>Novella-скрипты поведения</b> (<i>NovellaUIBinding</i>, <i>StoryLauncher</i> и др.). Тут и живёт магия движка — без страшных Unity-скриптов, только наш дружелюбный Logic-редактор."
     TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.05
+      y: 0.1
+      width: 0.18
+      height: 0.85
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 4
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "View vs Logic Tabs"
+    TitleRU: "Вкладки View и Logic"
+    BodyEN: "On the right side, there are two tabs:\n\n🎨 <b>View</b> — visual styling: colors, fonts, sizes, alignments, sprites, transitions. Whatever a designer cares about.\n⚙ <b>Logic</b> — behavior: «what happens when player clicks this button?». Pick from a friendly catalog like <i>«Start a Story»</i>, <i>«Open Settings»</i>, <i>«Load Last Save»</i>, <i>«Play SFX»</i>.\n\nThis is the trick: <b>writers stay in View, programmers (or curious writers) go into Logic</b> — both tabs work on the same element."
+    BodyRU: "Справа две вкладки:\n\n🎨 <b>View</b> — визуальный стиль: цвета, шрифты, размеры, выравнивание, спрайты, анимации. Всё, что важно дизайнеру.\n⚙ <b>Logic</b> — поведение: «что происходит при клике по этой кнопке?». Выбирается из дружелюбного каталога: <i>«Запустить историю»</i>, <i>«Открыть настройки»</i>, <i>«Загрузить последнее сохранение»</i>, <i>«Сыграть SFX»</i>.\n\nФишка: <b>писатели сидят во View, программисты (или любопытные писатели) лезут в Logic</b> — обе вкладки работают по одному и тому же элементу."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.8
+      y: 0.1
+      width: 0.18
+      height: 0.85
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.55, g: 0.4, b: 0.95, a: 1}
+    PanelAnchor: 3
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Wiring a Button to a Story"
+    TitleRU: "Привязка кнопки к истории"
+    BodyEN: "Most common use case: <b>«Start» button → launch the first story»</b>.\n\n1. Select <i>Btn_StartPlay</i> in the tree.\n2. Switch to <b>Logic</b> tab.\n3. The catalog lists actions — pick <b>«Start a Story»</b>.\n4. A story picker pops up — choose your story asset.\n\nDone. No <i>OnClick.AddListener</i>, no <i>SerializeField</i>, no scripts. The engine handles all of it under the hood. The same flow works for <i>Continue</i>, <i>Settings</i>, <i>Quit</i>, <i>Open Wardrobe</i> and 13 other actions."
+    BodyRU: "Самый частый кейс: <b>«Старт» → запустить первую историю</b>.\n\n1. Выдели <i>Btn_StartPlay</i> в дереве.\n2. Переключись на <b>Logic</b>.\n3. В каталоге действий выбери <b>«Запустить историю»</b>.\n4. Откроется выбор сторей — выбери свою.\n\nГотово. Никаких <i>OnClick.AddListener</i>, <i>SerializeField</i>, скриптов. Движок делает всё сам. Так же работает для <i>Продолжить</i>, <i>Настройки</i>, <i>Выход</i>, <i>Гардероб</i> и ещё 13 действий."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.8
+      y: 0.2
+      width: 0.18
+      height: 0.5
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 0
+    AccentColor: {r: 1, g: 0.78, b: 0.3, a: 1}
+    PanelAnchor: 3
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "Play Mode — Test Your Real UI"
+    TitleRU: "Play-режим — тест настоящего UI"
+    BodyEN: "In the top-right corner there's a green <b>▶ Play</b> button.\n\nClick it and Unity enters Play mode — but your game runs <b>right inside this Forge window</b>, with a green outline. Try clicking your buttons, see how dialogues feel, see the actual fonts and timing.\n\nClick <b>EXIT</b> to stop. Whatever you change in Edit mode is permanent; whatever you change in Play mode is temporary (Unity's rule, sorry)."
+    BodyRU: "В правом верхнем углу зелёная кнопка <b>▶ Play</b>.\n\nЖми — Unity входит в Play, но игра идёт <b>прямо внутри этого окна</b> с зелёной рамкой. Можно тыкать кнопки, проверять диалоги, видеть настоящие шрифты и тайминги.\n\nЖми <b>EXIT</b> чтобы остановиться. Изменения в Edit — навсегда, в Play — временно (правило Unity, прости)."
+    TargetMode: 5
+    TargetName:
+    ReflectionFieldName:
+    ManualRect:
+      serializedVersion: 2
+      x: 0.85
+      y: 0.04
+      width: 0.13
+      height: 0.06
+    ManualRectUsePercent: 1
+    TargetPadding: 6
+    HintStyle: 2
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 2
+    Video: {fileID: 0}
+    Image: {fileID: 0}
+    ImageFPS: 12
+    ImageFrameCount: 1
+    AdvanceMode: 0
+    ActionTrigger: 0
+    ActionTextRegex:
+    AutoAdvanceSeconds: 0
+    MinHoldSeconds: 0.8
+    AllowSkip: 1
+    HideNextButton: 0
+  - TitleEN: "You've Got the Toolkit"
+    TitleRU: "Полный набор у тебя"
+    BodyEN: "Now you can:\n\n✅ Style any UI element visually (colors, fonts, sprites)\n✅ Wire any button to any engine action without scripting\n✅ Test the real game right inside the editor\n\nOne lesson left: a hands-on interactive example showing all systems working together in a real story.\n\n<i>You're 5/6 done — the hardest stuff is behind you.</i> 🎉"
+    BodyRU: "Теперь умеешь:\n\n✅ Стилизовать любой UI визуально (цвета, шрифты, спрайты)\n✅ Привязывать любую кнопку к любому действию движка без скриптов\n✅ Тестировать настоящую игру прямо в редакторе\n\nОстался один урок — практический интерактивный пример, где все системы работают вместе на реальной истории.\n\n<i>5/6 уже за плечами — самое сложное позади.</i> 🎉"
+    TargetMode: 0
+    TargetName:
+    ReflectionFieldName:
     ManualRect:
       serializedVersion: 2
       x: 0
-      y: 0.1
-      width: 0.5
-      height: 0.88
+      y: 0
+      width: 0
+      height: 0
     ManualRectUsePercent: 1
     TargetPadding: 6
-    HintStyle: 1
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
+    HintStyle: 4
+    AccentColor: {r: 0.3, g: 0.85, b: 0.5, a: 1}
+    PanelAnchor: 5
     Video: {fileID: 0}
     Image: {fileID: 0}
     ImageFPS: 12
     ImageFrameCount: 1
     AdvanceMode: 0
     ActionTrigger: 0
-    ActionTextRegex: 
+    ActionTextRegex:
     AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
-    AllowSkip: 1
-    HideNextButton: 0
-  - TitleEN: Live Preview (right)
-    TitleRU: "\u0416\u0438\u0432\u043E\u0439 \u043F\u0440\u0435\u0432\u044C\u044E
-      (\u0441\u043F\u0440\u0430\u0432\u0430)"
-    BodyEN: "See how your UI looks on <b>PC and Mobile</b> instantly \u2014 no need
-      to press Play."
-    BodyRU: "\u0421\u043C\u043E\u0442\u0440\u0438 \u043A\u0430\u043A \u0432\u044B\u0433\u043B\u044F\u0434\u0438\u0442
-      UI \u043D\u0430 <b>\u041F\u041A \u0438 \u041C\u043E\u0431\u0438\u043B\u044C\u043D\u044B\u0445</b>
-      \u043C\u0433\u043D\u043E\u0432\u0435\u043D\u043D\u043E \u2014 \u0431\u0435\u0437
-      \u043D\u0430\u0436\u0430\u0442\u0438\u044F Play."
-    TargetMode: 5
-    TargetName: 
-    ReflectionFieldName: 
-    ManualRect:
-      serializedVersion: 2
-      x: 0.5
-      y: 0.1
-      width: 0.5
-      height: 0.88
-    ManualRectUsePercent: 1
-    TargetPadding: 6
-    HintStyle: 1
-    AccentColor: {r: 0.36, g: 0.75, b: 0.92, a: 1}
-    PanelAnchor: 0
-    Video: {fileID: 0}
-    Image: {fileID: 0}
-    ImageFPS: 12
-    ImageFrameCount: 1
-    AdvanceMode: 0
-    ActionTrigger: 0
-    ActionTextRegex: 
-    AutoAdvanceSeconds: 0
-    MinHoldSeconds: 1.5
+    MinHoldSeconds: 0.8
     AllowSkip: 1
     HideNextButton: 0

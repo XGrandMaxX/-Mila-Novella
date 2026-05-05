@@ -806,7 +806,17 @@ namespace NovellaEngine.Editor
             if (DrawActionBtn(new Rect(rect.width - deleteW - 14, by, deleteW, 32), "🗑 " + ToolLang.Get("Delete", "Удалить"), false, danger: true))
             {
                 DeleteSelectedCharacters();
+                // После удаления _selectedCharacter уходит в null —
+                // прерываем отрисовку этой панели, чтобы дальше не NRE-нуть.
+                GUILayout.EndArea();
+                return;
             }
+
+            // Защитный null-check: помимо delete-кнопки выше, _selectedCharacter
+            // может стать null из-за внешних причин (asset удалён в Project,
+            // Undo и т.п.). Раньше тут было _selectedCharacter.Emotions без
+            // защиты — стек NRE при любом исчезновении ассета.
+            if (_selectedCharacter == null) { GUILayout.EndArea(); return; }
 
             int currentEmotionsCount = _selectedCharacter.Emotions?.Count ?? 0;
             if (_editingEmotionIndex >= 0 && _editingEmotionIndex < currentEmotionsCount)
