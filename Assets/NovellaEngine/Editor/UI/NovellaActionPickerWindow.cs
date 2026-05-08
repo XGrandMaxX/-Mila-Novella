@@ -12,6 +12,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 using System;
+using System.Collections.Generic;     // List<> для фильтрации actions по поиску
 using NovellaEngine.Runtime.UI;
 using UnityEditor;
 using UnityEngine;
@@ -35,17 +36,23 @@ namespace NovellaEngine.Editor.UIBindings
         private static Color C_TEXT_4     => NovellaSettingsModule.GetTextDisabled();
 
         private Vector2 _scroll;
+        private string _searchQuery = "";
 
         public static void Open(NovellaUIBinding.BindingAction current, Action<NovellaUIBinding.BindingAction> onPick)
         {
             var win = GetWindow<NovellaActionPickerWindow>(true, "Novella · Choose action", true);
             win._selected = current;
+            win._searchQuery = "";
             _callback = onPick;
-            win.minSize = new Vector2(560, 560);
-            win.maxSize = new Vector2(900, 900);
+            // Шире чтобы 3 колонки grid'а помещались БЕЗ горизонтального scroll'а
+            // (с учётом scrollbar'а) + выше на ~25% чем раньше — комфортнее видеть
+            // несколько секций без скролла.
+            const float W = 820, H = 720;
+            win.minSize = new Vector2(W, H);
+            win.maxSize = new Vector2(1300, 1100);
             win.position = new Rect(
-                EditorGUIUtility.GetMainWindowPosition().center - new Vector2(280, 280),
-                new Vector2(560, 560));
+                EditorGUIUtility.GetMainWindowPosition().center - new Vector2(W * 0.5f, H * 0.5f),
+                new Vector2(W, H));
             win.ShowUtility();
         }
 
@@ -95,177 +102,288 @@ namespace NovellaEngine.Editor.UIBindings
         }
 
         // ─── Body ───────────────────────────────────────────────────────────────
+        // Grid-layout вместо вертикального списка: на 720px ширине окна
+        // получается 3 колонки по ~210px — все действия видны без долгого скролла.
+        // Поверх грида — поле поиска (фильтрует все секции в реальном времени).
+        // Под гридом — info-плашка с описанием выбранного действия.
+
+        private struct GroupSpec
+        {
+            public string Title;
+            public bool IsCoders;
+            public NovellaUIBinding.BindingAction[] Actions;
+        }
+
+        private static readonly GroupSpec[] GROUPS = new[]
+        {
+            new GroupSpec { Title = "🧭 НАВИГАЦИЯ",       IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.GoToNode,
+                    NovellaUIBinding.BindingAction.StartNewGame,
+                    NovellaUIBinding.BindingAction.LoadLastSave,
+                    NovellaUIBinding.BindingAction.RestartChapter,
+                    NovellaUIBinding.BindingAction.ReturnToMainMenu,
+                } },
+            new GroupSpec { Title = "💾 СОХРАНЕНИЯ",       IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.SaveGameSlot,
+                    NovellaUIBinding.BindingAction.LoadGameSlot,
+                } },
+            new GroupSpec { Title = "📋 ОКНА UI",          IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.ShowPanel,
+                    NovellaUIBinding.BindingAction.HidePanel,
+                    NovellaUIBinding.BindingAction.TogglePanel,
+                } },
+            new GroupSpec { Title = "📊 ИГРОВАЯ ЛОГИКА",   IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.SetVariable,
+                } },
+            new GroupSpec { Title = "🔊 ЭФФЕКТЫ",          IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.PlaySFX,
+                } },
+            new GroupSpec { Title = "⚙ СИСТЕМА",          IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.ChangeLanguage,
+                    NovellaUIBinding.BindingAction.OpenURL,
+                    NovellaUIBinding.BindingAction.PauseGame,
+                    NovellaUIBinding.BindingAction.ResumeGame,
+                    NovellaUIBinding.BindingAction.QuitGame,
+                } },
+            new GroupSpec { Title = "👨‍💻 ДЛЯ КОДЕРОВ — требуют C#-интеграции", IsCoders = true,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.TriggerEvent,
+                    NovellaUIBinding.BindingAction.UnlockAchievement,
+                } },
+            new GroupSpec { Title = "📦 ПРОЧЕЕ",            IsCoders = false,
+                Actions = new[] {
+                    NovellaUIBinding.BindingAction.None,
+                } },
+        };
 
         private void DrawBody(Rect r)
         {
-            GUILayout.BeginArea(r);
-            _scroll = GUILayout.BeginScrollView(_scroll);
+            // Search bar над body — фильтрует по имени и категории.
+            const float searchH = 36f;
+            Rect search = new Rect(r.x + 14, r.y + 8, r.width - 28, 22);
+            DrawSearchBar(search);
+
+            // Info-плашка снизу body (description выбранного action'а) фиксированная.
+            const float infoH = 70f;
+            Rect info = new Rect(r.x + 14, r.yMax - infoH - 6, r.width - 28, infoH);
+            DrawInfoCard(info);
+
+            // Grid посередине. Внутрь BeginScrollView передаём ScrollView,
+            // вертикальный scrollbar съест ~14px справа — учитываем при расчёте
+            // ширины ячеек (иначе появляется паразитный горизонтальный scroll).
+            Rect grid = new Rect(r.x, r.y + searchH, r.width, r.height - searchH - infoH - 12);
+
+            GUILayout.BeginArea(grid);
+            _scroll = GUILayout.BeginScrollView(_scroll, false, false);
+            GUILayout.Space(4);
+
+            // Эффективная ширина для grid-расчёта = область скроллвью минус scrollbar.
+            float gridInnerW = grid.width - 16f;
+
+            string q = (_searchQuery ?? "").Trim().ToLowerInvariant();
+            bool anyShown = false;
+            foreach (var g in GROUPS)
+            {
+                // Фильтр: оставляем только действия, чьё имя/описание/категория содержат query.
+                var visible = new List<NovellaUIBinding.BindingAction>();
+                foreach (var a in g.Actions)
+                {
+                    if (string.IsNullOrEmpty(q) || ActionMatches(a, g.Title, q))
+                        visible.Add(a);
+                }
+                if (visible.Count == 0) continue;
+                anyShown = true;
+
+                DrawGroupGrid(g, visible.ToArray(), gridInnerW);
+            }
+            if (!anyShown && !string.IsNullOrEmpty(q))
+            {
+                var emptySt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 12, alignment = TextAnchor.MiddleCenter, wordWrap = true,
+                    normal = { textColor = C_TEXT_3 }
+                };
+                GUILayout.Space(40);
+                GUILayout.Label($"Ничего не найдено по запросу «{_searchQuery}»", emptySt);
+            }
 
             GUILayout.Space(8);
-
-            DrawGroup("НАВИГАЦИЯ", new[]
-            {
-                NovellaUIBinding.BindingAction.GoToNode,
-                NovellaUIBinding.BindingAction.StartNewGame,
-                NovellaUIBinding.BindingAction.LoadLastSave,
-                NovellaUIBinding.BindingAction.RestartChapter,
-            });
-
-            DrawGroup("ОКНА UI", new[]
-            {
-                NovellaUIBinding.BindingAction.ShowPanel,
-                NovellaUIBinding.BindingAction.HidePanel,
-                NovellaUIBinding.BindingAction.TogglePanel,
-            });
-
-            DrawGroup("ИГРОВАЯ ЛОГИКА", new[]
-            {
-                NovellaUIBinding.BindingAction.SetVariable,
-            });
-
-            DrawGroup("ЭФФЕКТЫ", new[]
-            {
-                NovellaUIBinding.BindingAction.PlaySFX,
-            });
-
-            DrawGroup("СИСТЕМА", new[]
-            {
-                NovellaUIBinding.BindingAction.ChangeLanguage,
-                NovellaUIBinding.BindingAction.OpenURL,
-                NovellaUIBinding.BindingAction.PauseGame,
-                NovellaUIBinding.BindingAction.ResumeGame,
-                NovellaUIBinding.BindingAction.QuitGame,
-            });
-
-            // Отдельная группа «Для кодеров» — действия требующие интеграции
-            // через NovellaPlayer.OnNovellaEvent или платформенный API. Видимая
-            // визуальная отбивка, чтобы рядовой пользователь не ткнул случайно.
-            DrawCodersGroup(new[]
-            {
-                NovellaUIBinding.BindingAction.TriggerEvent,
-                NovellaUIBinding.BindingAction.UnlockAchievement,
-            });
-
-            DrawGroup("ПРОЧЕЕ", new[]
-            {
-                NovellaUIBinding.BindingAction.None,
-            });
-
-            GUILayout.Space(8);
-
             GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
-        private void DrawGroup(string title, NovellaUIBinding.BindingAction[] actions)
+        private void DrawSearchBar(Rect r)
         {
-            GUILayout.Space(8);
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(20);
-            var hSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 9 };
-            hSt.normal.textColor = C_TEXT_4;
-            GUILayout.Label(title, hSt);
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            GUILayout.Space(2);
+            EditorGUI.DrawRect(r, C_BG_RAISED);
+            DrawBorder(r, new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.6f));
 
-            for (int i = 0; i < actions.Length; i++)
+            GUI.Label(new Rect(r.x + 8, r.y + 1, 20, r.height), "🔍",
+                new GUIStyle(EditorStyles.label) {
+                    fontSize = 13, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = C_TEXT_3 }
+                });
+
+            var fieldSt = new GUIStyle(EditorStyles.textField) {
+                fontSize = 12,
+                normal = { background = null, textColor = C_TEXT_1 },
+                focused = { background = null, textColor = C_TEXT_1 },
+                hover = { background = null, textColor = C_TEXT_1 },
+                active = { background = null, textColor = C_TEXT_1 },
+                border = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(2, 4, 2, 2),
+            };
+            GUI.SetNextControlName("ActionSearch");
+            string newQ = EditorGUI.TextField(
+                new Rect(r.x + 28, r.y + 2, r.width - 36, r.height - 4),
+                _searchQuery ?? "", fieldSt);
+            if (newQ != _searchQuery) { _searchQuery = newQ; Repaint(); }
+
+            // Placeholder
+            if (string.IsNullOrEmpty(_searchQuery) && GUI.GetNameOfFocusedControl() != "ActionSearch")
             {
-                DrawActionCard(actions[i]);
-                GUILayout.Space(2);
+                GUI.Label(new Rect(r.x + 30, r.y + 2, r.width - 38, r.height - 4),
+                    "Поиск действия — название или категория…",
+                    new GUIStyle(EditorStyles.label) {
+                        fontSize = 12, fontStyle = FontStyle.Italic,
+                        normal = { textColor = C_TEXT_4 }
+                    });
             }
         }
 
-        // Группа «Для кодеров» — отдельная плашка с рамкой и хинтом, чтобы не
-        // путалась с обычными action'ами. Эти действия требуют ручной интеграции
-        // через NovellaPlayer.OnNovellaEvent или платформенный API.
-        private void DrawCodersGroup(NovellaUIBinding.BindingAction[] actions)
+        private void DrawInfoCard(Rect r)
         {
-            GUILayout.Space(12);
+            EditorGUI.DrawRect(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.06f));
+            DrawBorder(r, new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.40f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), C_ACCENT);
 
+            (string icon, string name) = ActionIconAndName(_selected);
+            string desc = ActionDescription(_selected);
+            if (string.IsNullOrEmpty(desc)) desc = "Кнопка ничего не делает по клику.";
+
+            var nameSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 13,
+                normal = { textColor = C_TEXT_1 }
+            };
+            GUI.Label(new Rect(r.x + 12, r.y + 6, r.width - 20, 20), icon + "  " + name, nameSt);
+
+            var descSt = new GUIStyle(EditorStyles.label) {
+                fontSize = 11, wordWrap = true,
+                normal = { textColor = C_TEXT_2 }
+            };
+            GUI.Label(new Rect(r.x + 12, r.y + 28, r.width - 20, r.height - 32), desc, descSt);
+        }
+
+        private void DrawGroupGrid(GroupSpec g, NovellaUIBinding.BindingAction[] actions, float bodyW)
+        {
             // Заголовок группы.
+            GUILayout.Space(10);
             GUILayout.BeginHorizontal();
-            GUILayout.Space(20);
-            var hSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 9 };
-            hSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f); // amber — отличается от обычных групп
-            GUILayout.Label("👨‍💻 ДЛЯ КОДЕРОВ — требуют C#-интеграции", hSt);
+            GUILayout.Space(14);
+            var hSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 10 };
+            hSt.normal.textColor = g.IsCoders ? new Color(0.95f, 0.66f, 0.30f) : C_TEXT_3;
+            GUILayout.Label(g.Title, hSt);
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
 
-            // Карточки внутри плашки с янтарной рамкой.
-            Rect frameStart = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true));
-            GUILayout.Space(4);
+            // Grid из карточек: 3 колонки.
+            const int cols = 3;
+            const float pad = 14f;
+            const float gap = 8f;
+            float cellW = (bodyW - pad * 2 - gap * (cols - 1)) / cols;
+            float cellH = 64f;
+
+            int rows = (actions.Length + cols - 1) / cols;
+            Rect grid = GUILayoutUtility.GetRect(bodyW, rows * cellH + (rows - 1) * gap);
 
             for (int i = 0; i < actions.Length; i++)
             {
-                DrawActionCard(actions[i]);
-                GUILayout.Space(2);
+                int row = i / cols;
+                int col = i % cols;
+                Rect cell = new Rect(
+                    grid.x + pad + col * (cellW + gap),
+                    grid.y + row * (cellH + gap),
+                    cellW, cellH);
+                DrawActionTile(cell, actions[i], g.IsCoders);
             }
-
-            GUILayout.Space(4);
-            Rect frameEnd = GUILayoutUtility.GetLastRect();
-            // Рамка вокруг группы.
-            Rect frame = new Rect(frameStart.x + 12, frameStart.y, frameStart.width - 24, frameEnd.yMax - frameStart.y);
-            DrawBorder(frame, new Color(0.95f, 0.66f, 0.30f, 0.45f));
-            EditorGUI.DrawRect(new Rect(frame.x, frame.y, 3, frame.height), new Color(0.95f, 0.66f, 0.30f, 0.85f));
         }
 
-        private void DrawActionCard(NovellaUIBinding.BindingAction action)
+        private void DrawActionTile(Rect r, NovellaUIBinding.BindingAction action, bool isCoderTile)
         {
             bool selected = _selected == action;
+            Event e = Event.current;
+            bool hover = r.Contains(e.mousePosition);
 
-            float h = selected ? 56f : 38f;
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(20);
-            Rect row = GUILayoutUtility.GetRect(0, h, GUILayout.ExpandWidth(true), GUILayout.Height(h));
-            GUILayout.Space(20);
-            GUILayout.EndHorizontal();
-            bool hover = row.Contains(Event.current.mousePosition);
+            // Фон.
+            Color bg = selected
+                ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f)
+                : (hover ? new Color(1f, 1f, 1f, 0.05f) : C_BG_RAISED);
+            EditorGUI.DrawRect(r, bg);
 
-            Color bg = selected ? new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.18f)
-                                : hover ? new Color(1f, 1f, 1f, 0.04f)
-                                        : C_BG_RAISED;
-            EditorGUI.DrawRect(row, bg);
-            DrawBorder(row, selected ? C_ACCENT : new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.5f));
+            // Border.
+            Color border;
+            if (selected) border = C_ACCENT;
+            else if (isCoderTile) border = new Color(0.95f, 0.66f, 0.30f, 0.40f);
+            else border = new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.5f);
+            DrawBorder(r, border);
 
+            // Cyan-stripe слева у selected.
             if (selected)
-            {
-                EditorGUI.DrawRect(new Rect(row.x, row.y, 4, row.height), C_ACCENT);
-            }
+                EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), C_ACCENT);
 
-            // Иконка + название.
+            // Иконка крупная вверху.
             (string icon, string name) = ActionIconAndName(action);
-            string desc = ActionDescription(action);
+            var iconSt = new GUIStyle(EditorStyles.label) {
+                fontSize = 22,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = selected ? C_ACCENT : C_TEXT_2 }
+            };
+            GUI.Label(new Rect(r.x + 6, r.y + 4, 36, 36), icon, iconSt);
 
-            var iconSt = new GUIStyle(EditorStyles.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
-            iconSt.normal.textColor = selected ? C_ACCENT : C_TEXT_2;
-            GUI.Label(new Rect(row.x + 12, row.y, 36, row.height), icon, iconSt);
+            // Название справа от иконки.
+            var nameSt = new GUIStyle(selected ? EditorStyles.boldLabel : EditorStyles.label) {
+                fontSize = 11,
+                wordWrap = true,
+                alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = selected ? C_TEXT_1 : C_TEXT_2 }
+            };
+            GUI.Label(new Rect(r.x + 44, r.y + 4, r.width - 50, r.height - 8), name, nameSt);
 
-            var nameSt = new GUIStyle(selected ? EditorStyles.boldLabel : EditorStyles.label) { fontSize = 13 };
-            nameSt.normal.textColor = selected ? C_TEXT_1 : C_TEXT_2;
-            GUI.Label(new Rect(row.x + 54, row.y + (selected ? 8 : 10), row.width - 80, 20), name, nameSt);
-
+            // Маркер «●» в правом верхнем углу для selected.
             if (selected)
             {
-                var descSt = new GUIStyle(EditorStyles.label) { fontSize = 10, wordWrap = true };
-                descSt.normal.textColor = C_TEXT_3;
-                GUI.Label(new Rect(row.x + 54, row.y + 28, row.width - 80, row.height - 28), desc, descSt);
+                var dotSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 12, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = C_ACCENT }
+                };
+                GUI.Label(new Rect(r.xMax - 18, r.y + 2, 14, 14), "●", dotSt);
             }
 
-            // Маркер «●» / «○» справа.
-            var markSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 16, alignment = TextAnchor.MiddleCenter };
-            markSt.normal.textColor = selected ? C_ACCENT : new Color(1, 1, 1, 0.18f);
-            GUI.Label(new Rect(row.xMax - 36, row.y, 24, row.height), selected ? "●" : "○", markSt);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
 
             // Клик: один — выбор; двойной — выбор + закрытие.
-            if (Event.current.type == EventType.MouseDown && hover)
+            if (e.type == EventType.MouseDown && e.button == 0 && hover)
             {
                 _selected = action;
-                if (Event.current.clickCount >= 2) Confirm();
-                Event.current.Use();
+                if (e.clickCount >= 2) Confirm();
+                e.Use();
                 Repaint();
             }
+        }
+
+        private static bool ActionMatches(NovellaUIBinding.BindingAction a, string groupTitle, string q)
+        {
+            (string icon, string name) = ActionIconAndName(a);
+            if (name.ToLowerInvariant().Contains(q)) return true;
+            if (groupTitle.ToLowerInvariant().Contains(q)) return true;
+            string desc = ActionDescription(a);
+            if (!string.IsNullOrEmpty(desc) && desc.ToLowerInvariant().Contains(q)) return true;
+            return false;
         }
 
         // ─── Footer ─────────────────────────────────────────────────────────────
@@ -327,6 +445,9 @@ namespace NovellaEngine.Editor.UIBindings
                 case NovellaUIBinding.BindingAction.OpenURL:           return ("🔗", "Открыть ссылку");
                 case NovellaUIBinding.BindingAction.PauseGame:         return ("⏸",  "Пауза игры");
                 case NovellaUIBinding.BindingAction.ResumeGame:        return ("▶",  "Снять паузу");
+                case NovellaUIBinding.BindingAction.SaveGameSlot:      return ("💾", "Сохранить в слот");
+                case NovellaUIBinding.BindingAction.LoadGameSlot:      return ("📂", "Загрузить из слота");
+                case NovellaUIBinding.BindingAction.ReturnToMainMenu:  return ("🏠", "Вернуться в главное меню");
             }
             return ("?", a.ToString());
         }
@@ -358,6 +479,9 @@ namespace NovellaEngine.Editor.UIBindings
                 case NovellaUIBinding.BindingAction.OpenURL:           return "Открывает указанную ссылку в системном браузере.";
                 case NovellaUIBinding.BindingAction.PauseGame:         return "⚠ Ставит Time.timeScale = 0 — игра «замораживается». Обязательно где-то добавь кнопку «Снять паузу» (ResumeGame), иначе игра выглядит зависшей.";
                 case NovellaUIBinding.BindingAction.ResumeGame:        return "Снимает паузу — Time.timeScale = 1. Обычно вешается на кнопку «Продолжить» в pause-меню или на крестик закрытия паузы.";
+                case NovellaUIBinding.BindingAction.SaveGameSlot:      return "Сохраняет текущее состояние истории в именованный слот. Открывает панель выбора слота с превью существующих сохранений.";
+                case NovellaUIBinding.BindingAction.LoadGameSlot:      return "Загружает игру из выбранного слота. Открывает панель выбора слота с превью существующих сохранений.";
+                case NovellaUIBinding.BindingAction.ReturnToMainMenu:  return "Загружает сцену главного меню. Если имя сцены не задано — берётся первая сцена из Build Settings (типичная раскладка проектов Novella). Time.timeScale возвращается в 1.";
             }
             return "";
         }

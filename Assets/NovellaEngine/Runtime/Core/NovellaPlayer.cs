@@ -228,6 +228,67 @@ namespace NovellaEngine.Runtime
             }
         }
 
+        /// <summary>
+        /// Сохраняет текущее состояние в именованный слот (1..N).
+        /// Используется UIBinding-кнопками «Сохранить в слот N».
+        /// Слот 0 эквивалентен автосейву (тот же ключ что у SaveProgress).
+        /// </summary>
+        public bool SaveToSlot(int slot)
+        {
+            if (_currentNodeBase == null || StoryTree == null)
+            {
+                Debug.LogWarning("[NovellaPlayer] SaveToSlot: нет активной ноды или StoryTree.");
+                return false;
+            }
+            if (_currentNodeBase.NodeType == ENodeType.End)
+            {
+                Debug.LogWarning("[NovellaPlayer] SaveToSlot: история уже завершена, сохранять нечего.");
+                return false;
+            }
+
+            string preview = ExtractPreviewText();
+            if (slot <= 0)
+            {
+                NovellaSaveManager.SaveGame(StoryTree.name, _currentNodeBase.NodeID, _currentLineIndex, preview);
+            }
+            else
+            {
+                NovellaSaveManager.SaveGameToSlot(StoryTree.name, slot, _currentNodeBase.NodeID, _currentLineIndex, preview);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Загружает состояние из именованного слота. Если слот пустой — лог + false.
+        /// </summary>
+        public bool LoadFromSlot(int slot)
+        {
+            if (StoryTree == null)
+            {
+                Debug.LogWarning("[NovellaPlayer] LoadFromSlot: StoryTree не назначен.");
+                return false;
+            }
+            if (slot <= 0)
+            {
+                // Автосейв — берём через старый ключ.
+                string nodeId = PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_Node", "");
+                int lineIdx = PlayerPrefs.GetInt($"NovellaSave_{StoryTree.name}_Line", 0);
+                if (string.IsNullOrEmpty(nodeId)) { Debug.LogWarning("[NovellaPlayer] LoadFromSlot: автосейв пустой."); return false; }
+                _currentLineIndex = lineIdx;
+                PlayNode(nodeId);
+                return true;
+            }
+            var data = NovellaSaveManager.LoadVariablesFromSlot(StoryTree.name, slot);
+            if (data == null || string.IsNullOrEmpty(data.CurrentNodeID))
+            {
+                Debug.LogWarning($"[NovellaPlayer] LoadFromSlot: слот {slot} пустой.");
+                return false;
+            }
+            _currentLineIndex = data.CurrentLineIndex;
+            PlayNode(data.CurrentNodeID);
+            return true;
+        }
+
         // Достаёт короткий текст для превью слота. Берёт первую непустую
         // локализацию текущей реплики; если нет — имя ноды или пустую строку.
         private string ExtractPreviewText()
@@ -821,7 +882,7 @@ namespace NovellaEngine.Runtime
                 int w = choice.ChanceWeight;
                 foreach (var mod in choice.ChanceModifiers)
                 {
-                    if (CheckSingleCondition(mod.Variable, mod.Operator, mod.Value, mod.ValueBool, mod.ValueString)) w += mod.BonusWeight;
+                    if (CheckSingleCondition(mod.Variable, mod.Operator, mod.Value, mod.ValueBool, mod.ValueString, mod.ValueFloat)) w += mod.BonusWeight;
                 }
                 w = Mathf.Max(0, w);
                 finalWeights.Add(w);
@@ -856,11 +917,36 @@ namespace NovellaEngine.Runtime
                     if (def.Type == EVarType.Integer) NovellaVariables.SetInt(v.VariableName, v.VarValue);
                     else if (def.Type == EVarType.Boolean) NovellaVariables.SetBool(v.VariableName, v.VarBool);
                     else if (def.Type == EVarType.String) NovellaVariables.SetString(v.VariableName, v.VarString);
+                    else if (def.Type == EVarType.Float) NovellaVariables.SetFloat(v.VariableName, v.VarFloat);
+                    else if (def.Type == EVarType.Choice) NovellaVariables.SetChoice(v.VariableName, v.VarString);
+                    // List + Set трактуем как «заменить весь список одним элементом» —
+                    // поведение нелогичное, поэтому игнорируем (для List нужны
+                    // явные операции ListAdd / ListRemove / ListClear).
                 }
-                else if (v.VarOperation == EVarOperation.Add && def.Type == EVarType.Integer)
+                else if (v.VarOperation == EVarOperation.Add)
                 {
-                    int current = NovellaVariables.GetInt(v.VariableName);
-                    NovellaVariables.SetInt(v.VariableName, current + v.VarValue);
+                    if (def.Type == EVarType.Integer)
+                    {
+                        int current = NovellaVariables.GetInt(v.VariableName);
+                        NovellaVariables.SetInt(v.VariableName, current + v.VarValue);
+                    }
+                    else if (def.Type == EVarType.Float)
+                    {
+                        float current = NovellaVariables.GetFloat(v.VariableName);
+                        NovellaVariables.SetFloat(v.VariableName, current + v.VarFloat);
+                    }
+                }
+                else if (v.VarOperation == EVarOperation.ListAdd && def.Type == EVarType.List)
+                {
+                    NovellaVariables.ListAdd(v.VariableName, v.VarString);
+                }
+                else if (v.VarOperation == EVarOperation.ListRemove && def.Type == EVarType.List)
+                {
+                    NovellaVariables.ListRemove(v.VariableName, v.VarString);
+                }
+                else if (v.VarOperation == EVarOperation.ListClear && def.Type == EVarType.List)
+                {
+                    NovellaVariables.ListClear(v.VariableName);
                 }
             }
             PlayNode(varData.NextNodeID);
@@ -1347,11 +1433,11 @@ namespace NovellaEngine.Runtime
         private bool CheckConditions(List<ChoiceCondition> conditions)
         {
             if (conditions == null || conditions.Count == 0) return true;
-            foreach (var cond in conditions) if (!CheckSingleCondition(cond.Variable, cond.Operator, cond.Value, cond.ValueBool, cond.ValueString)) return false;
+            foreach (var cond in conditions) if (!CheckSingleCondition(cond.Variable, cond.Operator, cond.Value, cond.ValueBool, cond.ValueString, cond.ValueFloat)) return false;
             return true;
         }
 
-        private bool CheckSingleCondition(string varName, EConditionOperator op, int targetInt, bool targetBool, string targetString)
+        private bool CheckSingleCondition(string varName, EConditionOperator op, int targetInt, bool targetBool, string targetString, float targetFloat)
         {
             var settings = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
             var def = settings?.Variables.FirstOrDefault(x => x.Name == varName);
@@ -1381,6 +1467,44 @@ namespace NovellaEngine.Runtime
                 string current = NovellaVariables.GetString(varName);
                 if (op == EConditionOperator.Equal) return current == targetString;
                 if (op == EConditionOperator.NotEqual) return current != targetString;
+            }
+            else if (def.Type == EVarType.Float)
+            {
+                float current = NovellaVariables.GetFloat(varName);
+                // Сравнение float — с эпсилоном, чтобы избежать ложных мисматчей
+                // от плавающей арифметики (например 0.1 + 0.2 != 0.3 буквально).
+                const float EPS = 0.00001f;
+                switch (op)
+                {
+                    case EConditionOperator.Equal: return Mathf.Abs(current - targetFloat) <= EPS;
+                    case EConditionOperator.NotEqual: return Mathf.Abs(current - targetFloat) > EPS;
+                    case EConditionOperator.Greater: return current > targetFloat;
+                    case EConditionOperator.Less: return current < targetFloat;
+                    case EConditionOperator.GreaterOrEqual: return current >= targetFloat - EPS;
+                    case EConditionOperator.LessOrEqual: return current <= targetFloat + EPS;
+                }
+            }
+            else if (def.Type == EVarType.Choice)
+            {
+                string current = NovellaVariables.GetChoice(varName);
+                if (op == EConditionOperator.Equal) return current == targetString;
+                if (op == EConditionOperator.NotEqual) return current != targetString;
+            }
+            else if (def.Type == EVarType.List)
+            {
+                // List поддерживает только Contains / NotContains (с targetString)
+                // и Equal/NotEqual для длины (через targetInt).
+                switch (op)
+                {
+                    case EConditionOperator.Contains: return NovellaVariables.ListContains(varName, targetString);
+                    case EConditionOperator.NotContains: return !NovellaVariables.ListContains(varName, targetString);
+                    case EConditionOperator.Equal: return NovellaVariables.ListCount(varName) == targetInt;
+                    case EConditionOperator.NotEqual: return NovellaVariables.ListCount(varName) != targetInt;
+                    case EConditionOperator.Greater: return NovellaVariables.ListCount(varName) > targetInt;
+                    case EConditionOperator.Less: return NovellaVariables.ListCount(varName) < targetInt;
+                    case EConditionOperator.GreaterOrEqual: return NovellaVariables.ListCount(varName) >= targetInt;
+                    case EConditionOperator.LessOrEqual: return NovellaVariables.ListCount(varName) <= targetInt;
+                }
             }
             return false;
         }

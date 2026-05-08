@@ -105,7 +105,9 @@ namespace NovellaEngine.Editor
             GUILayout.Label(string.Format(ToolLang.Get(
                 "We collected {0} from this session. Don't be shy — sending the report takes 5 seconds.",
                 "Мы собрали {0} за сессию. Не стесняйся — отправка отчёта займёт 5 секунд."),
-                NovellaPlurals.Errors(_errorCount)), subSt);
+                // Accusative: «собрали 1 ошибку» (а не «1 ошибка»), «собрали 21 ошибку».
+                // Множественные формы 2-4 / 5+ у «ошибка» в винительном совпадают с именительным.
+                NovellaPlurals.ErrorsAccusative(_errorCount)), subSt);
 
             GUILayout.Space(4);
             // Молния отдельным label-ом, без italic и без wordWrap — иначе при

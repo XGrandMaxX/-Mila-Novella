@@ -766,6 +766,20 @@ namespace NovellaEngine.Editor
                 evt.menu.AppendSeparator("");
             }
 
+            // ─── Pin / Unpin (если выделена ровно одна обычная нода) ──────────
+            // Пин-нода — точка возврата при «Focus Pinned» (Ctrl+Shift+Home).
+            // Раньше эта кнопка была только в инспекторе, новички её не находили.
+            if (selectedNodes.Count == 1 && Tree != null)
+            {
+                var nv = selectedNodes[0];
+                bool isPinned = nv.Data != null && nv.Data.IsPinned;
+                evt.menu.AppendAction(
+                    isPinned ? ToolLang.Get("📌 Unpin Node", "📌 Открепить ноду")
+                             : ToolLang.Get("📌 Pin Node (focus shortcut)", "📌 Закрепить ноду (быстрый возврат)"),
+                    (a) => TogglePinNode(nv));
+                evt.menu.AppendSeparator("");
+            }
+
             string storyCat = ToolLang.Get("📖 Story/", "📖 Сюжет/");
             string logicCat = ToolLang.Get("🔀 Logic/", "🔀 Логика/");
             string cineCat = ToolLang.Get("🎬 Cinematography/", "🎬 Режиссура/");
@@ -809,6 +823,25 @@ namespace NovellaEngine.Editor
             }
 
             base.BuildContextualMenu(evt);
+        }
+
+        /// <summary>
+        /// Переключает IsPinned у выбранной ноды. Pinned-нода всего одна
+        /// в дереве — снимаем pin со всех остальных перед установкой нового.
+        /// Зеркалит поведение чекбокса в инспекторе (NovellaNodeInspectorUI).
+        /// </summary>
+        private void TogglePinNode(NovellaNodeView nv)
+        {
+            if (Tree == null || nv == null || nv.Data == null) return;
+            Undo.RecordObject(Tree, "Toggle Pin Node");
+            bool wantPin = !nv.Data.IsPinned;
+            // Снимаем флаг со всех других нод — pin только один.
+            foreach (var n in Tree.Nodes)
+                if (n != null) n.IsPinned = false;
+            nv.Data.IsPinned = wantPin;
+            // Перерисовать визуал всех нод (показать/скрыть 📌-эмблему).
+            this.Query<NovellaNodeView>().ForEach(view => view.RefreshVisuals());
+            EditorUtility.SetDirty(Tree);
         }
 
         private void RemoveNodesFromGroup(List<NovellaNodeView> nodes)

@@ -14,8 +14,13 @@ namespace NovellaEngine.Editor
     internal static class NovellaToolbarButton
     {
         private const string ELEMENT_NAME = "novella-studio-toolbar-btn";
-        private const float PULSE_DURATION = 1.6f;
-        private const int PULSE_COUNT = 3;
+        // Усиленные параметры пульсации: дольше и больше повторов чтобы
+        // юзер, случайно закрывший Студию через ✕, гарантированно заметил
+        // куда она ушла. Раньше было 1.6с/3 пульса — мелькало незаметно.
+        private const float PULSE_DURATION = 3.2f;
+        private const int PULSE_COUNT = 5;
+        // Длительность callout-плашки «← Студия свернулась сюда».
+        private const float CALLOUT_DURATION = 3.5f;
 
         // Базовый цвет кнопки в Unity-тулбаре — следует за акцентом из Settings.
         // Hover берёт тот же оттенок и слегка осветляет.
@@ -28,7 +33,9 @@ namespace NovellaEngine.Editor
 
         private static VisualElement _btn;
         private static VisualElement _ring;
+        private static VisualElement _callout;       // плашка «← здесь»
         private static double _flashStart;
+        private static double _calloutStart;
         private static bool _hovered;
         private static int _retryCount;
 
@@ -126,7 +133,13 @@ namespace NovellaEngine.Editor
 
             _btn.RegisterCallback<MouseEnterEvent>(_ => { _hovered = true; ApplyIdleColor(); });
             _btn.RegisterCallback<MouseLeaveEvent>(_ => { _hovered = false; ApplyIdleColor(); });
-            _btn.RegisterCallback<ClickEvent>(_ => NovellaHubWindow.ShowWindow());
+            _btn.RegisterCallback<ClickEvent>(_ => {
+                // Юзер нашёл кнопку — гасим beacon-popup и старый in-toolbar
+                // callout (если он по какой-то причине ещё живёт).
+                NovellaToolbarBeacon.DismissAll();
+                DismissCallout();
+                NovellaHubWindow.ShowWindow();
+            });
 
             rightZone.Add(_btn);
             rightZone.MarkDirtyRepaint();
@@ -140,6 +153,33 @@ namespace NovellaEngine.Editor
             _flashStart = EditorApplication.timeSinceStartup;
             EditorApplication.update -= Pulse;
             EditorApplication.update += Pulse;
+        }
+
+        // Главный visual-сигнал для юзера, потерявшего Studio: вызывается
+        // после Close() — пульсирует кнопку И ОТКРЫВАЕТ большой beacon-popup
+        // прямо под ней. Beacon виден со всего экрана, кликабелен, авто-уходит
+        // через 5с. Раньше использовался только Flash + in-toolbar callout —
+        // последний клипуется тулбаром и был незаметен.
+        public static void ShowFindMeBeacon()
+        {
+            if (_btn == null) Attach();
+            if (_btn == null) return;
+
+            Flash();
+
+            // Считаем экранную позицию кнопки. У UIElements тулбар-панели
+            // worldBound = координаты внутри тулбара. Тулбар сидит на самом
+            // верху главного окна редактора, начало координат тулбара совпадает
+            // с GetMainWindowPosition().
+            Rect mainWnd = EditorGUIUtility.GetMainWindowPosition();
+            Rect btnLocal = _btn.worldBound;
+            Rect screenRect = new Rect(
+                mainWnd.x + btnLocal.x,
+                mainWnd.y + btnLocal.y,
+                btnLocal.width,
+                btnLocal.height);
+
+            NovellaToolbarBeacon.Show(screenRect);
         }
 
         private static void Pulse()
@@ -158,21 +198,144 @@ namespace NovellaEngine.Editor
                 return;
             }
 
-            // Цикл одной пульсации: scale 1.0 -> 1.55, opacity 1.0 -> 0.0.
+            // Цикл одной пульсации: scale 1.0 -> 1.85, opacity 1.0 -> 0.0.
+            // Кольцо расширяется сильнее (1.85x вместо 1.55x) чтобы было
+            // заметно даже на маленьком тулбар-элементе.
             float globalT = (float)(elapsed / PULSE_DURATION);
             float pulseT = Mathf.Repeat(globalT * PULSE_COUNT, 1f);
             float ease = 1f - Mathf.Pow(1f - pulseT, 2f); // easeOutQuad
-            float s = Mathf.Lerp(1f, 1.55f, ease);
-            float o = Mathf.Lerp(0.95f, 0f, ease);
+            float s = Mathf.Lerp(1f, 1.85f, ease);
+            float o = Mathf.Lerp(1f, 0f, ease);
 
             _ring.style.opacity = o;
             _ring.style.scale = new StyleScale(new Scale(new Vector3(s, s, 1f)));
+        }
+
+        // ─── Callout «← Студия свернулась сюда» ───────────────────────────
+        // Появляется снизу под тулбар-кнопкой на CALLOUT_DURATION секунд:
+        // даёт юзеру визуальный анкор «вот сюда смотри». Без этого тулбарная
+        // кнопка маленькая и теряется среди других значков справа.
+
+        private static void EnsureCallout()
+        {
+            if (_btn == null) return;
+            // Если уже есть — переиспользуем (Flash вызвался повторно).
+            if (_callout != null && _callout.parent != null) return;
+
+            _callout = new VisualElement();
+            _callout.name = "novella-studio-callout";
+            _callout.pickingMode = PickingMode.Ignore;
+            _callout.style.position = Position.Absolute;
+            // Позиционируем под кнопкой по центру: x = центр кнопки минус
+            // полширины callout'а, y = чуть ниже кнопки.
+            // Точная позиция выставляется в UpdateCallout (worldBound может
+            // меняться после layout). Сейчас просто стартуем под кнопкой.
+            _callout.style.left = 0; _callout.style.top = 24;
+            _callout.style.paddingLeft = 12; _callout.style.paddingRight = 12;
+            _callout.style.paddingTop = 6;   _callout.style.paddingBottom = 6;
+            _callout.style.backgroundColor = new Color(0.075f, 0.082f, 0.11f, 0.97f);
+            _callout.style.borderTopColor = _callout.style.borderBottomColor =
+                _callout.style.borderLeftColor = _callout.style.borderRightColor =
+                new StyleColor(RingColor);
+            _callout.style.borderTopWidth = _callout.style.borderBottomWidth =
+                _callout.style.borderLeftWidth = _callout.style.borderRightWidth = 1;
+            _callout.style.borderTopLeftRadius = _callout.style.borderTopRightRadius =
+                _callout.style.borderBottomLeftRadius = _callout.style.borderBottomRightRadius = 6;
+            _callout.style.flexDirection = FlexDirection.Row;
+            _callout.style.alignItems = Align.Center;
+
+            var arrow = new Label("⤴");
+            arrow.style.color = RingColor;
+            arrow.style.fontSize = 13;
+            arrow.style.unityFontStyleAndWeight = FontStyle.Bold;
+            arrow.style.marginRight = 6;
+            arrow.pickingMode = PickingMode.Ignore;
+            _callout.Add(arrow);
+
+            var label = new Label(ToolLang.Get(
+                "Novella Studio — open here",
+                "Novella Studio — открыть отсюда"));
+            label.style.color = new Color(0.95f, 0.95f, 0.98f);
+            label.style.fontSize = 11;
+            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            label.pickingMode = PickingMode.Ignore;
+            _callout.Add(label);
+
+            // Парентим к panel-root тулбара (тот же что у _btn) и
+            // выравниваем абсолютной позицией.
+            var panelRoot = _btn.panel?.visualTree;
+            if (panelRoot != null) panelRoot.Add(_callout);
+        }
+
+        private static void UpdateCallout()
+        {
+            if (_btn == null || _callout == null)
+            {
+                EditorApplication.update -= UpdateCallout;
+                return;
+            }
+            double elapsed = EditorApplication.timeSinceStartup - _calloutStart;
+            if (elapsed > CALLOUT_DURATION)
+            {
+                if (_callout.parent != null) _callout.parent.Remove(_callout);
+                _callout = null;
+                EditorApplication.update -= UpdateCallout;
+                return;
+            }
+
+            // Позиционируем под кнопкой каждый кадр (на случай если тулбар
+            // переcтроился). _btn.worldBound и _callout живут в одном panel.
+            Rect btnWorld = _btn.worldBound;
+            float w = _callout.resolvedStyle.width > 0 ? _callout.resolvedStyle.width : 220f;
+            float cx = btnWorld.center.x - w / 2f;
+            // Не давать выехать за правый край панели (если callout шире
+            // оставшегося пространства).
+            var panelRoot = _btn.panel?.visualTree;
+            if (panelRoot != null)
+            {
+                float maxX = panelRoot.worldBound.width - w - 6;
+                if (cx > maxX) cx = maxX;
+                if (cx < 6) cx = 6;
+            }
+            _callout.style.left = cx;
+            _callout.style.top = btnWorld.yMax + 6;
+
+            // Fade-in 0..150ms, fade-out последние 500ms.
+            float t = (float)elapsed;
+            float opacity;
+            if (t < 0.15f) opacity = t / 0.15f;
+            else if (t > CALLOUT_DURATION - 0.5f)
+                opacity = Mathf.Max(0f, (CALLOUT_DURATION - t) / 0.5f);
+            else opacity = 1f;
+            _callout.style.opacity = opacity;
+
+            // Лёгкий «bounce» на старте — y покачивается первые 600ms чтобы
+            // привлечь взгляд.
+            if (t < 0.6f)
+            {
+                float bounce = Mathf.Sin(t * 12f) * Mathf.Lerp(4f, 0f, t / 0.6f);
+                _callout.style.translate = new StyleTranslate(new Translate(0f, bounce));
+            }
+            else
+            {
+                _callout.style.translate = new StyleTranslate(new Translate(0f, 0f));
+            }
         }
 
         private static void ApplyIdleColor()
         {
             if (_btn == null) return;
             _btn.style.backgroundColor = _hovered ? HoverColor : BaseColor;
+        }
+
+        // Гасит callout мгновенно (когда Hub открылся — призыв «← здесь»
+        // больше не нужен) и снимает update-loop.
+        private static void DismissCallout()
+        {
+            if (_callout != null && _callout.parent != null)
+                _callout.parent.Remove(_callout);
+            _callout = null;
+            EditorApplication.update -= UpdateCallout;
         }
     }
 
@@ -410,11 +573,41 @@ namespace NovellaEngine.Editor
         // 0=Home, 3=UIForge, 1=Characters, 2=Scenes, 4=Variables, 5=Build, 6=Console, 7=Settings
         private static readonly int[] _sidebarOrder = { 0, 3, 1, 2, 4, 5, 6, 7 };
 
-        // Helpers для прогрессивной разблокировки.
+        // ─── Cached project-state checks (фикс лага в Кузнице) ──────────────────
+        // HasAnyStory / HasAnyUserScene / HasActiveStorySelected раньше дёргали
+        // AssetDatabase.FindAssets / GUIDToAssetPath / LoadAssetAtPath
+        // КАЖДЫЙ OnGUI-кадр (≥60 раз/сек). На большом проекте это давало явные
+        // лаги при движении окна или клике в иерархии. Теперь — TTL-кеш 1 секунда:
+        // глаз пользователя разницу не заметит, но вместо 180+ AssetDatabase-вызовов
+        // в секунду получаем максимум 3.
+        private const double STATE_CACHE_TTL = 1.0;
+        private static double _hasStoryCacheTime = -1; private static bool _hasStoryCache;
+        private static double _hasSceneCacheTime = -1; private static bool _hasSceneCache;
+        private static double _activeCacheTime = -1;   private static bool _activeCache;
+
         private static bool HasAnyStory()
-            => AssetDatabase.FindAssets("t:NovellaStory").Length > 0;
+        {
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _hasStoryCacheTime > STATE_CACHE_TTL)
+            {
+                _hasStoryCache = AssetDatabase.FindAssets("t:NovellaStory").Length > 0;
+                _hasStoryCacheTime = now;
+            }
+            return _hasStoryCache;
+        }
 
         private static bool HasAnyUserScene()
+        {
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _hasSceneCacheTime > STATE_CACHE_TTL)
+            {
+                _hasSceneCache = HasAnyUserSceneInternal();
+                _hasSceneCacheTime = now;
+            }
+            return _hasSceneCache;
+        }
+
+        private static bool HasAnyUserSceneInternal()
         {
             var guids = AssetDatabase.FindAssets("t:Scene", new[] { "Assets" });
             for (int i = 0; i < guids.Length; i++)
@@ -438,12 +631,35 @@ namespace NovellaEngine.Editor
         /// </summary>
         public static bool HasActiveStorySelected()
         {
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _activeCacheTime > STATE_CACHE_TTL)
+            {
+                _activeCache = HasActiveStorySelectedInternal();
+                _activeCacheTime = now;
+            }
+            return _activeCache;
+        }
+
+        private static bool HasActiveStorySelectedInternal()
+        {
             string lastId = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
             if (string.IsNullOrEmpty(lastId)) return false;
             string path = AssetDatabase.GUIDToAssetPath(lastId);
             if (string.IsNullOrEmpty(path)) return false;
             var s = AssetDatabase.LoadAssetAtPath<NovellaStory>(path);
             return s != null;
+        }
+
+        /// <summary>
+        /// Сбрасывает state-кеши вручную. Вызывается там где меняется
+        /// active story / создаётся история / создаётся сцена — чтобы юзер не
+        /// ждал TTL до того как UI среагирует.
+        /// </summary>
+        public static void InvalidateStateCache()
+        {
+            _hasStoryCacheTime = -1;
+            _hasSceneCacheTime = -1;
+            _activeCacheTime = -1;
         }
 
         // Доступен ли модуль с учётом прогрессивной разблокировки и Play Mode.
@@ -611,32 +827,68 @@ namespace NovellaEngine.Editor
         private void PlayOpenAnimation()
         {
             if (rootVisualElement == null) return;
+            _openTransitionStarted = false; // на случай переоткрытия в одном инстансе
 
-            // Стартовое состояние: чуть сжато, прозрачно. Без transition — сразу.
+            // Стартовое состояние: окно «вылезает» из toolbar-кнопки (правый
+            // верхний угол). transformOrigin = top-right + translate сильно
+            // вверх-вправо + scale почти в ноль + opacity = 0. Без transition —
+            // применяем мгновенно.
             rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> { new TimeValue(0f, TimeUnit.Second) });
+            rootVisualElement.style.transformOrigin = new StyleTransformOrigin(new TransformOrigin(Length.Percent(100f), Length.Percent(0f)));
             rootVisualElement.style.opacity = 0f;
-            rootVisualElement.style.scale = new StyleScale(new Scale(new Vector3(0.94f, 0.94f, 1f)));
-            rootVisualElement.style.transformOrigin = new StyleTransformOrigin(new TransformOrigin(Length.Percent(50f), Length.Percent(50f)));
+            rootVisualElement.style.scale = new StyleScale(new Scale(new Vector3(0.04f, 0.04f, 1f)));
+            rootVisualElement.style.translate = new StyleTranslate(new Translate(120f, -80f));
 
-            // На следующем кадре — включаем transition и поднимаем значения, чтобы UIE плавно довёл.
+            // Запускаем целевое состояние ПОСЛЕ первого layout-pass'а — это
+            // надёжнее чем фикcированный schedule.Execute, потому что Unity
+            // может ещё не успеть отрисовать стартовое состояние, и тогда
+            // transition не сработает (визуально окно появится сразу).
+            // Как fallback — schedule.Execute с увеличенной задержкой.
+            EventCallback<GeometryChangedEvent> onLayoutReady = null;
+            onLayoutReady = (evt) =>
+            {
+                rootVisualElement.UnregisterCallback(onLayoutReady);
+                StartOpenTransition();
+            };
+            rootVisualElement.RegisterCallback(onLayoutReady);
+
+            // Fallback: если GeometryChangedEvent не выстрелит (например, окно
+            // уже было лэйаутнуто) — сработает по таймеру через 60ms.
             rootVisualElement.schedule.Execute(() =>
             {
                 if (rootVisualElement == null) return;
-                rootVisualElement.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
-                    new StylePropertyName("opacity"),
-                    new StylePropertyName("scale"),
-                });
-                rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
-                    new TimeValue(0.22f, TimeUnit.Second),
-                    new TimeValue(0.22f, TimeUnit.Second),
-                });
-                rootVisualElement.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
-                    new EasingFunction(EasingMode.EaseOutCubic),
-                    new EasingFunction(EasingMode.EaseOutCubic),
-                });
-                rootVisualElement.style.opacity = 1f;
-                rootVisualElement.style.scale = new StyleScale(new Scale(Vector3.one));
-            }).StartingIn(20);
+                rootVisualElement.UnregisterCallback(onLayoutReady);
+                StartOpenTransition();
+            }).StartingIn(60);
+        }
+
+        // Целевые значения раскрытия, выведены в отдельный метод чтобы
+        // вызывался строго один раз (через guard-флаг).
+        private bool _openTransitionStarted;
+        private void StartOpenTransition()
+        {
+            if (_openTransitionStarted) return;
+            _openTransitionStarted = true;
+            if (rootVisualElement == null) return;
+
+            rootVisualElement.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
+                new StylePropertyName("opacity"),
+                new StylePropertyName("scale"),
+                new StylePropertyName("translate"),
+            });
+            rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
+                new TimeValue(0.34f, TimeUnit.Second),
+                new TimeValue(0.34f, TimeUnit.Second),
+                new TimeValue(0.34f, TimeUnit.Second),
+            });
+            rootVisualElement.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
+                new EasingFunction(EasingMode.EaseOutCubic),
+                new EasingFunction(EasingMode.EaseOutBack),
+                new EasingFunction(EasingMode.EaseOutCubic),
+            });
+            rootVisualElement.style.opacity = 1f;
+            rootVisualElement.style.scale = new StyleScale(new Scale(Vector3.one));
+            rootVisualElement.style.translate = new StyleTranslate(new Translate(0f, 0f));
         }
 
         private void OnDisable()
@@ -674,6 +926,12 @@ namespace NovellaEngine.Editor
                 // юзер вернётся, Кузница снова покажет рамку и плашку.
                 return;
             }
+
+            // Закрытие через native ✕ (таб Unity) — окно уничтожается мгновенно,
+            // shrink-анимацию проиграть нечему. Зато показываем большой
+            // beacon-popup прямо под тулбар-кнопкой: жирная стрелка ↑, текст,
+            // подсказка как открыть. Невозможно не заметить.
+            EditorApplication.delayCall += () => NovellaToolbarButton.ShowFindMeBeacon();
 
             if (SessionState.GetBool(FORGE_PLAYTEST_KEY, false) && EditorApplication.isPlaying)
             {
@@ -941,7 +1199,9 @@ namespace NovellaEngine.Editor
 
             // Перехватываем горячие клавиши на root С TrickleDown=true: событие приходит сюда
             // ДО того как достигнет любого VisualElement-инпута (TextField, IntegerField и т.д.).
-            // Без этого Cmd+K и Cmd+L "проваливались" в TextField'ы (Unity открывал свой Quick Search).
+            // Без этого Ctrl+F / Ctrl+L «проваливались» в TextField'ы.
+            // Ctrl+K сознательно НЕ используем — в Unity 2021+ он зарезервирован за
+            // встроенным Search Provider и перехватывается до UI Toolkit.
             _root.RegisterCallback<KeyDownEvent>(OnGlobalKeyDown, TrickleDown.TrickleDown);
         }
 
@@ -985,18 +1245,44 @@ namespace NovellaEngine.Editor
         private void OnGlobalKeyDown(KeyDownEvent evt)
         {
             bool ctrl = evt.ctrlKey || evt.commandKey;
-            if (ctrl && evt.keyCode == KeyCode.K)
+            // Ctrl+F — открыть поиск/палитру. Внутри Hub-окна не конфликтует с
+            // Unity'овским Frame Selected (тот завязан на Hierarchy/Scene view).
+            // Ctrl+K сознательно НЕ используем — в Unity 2021+ он зарезервирован
+            // за встроенным Search Provider и перехватывается до UI Toolkit.
+            if (ctrl && !evt.shiftKey && evt.keyCode == KeyCode.F)
             {
                 _commandPalette?.Open();
                 evt.StopPropagation();
                 evt.PreventDefault();
             }
-            else if (ctrl && evt.keyCode == KeyCode.L)
+            else if (ctrl && !evt.shiftKey && evt.keyCode == KeyCode.L)
             {
                 ToolLang.Toggle();
                 RefreshAllLabels();
                 evt.StopPropagation();
                 evt.PreventDefault();
+            }
+        }
+
+        // Дублирующий перехват на уровне IMGUI — нужен потому что кнопки и
+        // toggle'ы внутри IMGUIContainer'ов забирают keyboard-control, и
+        // последующие KeyDown'ы не доходят до UI Toolkit listener'а.
+        // Проверяем тут до того, как модуль начнёт OnGUI.
+        private void HandleHotkeysInIMGUI()
+        {
+            var e = Event.current;
+            if (e == null || e.type != EventType.KeyDown) return;
+            bool ctrl = e.control || e.command;
+            if (ctrl && !e.shift && e.keyCode == KeyCode.F)
+            {
+                _commandPalette?.Open();
+                e.Use();
+            }
+            else if (ctrl && !e.shift && e.keyCode == KeyCode.L)
+            {
+                ToolLang.Toggle();
+                RefreshAllLabels();
+                e.Use();
             }
         }
 
@@ -1107,19 +1393,141 @@ namespace NovellaEngine.Editor
 
         public void RefreshActiveStoryLabel()
         {
+            // Сбрасываем state-кеши — после смены активной истории / удаления /
+            // переключения юзер хочет немедленно увидеть Play-кнопку, а не ждать TTL.
+            InvalidateStateCache();
+
             if (_root == null) return;
             var nameEl = _root.Q<Label>("activeStoryName");
             if (nameEl != null) nameEl.text = GetActiveStoryName();
 
-            // Play-кнопка в топбаре скрывается без активной истории.
-            // Без этой синхронизации кнопка показывается с момента BuildTopBar
-            // до первой смены истории — даже если истории нет.
+            // Play-кнопка в топбаре синхронизируется с состоянием активной истории.
+            // Видна всегда; если активной истории нет — приглушённая + tooltip
+            // с конкретной причиной (как и в Кузнице UI).
             var playBtn = _root.Q<Button>("topbarPlayBtn");
-            if (playBtn != null)
+            if (playBtn != null) UpdateTopbarPlayState(playBtn);
+        }
+
+        /// <summary>
+        /// Цепляет к VisualElement'у быстрый tooltip с задержкой 250ms (вместо
+        /// нативных Unity'shных ~700ms). Текст подсказки получаем через delegate —
+        /// чтобы он мог меняться (например в зависимости от disabled-состояния
+        /// кнопки) без необходимости пересоздавать tooltip-элемент.
+        /// </summary>
+        private static void AttachFastTooltip(VisualElement target, System.Func<string> textProvider)
+        {
+            const long DELAY_MS = 250;
+            VisualElement tip = null;
+            IVisualElementScheduledItem pending = null;
+
+            target.RegisterCallback<MouseEnterEvent>(evt =>
             {
-                playBtn.style.display = HasActiveStorySelected()
-                    ? DisplayStyle.Flex : DisplayStyle.None;
+                pending?.Pause();
+                pending = target.schedule.Execute(() =>
+                {
+                    string txt = textProvider?.Invoke();
+                    if (string.IsNullOrEmpty(txt)) return;
+
+                    if (tip == null)
+                    {
+                        tip = new VisualElement();
+                        tip.style.position = Position.Absolute;
+                        tip.style.backgroundColor = new Color(0.075f, 0.082f, 0.11f, 0.96f);
+                        tip.style.borderTopColor = tip.style.borderBottomColor =
+                            tip.style.borderLeftColor = tip.style.borderRightColor =
+                            new StyleColor(new Color(0.36f, 0.75f, 0.92f, 0.55f));
+                        tip.style.borderTopWidth = tip.style.borderBottomWidth =
+                            tip.style.borderLeftWidth = tip.style.borderRightWidth = 1;
+                        tip.style.paddingTop = tip.style.paddingBottom = 6;
+                        tip.style.paddingLeft = tip.style.paddingRight = 10;
+                        tip.style.maxWidth = 320;
+                        tip.pickingMode = PickingMode.Ignore;
+
+                        var lbl = new Label();
+                        lbl.style.color = new Color(0.92f, 0.95f, 0.98f);
+                        lbl.style.fontSize = 11;
+                        lbl.style.whiteSpace = WhiteSpace.Normal;
+                        lbl.name = "tip-label";
+                        tip.Add(lbl);
+                    }
+                    var labelEl = tip.Q<Label>("tip-label");
+                    if (labelEl != null) labelEl.text = txt;
+
+                    // Позиционируем под кнопкой относительно root'а.
+                    var root = target.panel?.visualTree;
+                    if (root == null) return;
+                    if (tip.parent == null) root.Add(tip);
+
+                    Rect btnWorld = target.worldBound;
+                    tip.style.left = btnWorld.x;
+                    tip.style.top = btnWorld.yMax + 4;
+                });
+                pending?.ExecuteLater(DELAY_MS);
+            });
+
+            target.RegisterCallback<MouseLeaveEvent>(evt =>
+            {
+                pending?.Pause();
+                pending = null;
+                if (tip != null && tip.parent != null) tip.parent.Remove(tip);
+            });
+        }
+
+        /// <summary>
+        /// Обновляет видимость / интерактивность / tooltip топбар-кнопки Play
+        /// в зависимости от того, готов ли проект к запуску. Зеркалит логику
+        /// Кузницы UI (DrawStartPlayButton) — единое UX-поведение по всему хабу.
+        /// </summary>
+        // Хранится между вызовами для guard'а в OnTopbarPlayClicked: причина
+        // почему запуск сейчас невозможен. null — всё готово, можно жать.
+        private static string _topbarPlayReason;
+
+        private static void UpdateTopbarPlayState(Button playBtn)
+        {
+            string reason = null;
+            if (!HasAnyStory())
+                reason = ToolLang.Get(
+                    "Create your first story on the Home tab.",
+                    "Создай первую историю на вкладке «Главная».");
+            else if (!HasAnyUserScene())
+                reason = ToolLang.Get(
+                    "Apply the Game Scene preset on the Scenes tab first.",
+                    "Сначала применить пресет «Игровая сцена» на вкладке «Сцены».");
+            else if (!HasActiveStorySelected())
+                reason = ToolLang.Get(
+                    "Select an active story (story switcher in top-left).",
+                    "Выбери активную историю (переключатель сверху-слева).");
+
+            _topbarPlayReason = reason;
+            bool ready = (reason == null);
+
+            // ВАЖНО: не вызываем SetEnabled(false) — disabled-VisualElement в
+            // UI Toolkit не получает MouseEnter, и наш fast-tooltip не показывает
+            // подсказку при наведении. Вместо этого визуально гасим через
+            // opacity, а click-guard ловит «не готово» и показывает причину.
+            playBtn.SetEnabled(true);
+            playBtn.style.opacity = ready ? 1f : 0.55f;
+            // Текст подсказки — в userData (читается AttachFastTooltip).
+            // Нативный tooltip остаётся пустым чтобы Unity'shный slow-tooltip
+            // не дублировал наш fast-tooltip через 700ms.
+            playBtn.userData = ready
+                ? ToolLang.Get(
+                    "Run the active story — opens UI Forge and enters Play Mode. Changes made in Play are discarded on exit.",
+                    "Запустить активную историю — откроется Кузница UI и Play. Изменения в Play не сохраняются.")
+                : "⚠ " + reason;
+            playBtn.tooltip = "";
+        }
+
+        // Click-guard для топбар-кнопки Play. Если есть причина «не готов» —
+        // показываем уведомление-баннер и не запускаем. Если готов — обычный запуск.
+        private void OnTopbarPlayClicked()
+        {
+            if (!string.IsNullOrEmpty(_topbarPlayReason))
+            {
+                ShowNotification(new GUIContent("⚠ " + _topbarPlayReason), 2.5f);
+                return;
             }
+            StartPlaytest();
         }
 
         private void OpenStorySwitcher()
@@ -1175,7 +1583,7 @@ namespace NovellaEngine.Editor
             text.AddToClassList("ns-search__text");
             search.Add(text);
 
-            var kbd = new Label("Ctrl K");
+            var kbd = new Label("Ctrl F");
             kbd.AddToClassList("ns-search__kbd");
             search.Add(kbd);
 
@@ -1540,7 +1948,7 @@ namespace NovellaEngine.Editor
             title.AddToClassList("ns-help__title");
             help.Add(title);
 
-            help.Add(MakeHelpRow(ToolLang.Get("Quick find", "Быстрый поиск"), "Ctrl K"));
+            help.Add(MakeHelpRow(ToolLang.Get("Quick find", "Быстрый поиск"), "Ctrl F"));
             help.Add(MakeHelpRow(ToolLang.Get("Toggle language", "Сменить язык"), "Ctrl L"));
 
             parent.Add(help);
@@ -1635,21 +2043,23 @@ namespace NovellaEngine.Editor
 
             // Play — переключает в Кузницу UI и жмёт Play.
             // Любые правки в Play-режиме Unity не сохраняет автоматически.
-            // Скрывается, если нет активной истории — запускать всё равно нечего,
-            // и юзер только запутается, нажав «Play» без выбранной истории.
-            var test = new Button(() => StartPlaytest()) { text = "▶  " + ToolLang.Get("Play", "Запустить") };
-            test.name = "topbarPlayBtn"; // для последующего поиска и refresh видимости
+            // Кнопка ВСЕГДА видна — но в disabled-стиле + tooltip'е объясняет
+            // что нужно сделать чтобы запуск стал возможен. Раньше пряталась
+            // молча, и юзер не понимал куда она делась.
+            var test = new Button(() => OnTopbarPlayClicked()) { text = "▶  " + ToolLang.Get("Play", "Запустить") };
+            test.name = "topbarPlayBtn";
             test.AddToClassList("ns-btn");
             test.AddToClassList("ns-btn--play");
             test.style.backgroundColor = new Color(0.30f, 0.85f, 0.45f);
             test.style.color = new Color(0.05f, 0.18f, 0.08f);
             test.style.unityFontStyleAndWeight = FontStyle.Bold;
-            test.tooltip = ToolLang.Get(
-                "Run the active story — opens UI Forge and enters Play Mode. Changes made in Play are discarded on exit.",
-                "Запустить активную историю — откроется Кузница UI и Play. Изменения в Play не сохраняются.");
-            test.style.display = HasActiveStorySelected()
-                ? DisplayStyle.Flex : DisplayStyle.None;
+            // Кастомный tooltip — появляется через 250ms (вместо нативных 700ms).
+            // Текст храним в userData, нативный tooltip всегда пустой —
+            // иначе Unity показывал бы свой через 700ms поверх нашего.
+            AttachFastTooltip(test, () => test.userData as string);
+            // Видимость + интерактивность настраиваются динамически в RefreshActiveStoryLabel.
             actions.Add(test);
+            UpdateTopbarPlayState(test);
 
             var newStory = new Button(() => {
                 if (_modules.Count > 0 && _modules[0] is DashboardModule dash) dash.RequestCreateNewStory();
@@ -1696,32 +2106,49 @@ namespace NovellaEngine.Editor
             {
                 _isMinimizing = true;
                 Close();
-                EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
+                EditorApplication.delayCall += () => NovellaToolbarButton.ShowFindMeBeacon();
                 return;
             }
 
-            rootVisualElement.style.transformOrigin = new StyleTransformOrigin(new TransformOrigin(Length.Percent(50f), Length.Percent(50f)));
+            // ─── БЛОКИРУЕМ ВЕСЬ ВВОД на время анимации ───
+            // Поверх root-а кладём прозрачный overlay — перехватывает все
+            // клики/мышь до Close(), чтобы юзер случайно не нажал что-то в
+            // исчезающей панели.
+            var inputBlocker = new VisualElement();
+            inputBlocker.style.position = Position.Absolute;
+            inputBlocker.style.left = 0; inputBlocker.style.top = 0;
+            inputBlocker.style.right = 0; inputBlocker.style.bottom = 0;
+            inputBlocker.pickingMode = PickingMode.Position;
+            inputBlocker.style.backgroundColor = new Color(0, 0, 0, 0);
+            inputBlocker.name = "ns-input-blocker";
+            rootVisualElement.Add(inputBlocker);
+            inputBlocker.RegisterCallback<PointerDownEvent>(e => e.StopPropagation());
+            inputBlocker.RegisterCallback<MouseDownEvent>(e => e.StopPropagation());
+            inputBlocker.RegisterCallback<ClickEvent>(e => e.StopPropagation());
+
+            // Простой fade-out — без сжатия и translate. Раньше окно
+            // сжималось «куда-то наверх», но тулбар-кнопка живёт ВНЕ окна
+            // Hub'а, и глаз терял связь. Чистое затухание + большой beacon
+            // под тулбар-кнопкой работают намного понятнее.
             rootVisualElement.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
                 new StylePropertyName("opacity"),
-                new StylePropertyName("scale"),
             });
             rootVisualElement.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
-                new TimeValue(0.16f, TimeUnit.Second),
-                new TimeValue(0.16f, TimeUnit.Second),
+                new TimeValue(0.18f, TimeUnit.Second),
             });
             rootVisualElement.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
-                new EasingFunction(EasingMode.EaseInCubic),
-                new EasingFunction(EasingMode.EaseInCubic),
+                new EasingFunction(EasingMode.EaseIn),
             });
             rootVisualElement.style.opacity = 0f;
-            rootVisualElement.style.scale = new StyleScale(new Scale(new Vector3(0.92f, 0.92f, 1f)));
 
             rootVisualElement.schedule.Execute(() =>
             {
                 _isMinimizing = true;
                 Close();
-                EditorApplication.delayCall += () => NovellaToolbarButton.Flash();
-            }).StartingIn(170);
+                // Beacon показывается СРАЗУ после Close — большая плашка под
+                // тулбар-кнопкой видна со всего экрана.
+                EditorApplication.delayCall += () => NovellaToolbarButton.ShowFindMeBeacon();
+            }).StartingIn(200);
         }
 
         // ─────────── Content area ───────────
@@ -1739,6 +2166,10 @@ namespace NovellaEngine.Editor
 
         private void DrawCurrentModuleIMGUI()
         {
+            // Перехват хоткеев ДО любой IMGUI-обработки модуля — иначе кнопки
+            // и поля модуля могут поглотить событие.
+            HandleHotkeysInIMGUI();
+
             if (_modules == null || _currentModuleIndex < 0 || _currentModuleIndex >= _modules.Count) return;
             var rect = _moduleContainer != null ? _moduleContainer.contentRect : new Rect(0, 0, position.width - 240, position.height - 48);
             _modules[_currentModuleIndex].DrawGUI(rect);
@@ -2332,10 +2763,53 @@ namespace NovellaEngine.Editor
         {
             string[] tips =
             {
-                ToolLang.Get("Drag a sprite right onto a character layer slot — no need to click 'Browse' every time.", "Перетащи спрайт прямо в ячейку слоя персонажа — не нужно каждый раз жать «Выбрать»."),
-                ToolLang.Get("Press Ctrl+K anywhere in the Studio to instantly find characters, stories or variables.", "Нажми Ctrl+K в Студии, чтобы мгновенно найти любого персонажа, историю или переменную."),
-                ToolLang.Get("Right-click empty space in the Story Graph to add nodes — start with Dialogue and Branch.", "Правый клик в пустоте графа добавит ноду — начни с Диалога и Развилки."),
-                ToolLang.Get("Press F1 anytime to restart the tutorial — it remembers where you left off.", "F1 в любой момент перезапустит туториал — он помнит на каком уроке ты остановился.")
+                // Хоткеи
+                ToolLang.Get("Press Ctrl+F anywhere in the Studio to instantly find characters, stories or variables.",
+                             "Нажми Ctrl+F в Студии, чтобы мгновенно найти любого персонажа, историю или переменную."),
+                ToolLang.Get("Ctrl+L switches the Studio language between Russian and English at any moment.",
+                             "Ctrl+L мгновенно переключает язык Студии между русским и английским."),
+                // Граф
+                ToolLang.Get("Right-click empty space in the Story Graph to add nodes — start with Dialogue and Branch.",
+                             "Правый клик в пустоте графа добавит ноду — начни с Диалога и Развилки."),
+                ToolLang.Get("Hold Space and drag the canvas to pan the Story Graph quickly without losing selection.",
+                             "Зажми Space и тяни — двигаешь холст графа без потери выделения."),
+                ToolLang.Get("Connecting two nodes is just dragging a line from one port to another. No menus, no scripts.",
+                             "Соединить две ноды = протянуть линию от одного порта к другому. Без меню, без кода."),
+                // Персонажи
+                ToolLang.Get("Drag a sprite right onto a character layer slot — no need to click 'Pick' every time.",
+                             "Перетащи спрайт прямо в ячейку слоя персонажа — не нужно каждый раз жать «Выбрать»."),
+                ToolLang.Get("Each emotion is just a layer override — change a face, the body stays. Layers > separate sprites for every mood.",
+                             "Каждая эмоция — это переопределение слоёв. Меняешь лицо, тело остаётся. Слои > отдельные спрайты под каждое настроение."),
+                ToolLang.Get("Live Preview in Characters shows exactly how the model will look in-game. Drag in the stage to pan, scroll to zoom.",
+                             "Живой предпросмотр у Персонажей показывает ровно то, что увидит игрок. Тяни сцену чтобы двигать, колесо — зум."),
+                // Переменные
+                ToolLang.Get("Variables remember things between dialogues — money, choices, names. Pick Local for chapter-only, Global for the whole game.",
+                             "Переменные хранят состояние между диалогами — деньги, выборы, имена. Локальная — на главу, Глобальная — на всю игру."),
+                ToolLang.Get("Bind a variable to an Image in UI Forge — its icon shows up automatically. No code needed.",
+                             "Привяжи переменную к Image в Кузнице UI — её иконка проставится автоматически. Кода писать не надо."),
+                ToolLang.Get("Use «{var}» inside a localized text and bind a variable — engine substitutes the live value at runtime. «Gold: {var}» → «Gold: 42».",
+                             "Поставь «{var}» внутри локализованного текста и привяжи переменную — движок подставит её значение. «Золото: {var}» → «Золото: 42»."),
+                ToolLang.Get("Choice variable = picker out of a fixed list. Cleaner than magic numbers (0=friend, 1=lover…) and safe from typos.",
+                             "Тип «Из списка» — переменная хранит ОДНО значение из заранее заданного списка. Чище чем магические числа (0=друг, 1=любовь…) и без опечаток."),
+                // UI Forge
+                ToolLang.Get("UI Forge has TWO play modes: full Play (active story is set) and UI-only Preview. Hover the green button to see which one.",
+                             "В Кузнице UI два режима запуска: полный Play (когда выбрана история) и Превью UI. Наведи на зелёную кнопку — она покажет какой именно сейчас."),
+                ToolLang.Get("Insert a prefab into the scene with one click from the Forge — it lands at the cursor, ready to bind.",
+                             "Вставка префаба в сцену — один клик в Кузнице. Он окажется под курсором и готов к привязке."),
+                // Сборка / поток
+                ToolLang.Get("Press Ctrl+S in any Studio panel — Unity saves the project. Habit pays off the day a graph crashes.",
+                             "Ctrl+S в любой панели Студии сохраняет проект. Привычка спасает в тот день, когда граф упадёт."),
+                ToolLang.Get("Categories don't change anything in the game — they just sort the variables list on the left. Use them freely.",
+                             "Категории не влияют на игру — они только сортируют список переменных слева. Используй смело."),
+                ToolLang.Get("«Save & Close» on Story Settings is locked until both the gameplay scene and the starting chapter are picked. By design.",
+                             "«Сохранить и закрыть» в настройках истории заблокировано пока не выбраны и сцена, и стартовая глава. Это специально."),
+                ToolLang.Get("Story Graphs window (Library tools) lets you rename graphs in place — just click ✏ next to the row.",
+                             "В окне «Графы историй» (Библиотека инструментов) можно переименовать граф прямо на месте — клик по ✏ рядом с рядом."),
+                // Лайфхак
+                ToolLang.Get("Stuck on what to write? Open any node, click «Где используется» on a variable — the engine maps every place that touches it.",
+                             "Не знаешь куда копать? Открой любую ноду, нажми «Где используется» у переменной — движок покажет все места, где она задействована."),
+                ToolLang.Get("Premium currency is just a gold marker — it tints the variable in editors so the team sees «this is real money» at a glance. Game logic is identical to Integer.",
+                             "Премиум-валюта — только золотая пометка: подсвечивает переменную в редакторе чтобы команда сразу видела «это за деньги». Логика игры такая же как у обычного Integer."),
             };
             int dayIdx = (int)((DateTime.Now.Ticks / TimeSpan.TicksPerDay) % tips.Length);
 
@@ -2534,10 +3008,31 @@ namespace NovellaEngine.Editor
                 "Какая сцена Unity запустится, когда игрок выберет эту историю. Нажми кнопку — откроется галерея сцен (Assets/NovellaEngine/Scenes)."));
 
             GUILayout.BeginHorizontal();
-            string sceneBtnText = Story.GameSceneAsset != null
-                ? "🎬 " + Story.GameSceneAsset.name
-                : "📂 " + ToolLang.Get("Pick scene from Gallery…", "Выбрать сцену из Галереи…");
-            if (GUILayout.Button(sceneBtnText, GUILayout.Height(22)))
+            // Выбранная сцена: показываем её имя в read-only «display field»
+            // (как «▶ имя_главы» у стартовой главы), а справа — accent-кнопка.
+            // Не выбрано: само поле подсвечено красным «не выбрано», кнопка
+            // справа «Выбрать сцену…» — accent. Стиль 1:1 с «Стартовая глава».
+            Rect sceneCurrRect = GUILayoutUtility.GetRect(GUIContent.none, EditorStyles.helpBox, GUILayout.ExpandWidth(true), GUILayout.Height(28));
+            EditorGUI.DrawRect(sceneCurrRect, Story.GameSceneAsset != null
+                ? new Color(0.1f, 0.106f, 0.149f)
+                : new Color(0.18f, 0.10f, 0.10f));
+            DrawRectBorder(sceneCurrRect, Story.GameSceneAsset != null
+                ? new Color(0.36f, 0.75f, 0.92f, 0.5f)
+                : new Color(0.7f, 0.3f, 0.3f, 0.5f));
+            var sceneCurrStyle = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(10, 10, 0, 0) };
+            sceneCurrStyle.normal.textColor = Story.GameSceneAsset != null
+                ? NovellaSettingsModule.GetTextColor()
+                : new Color(1f, 0.65f, 0.5f);
+            string sceneCurrLabel = Story.GameSceneAsset != null
+                ? "🎬  " + Story.GameSceneAsset.name
+                : "🎬  " + ToolLang.Get("Not selected", "Не выбрана");
+            GUI.Label(sceneCurrRect, sceneCurrLabel, sceneCurrStyle);
+
+            // Кнопка-accent — стиль идентичный «Создать главу».
+            string pickBtnLabel = Story.GameSceneAsset != null
+                ? "📂 " + ToolLang.Get("Change scene", "Сменить сцену")
+                : "📂 " + ToolLang.Get("Pick scene", "Выбрать сцену");
+            if (NovellaSettingsModule.AccentButton(pickBtnLabel, GUILayout.Width(150), GUILayout.Height(28)))
             {
                 var capturedStory = Story;
                 NovellaGalleryWindow.ShowWindow(asset =>
@@ -2548,9 +3043,10 @@ namespace NovellaEngine.Editor
                     EditorUtility.SetDirty(capturedStory);
                 }, NovellaGalleryWindow.EGalleryFilter.Scene);
             }
+            // ✖ кнопка очистки — только если сцена выбрана.
             if (Story.GameSceneAsset != null)
             {
-                if (GUILayout.Button("✖", GUILayout.Width(22), GUILayout.Height(22)))
+                if (GUILayout.Button("✖", GUILayout.Width(28), GUILayout.Height(28)))
                 {
                     Story.GameSceneAsset = null;
                     Story.GameSceneName = "";
@@ -2572,7 +3068,7 @@ namespace NovellaEngine.Editor
                 if (!inBuild && !NovellaPrefabSceneHelper.IsSystemScene(scenePath))
                 {
                     if (NovellaSettingsModule.ColoredButton("➕ " + ToolLang.Get("Add to Build", "В сборку"),
-                        new Color(0.95f, 0.66f, 0.30f), null, GUILayout.Width(140), GUILayout.Height(22)))
+                        new Color(0.95f, 0.66f, 0.30f), null, GUILayout.Width(140), GUILayout.Height(28)))
                     {
                         var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
                         list.Add(new EditorBuildSettingsScene(scenePath, true));
@@ -2661,6 +3157,38 @@ namespace NovellaEngine.Editor
             GUILayout.FlexibleSpace();
 
             GUILayout.Space(10);
+
+            // Гейт: «Сохранить и закрыть» доступно только когда заполнены
+            // обязательные поля — игровая сцена и стартовая глава. Иначе
+            // получим сломанную историю, которую игра не сможет запустить.
+            bool hasScene = Story.GameSceneAsset != null;
+            bool hasChapter = Story.StartingChapter != null;
+            bool canSave = hasScene && hasChapter;
+
+            // Объясняем юзеру, чего именно не хватает (если кнопка disabled).
+            if (!canSave)
+            {
+                var missingSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 10, wordWrap = true, alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = new Color(1f, 0.65f, 0.5f) }
+                };
+                string missing;
+                if (!hasScene && !hasChapter)
+                    missing = ToolLang.Get(
+                        "⚠ Pick a gameplay scene AND starting chapter to save.",
+                        "⚠ Чтобы сохранить — выбери игровую сцену И стартовую главу.");
+                else if (!hasScene)
+                    missing = ToolLang.Get(
+                        "⚠ Pick a gameplay scene to save.",
+                        "⚠ Чтобы сохранить — выбери игровую сцену.");
+                else
+                    missing = ToolLang.Get(
+                        "⚠ Pick a starting chapter to save.",
+                        "⚠ Чтобы сохранить — выбери стартовую главу.");
+                GUILayout.Label(missing, missingSt);
+                GUILayout.Space(4);
+            }
+
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             if (NovellaSettingsModule.NeutralButton(ToolLang.Get("Cancel", "Отмена"), GUILayout.Width(100), GUILayout.Height(32)))
@@ -2668,6 +3196,8 @@ namespace NovellaEngine.Editor
                 Close();
             }
             GUILayout.Space(8);
+
+            EditorGUI.BeginDisabledGroup(!canSave);
             if (NovellaSettingsModule.AccentButton(ToolLang.Get("Save & Close", "Сохранить и закрыть"), GUILayout.Width(180), GUILayout.Height(32)))
             {
                 if (_isPending)
@@ -2682,6 +3212,7 @@ namespace NovellaEngine.Editor
                 OnClose?.Invoke();
                 Close();
             }
+            EditorGUI.EndDisabledGroup();
             GUILayout.EndHorizontal();
 
             GUILayout.Space(14);

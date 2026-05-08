@@ -1223,10 +1223,10 @@ namespace NovellaEngine.Editor
                 () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Gameplay));
 
             DrawPresetCard(emptyCard, "⬜", ToolLang.Get("Empty canvas", "Пустой холст"),
-                ToolLang.Get("Bare minimum to run the engine — Camera, Canvas, EventSystem, NovellaPlayer. You build the UI yourself in UI Forge.",
-                             "Минимум для работы движка — Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
+                ToolLang.Get("Bare minimum: Camera, Canvas, EventSystem, NovellaPlayer. You build UI yourself in UI Forge.",
+                             "Минимум: Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
                 new Color(0.55f, 0.85f, 1f), applied == AppliedPreset.Empty, isAnyApplied && applied != AppliedPreset.Empty, applied,
-                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Empty));
+                () => EditorApplication.delayCall += () => ConfirmAndApplyEmptyPreset(sc));
 
             GUILayout.Space(14);
         }
@@ -1721,6 +1721,26 @@ namespace NovellaEngine.Editor
             return AppliedPreset.None;
         }
 
+        /// <summary>
+        /// Empty Canvas помечен как experimental — показывает ConfirmDialog
+        /// с предупреждением перед применением. Если юзер подтвердил — обычный ApplyPreset.
+        /// </summary>
+        private void ConfirmAndApplyEmptyPreset(SceneRow sc)
+        {
+            bool ok = EditorUtility.DisplayDialog(
+                ToolLang.Get("Empty canvas — experimental", "Пустой холст — бета"),
+                ToolLang.Get(
+                    "⚠ This preset is not fully tested. It only adds Camera + Canvas + EventSystem + NovellaPlayer (you build all UI yourself in UI Forge).\n\n" +
+                    "If you decide to use it — go ahead, but please send any error reports to the author in DM.\n\n" +
+                    "Continue?",
+                    "⚠ Этот пресет не до конца оттестирован. Он добавляет только Камеру + Canvas + EventSystem + NovellaPlayer (весь UI собираешь сам в Кузнице).\n\n" +
+                    "Если решишь использовать — любые ошибки шли автору в ЛС.\n\n" +
+                    "Продолжить?"),
+                ToolLang.Get("Yes, apply", "Да, применить"),
+                ToolLang.Get("Cancel", "Отмена"));
+            if (ok) ApplyPreset(sc, AppliedPreset.Empty);
+        }
+
         private void ApplyPreset(SceneRow sc, AppliedPreset preset)
         {
             if (BlockedByPlayMode()) return;
@@ -2053,6 +2073,96 @@ namespace NovellaEngine.Editor
 
         // Возвращает любой имеющийся NovellaTree в проекте (первый по AssetDatabase),
         // или создаёт пустой Starter_Chapter.asset если в проекте нет ни одного.
+        private const string GENERATED_CHOICE_BTN = "Assets/NovellaEngine/Generated/DefaultChoiceButton.prefab";
+
+        /// <summary>
+        /// Возвращает дефолтный prefab кнопки выбора (создаёт если нет).
+        /// Без этого префаба NovellaPlayer не сможет отрисовать варианты Branch-ноды,
+        /// и автор-новичок упирается в баг «выборы не появились» без C#-выхода.
+        ///
+        /// Структура префаба = root Button + Image-фон + дочерний TMP_Text "Label".
+        /// NovellaPlayer ищет TMP_Text через GetComponentInChildren — структура
+        /// дочерних объектов не критична, главное что TMP_Text есть.
+        /// </summary>
+        private GameObject EnsureDefaultChoiceButtonPrefab()
+        {
+            // Уже существует? Возвращаем.
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(GENERATED_CHOICE_BTN);
+            if (existing != null) return existing;
+
+            EnsureFolder(GENERATED_DIR);
+
+            // Собираем во временной "ChoiceBtnFactory" сцене? Нет, делаем через
+            // PrefabUtility.SaveAsPrefabAsset из стандартной in-memory иерархии,
+            // потом удаляем GO из сцены. Это поддерживается в Editor mode.
+            GameObject root = new GameObject("DefaultChoiceButton");
+            try
+            {
+                // Размер кнопки — растягивается по горизонтали layout-группой,
+                // фиксированная высота 56px, нормально читается на 1080p+.
+                var rt = root.AddComponent<RectTransform>();
+                rt.sizeDelta = new Vector2(600, 56);
+
+                // Hub-style фон: тёмный navy с 1px светлым бордером, semi-rounded
+                // достигается простым Image без особых спрайтов (Unity default white).
+                var bg = root.AddComponent<UnityEngine.UI.Image>();
+                bg.color = new Color(0.10f, 0.12f, 0.16f, 0.92f);
+                bg.raycastTarget = true;
+
+                // Outline для ауры hover/normal — встроенный Outline компонент.
+                var outline = root.AddComponent<UnityEngine.UI.Outline>();
+                outline.effectColor = new Color(0.36f, 0.75f, 0.92f, 0.55f);
+                outline.effectDistance = new Vector2(1, -1);
+
+                // Кнопка с цветами Hub-стиля.
+                var btn = root.AddComponent<UnityEngine.UI.Button>();
+                btn.targetGraphic = bg;
+                var colors = btn.colors;
+                colors.normalColor      = new Color(1, 1, 1, 1);
+                colors.highlightedColor = new Color(0.85f, 0.94f, 1.05f, 1); // лёгкий cyan-оттенок
+                colors.pressedColor     = new Color(0.65f, 0.78f, 0.92f, 1);
+                colors.selectedColor    = new Color(0.85f, 0.94f, 1.05f, 1);
+                colors.disabledColor    = new Color(0.5f, 0.5f, 0.5f, 1);
+                colors.fadeDuration     = 0.10f;
+                btn.colors = colors;
+
+                // LayoutElement — кнопка не сжимается ниже 56px по высоте.
+                var le = root.AddComponent<UnityEngine.UI.LayoutElement>();
+                le.preferredHeight = 56;
+                le.minHeight = 48;
+                le.flexibleHeight = 0;
+
+                // Дочерний TMP_Text — содержит текст выбора. NovellaPlayer
+                // находит его через GetComponentInChildren<TMP_Text>.
+                var labelGO = new GameObject("Label");
+                labelGO.transform.SetParent(root.transform, false);
+                var lblRT = labelGO.AddComponent<RectTransform>();
+                lblRT.anchorMin = Vector2.zero;
+                lblRT.anchorMax = Vector2.one;
+                lblRT.offsetMin = new Vector2(20, 4);
+                lblRT.offsetMax = new Vector2(-20, -4);
+                var tmp = labelGO.AddComponent<TMPro.TextMeshProUGUI>();
+                tmp.text = "Choice";
+                tmp.alignment = TMPro.TextAlignmentOptions.Center;
+                tmp.fontSize = 18;
+                tmp.color = new Color(0.92f, 0.95f, 0.98f, 1);
+                tmp.enableWordWrapping = true;
+                tmp.raycastTarget = false; // чтобы клик доходил до Button
+
+                // Сохраняем как prefab asset.
+                var prefab = PrefabUtility.SaveAsPrefabAsset(root, GENERATED_CHOICE_BTN, out bool ok);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                if (!ok) Debug.LogWarning("[NovellaEngine] Failed to save default ChoiceButton prefab.");
+                return prefab;
+            }
+            finally
+            {
+                // Удаляем временный GO из сцены — нам он не нужен, есть prefab-копия.
+                Object.DestroyImmediate(root);
+            }
+        }
+
         private NovellaTree EnsureStarterTree()
         {
             var guids = AssetDatabase.FindAssets("t:NovellaTree");
@@ -2353,11 +2463,16 @@ namespace NovellaEngine.Editor
             markerRT.offsetMin = Vector2.zero; markerRT.offsetMax = Vector2.zero;
             AddPresetMarker(marker, "Empty");
 
-            // NovellaPlayer — без него историю не запустить. Привязки оставляем
-            // пустыми; юзер заполнит их через ⚙ Логика когда соберёт UI.
+            // NovellaPlayer — без него историю не запустить. Привязки UI юзер
+            // заполнит сам когда соберёт диалоговый бокс/контейнер выборов через
+            // Кузницу. НО StoryTree и ChoiceButtonPrefab подставляем — иначе
+            // ▶ Play мгновенно падает с NullReferenceException когда юзер
+            // натыкивает первую Branch-ноду в графе и пытается превью-играть.
             var pGO = new GameObject("[Novella]_Player");
             AddPresetMarker(pGO, "Empty");
-            pGO.AddComponent<NovellaPlayer>();
+            var emptyPlayer = pGO.AddComponent<NovellaPlayer>();
+            emptyPlayer.StoryTree          = EnsureStarterTree();
+            emptyPlayer.ChoiceButtonPrefab = EnsureDefaultChoiceButtonPrefab();
 
             // Подсказка-лейбл по центру холста — сразу видно «здесь надо
             // что-то добавить». Юзер удалит когда наполнит сцену.
@@ -2421,23 +2536,32 @@ namespace NovellaEngine.Editor
             dtRT.offsetMin = new Vector2(40, 30); dtRT.offsetMax = new Vector2(-40, -65);
 
             // ChoiceContainer — сюда NovellaPlayer спавнит кнопки выбора.
-            // Layout по вертикали с интервалами, чтобы читалось из коробки.
+            // Якорь привязан к НИЖНЕЙ части canvas'а (anchor 0.5, 0) с пивотом
+            // снизу — кнопки выбора растут СНИЗУ ВВЕРХ, начинаясь над диалоговым
+            // боксом. Раньше якорь был по центру (0.5, 0.5) и при появлении 3+
+            // вариантов выборов они визуально съезжали на диалоговое окно.
             var choiceContainer = new GameObject("ChoiceContainer");
             choiceContainer.transform.SetParent(marker.transform, false);
             var ccRT = choiceContainer.AddComponent<RectTransform>();
-            ccRT.anchorMin = new Vector2(0.5f, 0.5f);
-            ccRT.anchorMax = new Vector2(0.5f, 0.5f);
-            ccRT.pivot     = new Vector2(0.5f, 0.5f);
+            ccRT.anchorMin = new Vector2(0.5f, 0f);
+            ccRT.anchorMax = new Vector2(0.5f, 0f);
+            ccRT.pivot     = new Vector2(0.5f, 0f);    // pivot снизу — рост вверх
             ccRT.sizeDelta = new Vector2(800, 600);
-            ccRT.anchoredPosition = new Vector2(0, 60);
+            // Y = 280 — над DialogueBox (диалог высотой 220 + 40 отступ снизу + 20 запаса).
+            ccRT.anchoredPosition = new Vector2(0, 280);
             var ccVlg = choiceContainer.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
             ccVlg.spacing = 12;
-            ccVlg.childAlignment = TextAnchor.MiddleCenter;
+            // Нижнее выравнивание — кнопки прижимаются к нижнему краю контейнера,
+            // т.е. ближе к диалогу. С верхним выравниванием 1 кнопка зависала бы
+            // в воздухе у самого верха container'а.
+            ccVlg.childAlignment = TextAnchor.LowerCenter;
             ccVlg.childForceExpandHeight = false;
             ccVlg.childForceExpandWidth  = true;
-            // ChoiceButtonPrefab — НЕ создаём в сцене (это prefab, не runtime).
-            // Если у юзера нет своего prefab'а, NovellaPlayer выводит warning при
-            // попытке показать выборы; решает юзер сам, пресет prefab’ы не плодит.
+            // ChoiceButtonPrefab — авто-создаём дефолтный prefab если его ещё нет.
+            // Раньше пресет НЕ создавал prefab, и новичок попадал в ловушку:
+            // делал Branch-ноду в графе → запускал Play → выборы не появлялись,
+            // потому что NovellaPlayer.ChoiceButtonPrefab был null. Без C# вылезти
+            // из этой ситуации нельзя.
 
             // ─── NovellaPlayer с ВСЕМИ привязками ──────────────────────────
             // Без него пресет был «мёртвым» — диалоги, выборы, персонажи не
@@ -2451,6 +2575,9 @@ namespace NovellaEngine.Editor
             p.DialogueBodyText    = dialogueText.GetComponent<TMPro.TMP_Text>();
             p.ChoiceContainer     = choiceContainer.transform;
             p.CharactersContainer = charLayer.transform;
+            // Авто-привязка ChoiceButtonPrefab — создаём дефолтный, если ещё нет.
+            // Игрок без C# не сможет сделать выборы без этого префаба.
+            p.ChoiceButtonPrefab  = EnsureDefaultChoiceButtonPrefab();
             // Авто-привязка StoryTree: ищем существующий NovellaTree в проекте
             // или создаём пустой Starter_Chapter. Без StoryTree NovellaPlayer
             // не запускается вообще.

@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find Library/PackageCache/com.unity.inputsystem* -type f -name \"InputSystemUIInputModule.cs\")",
       "Bash(powershell.exe -Command \"\\(Get-Content 'Assets/NovellaEngine/Editor/Tools/NovellaBuildModule.cs' -Raw -Encoding UTF8\\) -replace 'примен' + [char]0x0069, 'примен' + [char]0x0438 | Set-Content 'Assets/NovellaEngine/Editor/Tools/NovellaBuildModule.cs' -NoNewline -Encoding UTF8\")",
-      "PowerShell($path = 'D:\\\\UnityWork\\\\[Mila]Novella\\\\Assets\\\\NovellaEngine\\\\Editor\\\\Tools\\\\NovellaBuildModule.cs'; $text = [System.IO.File]::ReadAllText\\($path\\); $text = $text -replace \\('примен' + [char]0x0069\\), \\('примен' + [char]0x0438\\); [System.IO.File]::WriteAllText\\($path, $text\\))"
+      "PowerShell($path = 'D:\\\\UnityWork\\\\[Mila]Novella\\\\Assets\\\\NovellaEngine\\\\Editor\\\\Tools\\\\NovellaBuildModule.cs'; $text = [System.IO.File]::ReadAllText\\($path\\); $text = $text -replace \\('примен' + [char]0x0069\\), \\('примен' + [char]0x0438\\); [System.IO.File]::WriteAllText\\($path, $text\\))",
+      "Read(//d/UnityWork/**)"
     ]
   }
 }

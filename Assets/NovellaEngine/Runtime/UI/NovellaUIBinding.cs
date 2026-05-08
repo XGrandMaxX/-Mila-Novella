@@ -26,6 +26,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;          // FirstOrDefault для поиска NovellaSaveSlotsUI в сцене
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -76,6 +77,14 @@ namespace NovellaEngine.Runtime.UI
             UnlockAchievement,   // выдать ачивку (хук, требует интеграции платформы)
             PauseGame,           // Time.timeScale = 0 (заморозка игрового времени)
             ResumeGame,          // Time.timeScale = 1 (снять паузу)
+            // ─── Save Slot system ───────────────────────────────────────────
+            SaveGameSlot,        // сохранить текущее состояние в слот N (1..N)
+            LoadGameSlot,        // загрузить состояние из слота N (1..N)
+            // (раньше тут был OpenSaveSlotsPanel — убран, потому что у нас уже
+            // есть ShowPanel для UI элементов. Если нужно открыть панель сейвов —
+            // юзер выбирает её через обычный ShowPanel.)
+            // ─── Navigation ─────────────────────────────────────────────────
+            ReturnToMainMenu,    // выйти в главное меню (загрузить menu-сцену)
         }
 
         // Один шаг последовательности кликов. Список таких шагов на кнопке
@@ -105,6 +114,10 @@ namespace NovellaEngine.Runtime.UI
             public int VariableInt;
             public bool VariableBool;
             public string VariableString = "";
+            public float VariableFloat;
+            // Для List: операция (Add/Remove/Clear) — используется только когда
+            // целевая переменная типа List. Для остальных типов игнорируется.
+            public NovellaEngine.Data.EVarOperation VariableListOp = NovellaEngine.Data.EVarOperation.ListAdd;
             // TriggerEvent
             public string EventName = "MyEvent";
             public string EventParam = "";
@@ -113,6 +126,12 @@ namespace NovellaEngine.Runtime.UI
             [Range(0f, 1f)] public float SfxVolume = 1f;
             // UnlockAchievement
             public string AchievementId;
+            // SaveGameSlot / LoadGameSlot
+            [Tooltip("Номер слота сохранения (1..N). 0 = автосейв.")]
+            public int SaveSlotIndex = 1;
+            // ReturnToMainMenu
+            [Tooltip("Имя сцены главного меню в Build Settings. Если пусто — берётся первая сцена с MainMenuPanel или первая сцена из Build Settings.")]
+            public string MainMenuSceneName = "";
         }
 
         [Tooltip("Последовательность действий по клику. Выполняются сверху вниз с задержкой DelayBefore у каждого.")]
@@ -132,7 +151,9 @@ namespace NovellaEngine.Runtime.UI
         public static bool IsTerminalAction(BindingAction a) =>
             a == BindingAction.StartNewGame ||
             a == BindingAction.LoadLastSave ||
+            a == BindingAction.LoadGameSlot ||
             a == BindingAction.RestartChapter ||
+            a == BindingAction.ReturnToMainMenu ||
             a == BindingAction.QuitGame;
 
         // Категория компонента — для группировки в пикерах (Text / Button / Other).
@@ -400,8 +421,16 @@ namespace NovellaEngine.Runtime.UI
                     var def = settings != null ? settings.Variables.Find(v => v.Name == step.VariableName) : null;
                     // Тип переменной берём из настроек (если есть), иначе пишем во все три словаря — runtime разберётся.
                     if (def == null || def.Type == NovellaEngine.Data.EVarType.Integer) NovellaVariables.SetInt(step.VariableName, step.VariableInt);
-                    if (def != null && def.Type == NovellaEngine.Data.EVarType.Boolean) NovellaVariables.SetBool(step.VariableName, step.VariableBool);
-                    if (def != null && def.Type == NovellaEngine.Data.EVarType.String)  NovellaVariables.SetString(step.VariableName, step.VariableString ?? "");
+                    else if (def.Type == NovellaEngine.Data.EVarType.Boolean) NovellaVariables.SetBool(step.VariableName, step.VariableBool);
+                    else if (def.Type == NovellaEngine.Data.EVarType.String)  NovellaVariables.SetString(step.VariableName, step.VariableString ?? "");
+                    else if (def.Type == NovellaEngine.Data.EVarType.Float)   NovellaVariables.SetFloat(step.VariableName, step.VariableFloat);
+                    else if (def.Type == NovellaEngine.Data.EVarType.Choice)  NovellaVariables.SetChoice(step.VariableName, step.VariableString ?? "");
+                    else if (def.Type == NovellaEngine.Data.EVarType.List)
+                    {
+                        if (step.VariableListOp == NovellaEngine.Data.EVarOperation.ListAdd) NovellaVariables.ListAdd(step.VariableName, step.VariableString ?? "");
+                        else if (step.VariableListOp == NovellaEngine.Data.EVarOperation.ListRemove) NovellaVariables.ListRemove(step.VariableName, step.VariableString ?? "");
+                        else if (step.VariableListOp == NovellaEngine.Data.EVarOperation.ListClear) NovellaVariables.ListClear(step.VariableName);
+                    }
                     break;
                 }
 
@@ -449,6 +478,49 @@ namespace NovellaEngine.Runtime.UI
                     Time.timeScale = 1f;
                     Debug.Log("[NovellaUIBinding] Game RESUMED (Time.timeScale=1).");
                     break;
+
+                // ─── Save Slot system — используем NovellaPlayer.SaveToSlot/LoadFromSlot ─
+                case BindingAction.SaveGameSlot:
+                {
+                    var p = NovellaPlayer.Instance;
+                    if (p == null) { Debug.LogWarning("[NovellaUIBinding] SaveGameSlot: Player не найден."); break; }
+                    p.SaveToSlot(Mathf.Max(0, step.SaveSlotIndex));
+                    break;
+                }
+
+                case BindingAction.LoadGameSlot:
+                {
+                    var p = NovellaPlayer.Instance;
+                    if (p == null) { Debug.LogWarning("[NovellaUIBinding] LoadGameSlot: Player не найден."); break; }
+                    p.LoadFromSlot(Mathf.Max(0, step.SaveSlotIndex));
+                    break;
+                }
+
+                // ─── Navigation ───────────────────────────────────────────────
+                case BindingAction.ReturnToMainMenu:
+                {
+                    string sceneName = step.MainMenuSceneName;
+                    // Auto-detect: если имя не задано — берём первую сцену Build Settings.
+                    // Это разумная heuristic, потому что в типовом проекте Novella Engine
+                    // первой в Build Settings ставится сцена меню.
+                    if (string.IsNullOrEmpty(sceneName))
+                    {
+                        if (UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings > 0)
+                        {
+                            string firstPath = UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(0);
+                            sceneName = System.IO.Path.GetFileNameWithoutExtension(firstPath);
+                        }
+                    }
+                    if (string.IsNullOrEmpty(sceneName))
+                    {
+                        Debug.LogError("[NovellaUIBinding] ReturnToMainMenu: имя сцены меню не задано и в Build Settings нет ни одной сцены.");
+                        break;
+                    }
+                    // Снимаем паузу перед загрузкой — иначе следующая сцена откроется с timeScale=0.
+                    Time.timeScale = 1f;
+                    UnityEngine.SceneManagement.SceneManager.LoadScene(sceneName);
+                    break;
+                }
             }
         }
 
@@ -457,40 +529,75 @@ namespace NovellaEngine.Runtime.UI
         // Перетягивает локализованную строку (если задан ключ) и подставляет
         // значение переменной (если задана). Вызывается при смене языка и в
         // OnEnable; ноды графа могут вызывать вручную после SetVariable.
+        // Также авто-применяет Icon переменной к UI.Image на этом GO, если
+        // компонент есть и у переменной задана иконка.
         public void Refresh()
         {
+            // ─── Текст: TMP / Image-вариант обрабатываем независимо ───
             if (_tmp == null) _tmp = GetComponent<TMP_Text>();
-            if (_tmp == null) return;
-
-            string text = null;
-
-            if (!string.IsNullOrEmpty(LocalizationKey))
+            if (_tmp != null)
             {
-                text = NovellaLocalizationManager.Get(LocalizationKey);
-                if (string.IsNullOrEmpty(text)) text = LocalizationKey;
-            }
-            else
-            {
-                // Без ключа — оставляем как есть (текст редактируется напрямую).
-                text = _tmp.text;
+                string text = null;
+
+                if (!string.IsNullOrEmpty(LocalizationKey))
+                {
+                    text = NovellaLocalizationManager.Get(LocalizationKey);
+                    if (string.IsNullOrEmpty(text)) text = LocalizationKey;
+                }
+                else
+                {
+                    // Без ключа — оставляем как есть (текст редактируется напрямую).
+                    text = _tmp.text;
+                }
+
+                if (!string.IsNullOrEmpty(BoundVariable))
+                {
+                    text = text?.Replace("{var}", ResolveVariable(BoundVariable)) ?? "";
+                }
+
+                _tmp.text = text ?? "";
             }
 
+            // ─── Иконка: если у переменной есть Icon И на GO висит Image —
+            // подставляем спрайт. Так юзер может в Кузнице UI создать Image,
+            // привязать к нему BoundVariable, и игра сама проставит картинку.
             if (!string.IsNullOrEmpty(BoundVariable))
             {
-                text = text?.Replace("{var}", ResolveVariable(BoundVariable)) ?? "";
+                var img = GetComponent<UnityEngine.UI.Image>();
+                if (img != null)
+                {
+                    var icon = ResolveVariableIcon(BoundVariable);
+                    if (icon != null) img.sprite = icon;
+                }
             }
-
-            _tmp.text = text ?? "";
         }
 
         private static string ResolveVariable(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
-            // Пытаемся int → bool → string в порядке частоты использования.
+            // Порядок: Int → Float → Bool → String → Choice → List (для List
+            // показываем счётчик элементов через запятую).
             if (NovellaVariables.IntVars != null && NovellaVariables.IntVars.TryGetValue(name, out var i)) return i.ToString();
+            if (NovellaVariables.FloatVars != null && NovellaVariables.FloatVars.TryGetValue(name, out var f)) return f.ToString("0.##");
             if (NovellaVariables.BoolVars != null && NovellaVariables.BoolVars.TryGetValue(name, out var b)) return b ? "true" : "false";
             if (NovellaVariables.StringVars != null && NovellaVariables.StringVars.TryGetValue(name, out var s)) return s ?? "";
+            if (NovellaVariables.ChoiceVars != null && NovellaVariables.ChoiceVars.TryGetValue(name, out var ch)) return ch ?? "";
+            if (NovellaVariables.ListVars != null && NovellaVariables.ListVars.TryGetValue(name, out var lst)) return lst != null ? string.Join(", ", lst) : "";
             return "";
+        }
+
+        // Достаёт Icon-спрайт переменной из NovellaVariableSettings.
+        // null — если переменной нет, или у неё нет иконки.
+        private static Sprite ResolveVariableIcon(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            var settings = Resources.Load<NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
+            if (settings == null || settings.Variables == null) return null;
+            for (int i = 0; i < settings.Variables.Count; i++)
+            {
+                if (settings.Variables[i].Name == name) return settings.Variables[i].Icon;
+            }
+            return null;
         }
 
         // ─── ID generation ──────────────────────────────────────────────────────

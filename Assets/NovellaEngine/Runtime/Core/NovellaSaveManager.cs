@@ -42,8 +42,11 @@ namespace NovellaEngine.Runtime
     {
         // Слот 0 — автосохранение (используется кнопкой «Продолжить» в меню).
         // Слоты 1..MAX_SLOTS — ручные слоты игрока.
+        // Раньше было 9 — недостаточно для VN с несколькими прохождениями/концовками.
+        // Бамп до 15 безопасен: старые сейвы 1..9 продолжают работать без миграции,
+        // ключи PlayerPrefs формируются по slot-индексу как и раньше.
         public const int AUTO_SLOT = 0;
-        public const int MAX_SLOTS = 9; // 9 ручных + 1 авто = 10 всего
+        public const int MAX_SLOTS = 15;
 
         private static string SaveKey(string storyName, int slot, string suffix)
             => $"NovellaSave_{storyName}_S{slot}_{suffix}";

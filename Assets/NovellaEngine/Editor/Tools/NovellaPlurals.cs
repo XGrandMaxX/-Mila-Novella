@@ -15,6 +15,16 @@ namespace NovellaEngine.Editor
             ? n + " " + RuForm(n, "ошибка", "ошибки", "ошибок")
             : n + " error" + (n == 1 ? "" : "s");
 
+        /// <summary>
+        /// Винительный падеж для глаголов вроде «нашли», «собрали», «отправил».
+        /// Множественные формы (2-4, 5+) у «ошибка» в винительном совпадают
+        /// с именительным, меняется только singular: «ошибка» → «ошибку».
+        /// Английский — без падежей, тот же plural как у Errors.
+        /// </summary>
+        public static string ErrorsAccusative(int n) => ToolLang.IsRU
+            ? n + " " + RuForm(n, "ошибку", "ошибки", "ошибок")
+            : n + " error" + (n == 1 ? "" : "s");
+
         public static string Warnings(int n) => ToolLang.IsRU
             ? n + " " + RuForm(n, "предупреждение", "предупреждения", "предупреждений")
             : n + " warning" + (n == 1 ? "" : "s");

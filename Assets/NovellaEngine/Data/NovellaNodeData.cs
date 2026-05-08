@@ -6,6 +6,16 @@ using UnityEngine;
 
 namespace NovellaEngine.Data
 {
+    // ─── Тип ноды графа ───────────────────────────────────────────────────
+    // ВАЖНО: порядок этих значений сериализуется. НЕ удаляй и НЕ меняй порядок
+    // существующих элементов, иначе любой существующий граф «съедет» —
+    // ноды получат не свой тип. Только добавляй новые в КОНЕЦ.
+    //
+    // Legacy (alias-ы Dialogue, оставлены для обратной совместимости старых
+    // ассетов; в Create-меню НЕ показываются, при создании трактуются как Dialogue):
+    //   • Event     — изначально планировался как «триггер сюжетного события»,
+    //                 но фактически сводится к Dialogue. Не использовать в новых графах.
+    //   • Character — никогда полностью не имплементировался, исключается из обработки.
     public enum ENodeType { Dialogue, Branch, Event, End, Character, Audio, Variable, Condition, Note, Random, Wait, SceneSettings, Animation, EventBroadcast, Save, CustomDLC }
     public enum EBgTransition { None, Fade, SlideLeft, SlideRight, FlashWhite, FlashBlack }
     public enum EAnimTarget { Camera, Background, DialogueFrame, Character }
@@ -14,9 +24,16 @@ namespace NovellaEngine.Data
     public enum EEndAction { ReturnToMainMenu, LoadNextChapter, LoadSpecificScene, QuitGame }
     public enum EAudioAction { Play, Stop }
     public enum EAudioChannel { BGM, SFX, Voice }
-    public enum EVarOperation { Set, Add }
+    // ВАЖНО: порядок сериализуется. Новое — только в КОНЕЦ.
+    //   Set / Add  — Integer, Float
+    //   ListAdd    — добавить элемент в List
+    //   ListRemove — убрать элемент из List
+    //   ListClear  — очистить весь List
+    public enum EVarOperation { Set, Add, ListAdd, ListRemove, ListClear }
     public enum EAudioTriggerType { OnStart, OnEnd, TimeDelay, OnDialogueEnd }
-    public enum EConditionOperator { Equal, NotEqual, Greater, Less, GreaterOrEqual, LessOrEqual }
+    // ВАЖНО: порядок сериализуется. Новое — только в КОНЕЦ.
+    //   Contains / NotContains — для List (проверка наличия элемента).
+    public enum EConditionOperator { Equal, NotEqual, Greater, Less, GreaterOrEqual, LessOrEqual, Contains, NotContains }
     public enum ENoteImageShape { Normal, Square, Circle }
     public enum ENoteImageAlignment { Background, TopLeft, TopCenter, TopRight, Left, Right, BottomLeft, BottomCenter, BottomRight }
     public enum ECharacterPosition { Center, Left, Right, FarLeft, FarRight, Custom }
@@ -73,8 +90,8 @@ namespace NovellaEngine.Data
 
     [Serializable] public class NoteImageData { public Texture2D Image; public ENoteImageShape Shape = ENoteImageShape.Normal; public ENoteImageAlignment Alignment = ENoteImageAlignment.TopCenter; public Vector2 Offset = Vector2.zero; public Vector2 Size = new Vector2(100, 100); [Range(0f, 1f)] public float Alpha = 1f; }
     [Serializable] public class NoteLinkData { public string DisplayName = "Link"; public string URL = "https://"; }
-    [Serializable] public class ChoiceCondition { public string Variable = "Reputation"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; }
-    [Serializable] public class ChanceModifier { public string Variable = "Diamond"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; public int BonusWeight = 10; }
+    [Serializable] public class ChoiceCondition { public string Variable = "Reputation"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; public float ValueFloat = 0f; }
+    [Serializable] public class ChanceModifier { public string Variable = "Diamond"; public EConditionOperator Operator = EConditionOperator.GreaterOrEqual; public int Value = 10; public bool ValueBool = true; public string ValueString = ""; public float ValueFloat = 0f; public int BonusWeight = 10; }
     [Serializable] public class DialogueAudioEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public AudioClip AudioAsset; public EAudioAction AudioAction = EAudioAction.Play; public EAudioChannel AudioChannel = EAudioChannel.SFX; [Range(0f, 1f)] public float Volume = 1f; }
     [Serializable] public class NovellaAnimEvent { public int LineIndex = 0; public EAudioTriggerType TriggerType = EAudioTriggerType.OnStart; public float TimeDelay = 0f; public EAnimTarget Target = EAnimTarget.Camera; public NovellaCharacter TargetCharacter; public EAnimType AnimType = EAnimType.Shake; public float Duration = 0.5f; public float Strength = 10f; public Vector2 EndVector = Vector2.one; }
     [Serializable] public class CharacterInDialogue { public NovellaCharacter CharacterAsset; public ECharacterPlane Plane = ECharacterPlane.BackSlot1; public ECharacterPosition PositionPreset = ECharacterPosition.Center; public float Scale = 1.0f; public string Emotion = "Default"; public float PosX = 0f; public float PosY = 0f; public bool IsExpanded = true; public bool FlipX = false; public bool FlipY = false; }
@@ -138,7 +155,11 @@ namespace NovellaEngine.Data
         [UIBindingTarget(UIBindingKind.Button)] public string UIButtonTargetId = "";
         public NovellaChoice() { PortID = "Choice_" + Guid.NewGuid().ToString().Substring(0, 5); }
     }
-    [Serializable] public class VariableUpdate { public string VariableName = "MyVariable"; public EVarOperation VarOperation = EVarOperation.Set; public int VarValue = 1; public bool VarBool = true; public string VarString = ""; }
+    // VarString используется одновременно как:
+    //   • value для String переменной
+    //   • выбранный вариант для Choice
+    //   • элемент-аргумент для ListAdd / ListRemove
+    [Serializable] public class VariableUpdate { public string VariableName = "MyVariable"; public EVarOperation VarOperation = EVarOperation.Set; public int VarValue = 1; public bool VarBool = true; public string VarString = ""; public float VarFloat = 0f; }
     [Serializable] public class NovellaGroupData { public string GroupID; public string Title = "New Group"; public Color TitleColor = Color.white; public Color BorderColor = new Color(0.6f, 0.6f, 0.6f, 1f); public int TitleFontSize = 24; public Color BackgroundColor = new Color(0.15f, 0.15f, 0.15f, 0.5f); public List<string> ContainedNodeIDs = new List<string>(); public Rect Position; }
 
     [Serializable]

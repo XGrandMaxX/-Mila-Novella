@@ -63,6 +63,55 @@ namespace NovellaEngine.Editor
         private readonly Dictionary<GameObject, string> _friendlyNames = new();
         private readonly Dictionary<GameObject, string> _friendlyIcons = new();
 
+        // ─── Per-row info cache (фикс лага: GetComponent × N rows × 60fps) ──
+        // IconFor / GetElementSubtitle / HasConfigurableScript раньше вызывались
+        // на каждый row дерева на каждый OnGUI-кадр (включая Layout + Repaint
+        // = 2 прохода). На 30 элементах это давало ~18 000 GetComponent/сек +
+        // массив-аллокации в HasConfigurableScript → видимый лаг.
+        // Теперь — TTL-кеш (по InstanceID GameObject'а), TTL = 1.5с.
+        private struct RowInfo
+        {
+            public string Icon;
+            public string Subtitle;
+            public bool HasConfigurableScript;
+        }
+        private readonly Dictionary<int, RowInfo> _rowInfoCache = new();
+        private double _rowInfoCacheTime = -1;
+        private const double ROW_INFO_TTL = 1.5;
+
+        private RowInfo GetRowInfo(RectTransform rt)
+        {
+            if (rt == null) return default;
+            double now = EditorApplication.timeSinceStartup;
+            // Глобальный TTL: если кеш старше — чистим целиком (проще чем
+            // отслеживать modification per element).
+            if (now - _rowInfoCacheTime > ROW_INFO_TTL)
+            {
+                _rowInfoCache.Clear();
+                _rowInfoCacheTime = now;
+            }
+            int id = rt.gameObject.GetInstanceID();
+            if (_rowInfoCache.TryGetValue(id, out var cached)) return cached;
+
+            var info = new RowInfo
+            {
+                Icon = IconFor("", rt.gameObject),
+                Subtitle = GetElementSubtitle(rt),
+                HasConfigurableScript = HasConfigurableScript(rt.gameObject),
+            };
+            _rowInfoCache[id] = info;
+            return info;
+        }
+
+        // Сбросить кеш — после операций которые меняют структуру (создание/удаление
+        // элементов, добавление компонентов). Тяжёлые операции через UI Forge
+        // обычно вызывают RefreshRectsCache, к которому удобно прилепить и это.
+        private void InvalidateRowInfoCache()
+        {
+            _rowInfoCache.Clear();
+            _rowInfoCacheTime = -1;
+        }
+
         // ─── Multi-Select ───
         private List<RectTransform> _selectedList = new List<RectTransform>();
         private RectTransform FirstSelected => _selectedList.Count > 0 ? _selectedList[0] : null;
@@ -101,7 +150,11 @@ namespace NovellaEngine.Editor
         // в любом модуле/окне управлял всеми хинтами разом.
         private float _gridStep = 20f;
 
-        private int _resolutionPresetIndex = 0;
+        // Индекс выбранного preset'а. Резолвится при первом OnGUI через
+        // ResolveDefaultResolutionPreset() — выбирает desktop (FullHD) для
+        // Standalone-таргета и mobile-portrait для Android/iOS. Юзер может
+        // переключить вручную, но дефолт уже подходит под его платформу.
+        private int _resolutionPresetIndex = -1;
         private int _customW = 1920;
         private int _customH = 1080;
         private static readonly (string label, int w, int h, bool isMobile)[] RESOLUTION_PRESETS = new (string, int, int, bool)[]
@@ -115,6 +168,29 @@ namespace NovellaEngine.Editor
             ("📱 1668×2388 (iPad Pro 11)",   1668, 2388, true),
             ("🖥 1366×768 (Laptop HD)",      1366, 768,  false),
         };
+
+        /// <summary>
+        /// Выбирает preset по умолчанию исходя из активной build-target платформы.
+        /// Раньше всегда стартовал с FullHD landscape — на Android/iOS UI ломался
+        /// при первом превью, юзер сам должен был переключать.
+        /// </summary>
+        private static int ResolveDefaultResolutionPreset()
+        {
+            var target = EditorUserBuildSettings.activeBuildTarget;
+            bool isMobile = target == BuildTarget.Android
+                         || target == BuildTarget.iOS
+                         || target == BuildTarget.tvOS;
+            if (isMobile)
+            {
+                // Берём первый mobile-portrait preset (📱 1080×1920).
+                for (int i = 0; i < RESOLUTION_PRESETS.Length; i++)
+                    if (RESOLUTION_PRESETS[i].isMobile) return i;
+            }
+            // Desktop — берём первый non-mobile (1920×1080).
+            for (int i = 0; i < RESOLUTION_PRESETS.Length; i++)
+                if (!RESOLUTION_PRESETS[i].isMobile) return i;
+            return 0;
+        }
 
         // Drag & Resize
         private bool _dragging;
@@ -602,18 +678,47 @@ namespace NovellaEngine.Editor
         {
             if (EditorApplication.isPlaying) return;
             if (_mode == ForgeMode.Prefabs) return;
-            // Прячем если нет истории или нет юзерской сцены — запускать нечего.
-            // (В таком состоянии Кузница и так показывает welcome-экран с
-            // карточками пресетов; кнопка ▶ сбивала бы юзера с толку.)
-            if (!NovellaHubWindow.HasAnyStoryStatic() || !NovellaHubWindow.HasAnyUserSceneStatic()) return;
-            // Активная история должна быть выбрана — иначе StoryLauncher
-            // не сможет ничего загрузить и Play даст пустой экран.
-            if (!NovellaHubWindow.HasActiveStorySelected()) return;
 
-            Color green = new Color(0.30f, 0.85f, 0.45f);
-            Color greenBright = new Color(0.45f, 1f, 0.55f);
+            // ─── Определяем причину почему Play нельзя запустить ───
+            // Раньше кнопка просто пряталась без объяснения — новичок не понимал
+            // куда она делась. Теперь всегда рисуем кнопку, но если запуск
+            // невозможен — disabled-стиль + tooltip с конкретной причиной.
+            //
+            // ВАЖНО: отсутствие активной истории — НЕ блокер. Юзер может хотеть
+            // протестировать UI / стилизацию диалога / переходы между панелями
+            // без подключения сюжета. В этом случае Play запускается в «UI-only»
+            // preview режиме — StoryLauncher просто покажет первый StoriesPanel
+            // или пустой экран, юзер тыкает свои UI кнопки.
+            string disabledReason = null;
+            bool isUiOnlyPreview = false;
+            if (!NovellaHubWindow.HasAnyUserSceneStatic())
+                disabledReason = ToolLang.Get(
+                    "Apply the Game Scene preset on the Scenes tab first.",
+                    "Сначала применить пресет «Игровая сцена» на вкладке «Сцены».");
+            else if (!NovellaHubWindow.HasAnyStoryStatic() || !NovellaHubWindow.HasActiveStorySelected())
+                isUiOnlyPreview = true; // Play разрешён в UI-only режиме.
 
-            string label = "▶  " + ToolLang.Get("Play", "Запустить");
+            bool enabled = (disabledReason == null);
+
+            // В UI-only режиме оттенок более «холодный» (cyan-shift) —
+            // визуально сигнализирует что это не полный Play с сюжетом.
+            Color green = isUiOnlyPreview
+                ? new Color(0.30f, 0.78f, 0.85f)
+                : new Color(0.30f, 0.85f, 0.45f);
+            Color greenBright = isUiOnlyPreview
+                ? new Color(0.45f, 0.92f, 1f)
+                : new Color(0.45f, 1f, 0.55f);
+            // Disabled — приглушённый серый с лёгким зелёным оттенком.
+            Color disabledFill   = new Color(0.18f, 0.22f, 0.20f, 1f);
+            Color disabledFillH  = new Color(0.22f, 0.27f, 0.24f, 1f);
+            Color disabledTextC  = new Color(0.55f, 0.65f, 0.58f, 1f);
+            Color disabledBorder = new Color(0.30f, 0.36f, 0.32f, 0.85f);
+
+            // UI-only режим помечается оттенком и отдельным лейблом — юзер
+            // видит «✦ UI Preview», понимает что это не запуск истории.
+            string label = isUiOnlyPreview
+                ? "✦  " + ToolLang.Get("UI preview", "Превью UI")
+                : "▶  " + ToolLang.Get("Play", "Запустить");
             GUIStyle measureSt = new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
             Vector2 sz = measureSt.CalcSize(new GUIContent(label));
             float padX = 14f, padY = 6f;
@@ -627,31 +732,98 @@ namespace NovellaEngine.Editor
             Event e = Event.current;
             bool hover = btnRect.Contains(e.mousePosition);
 
-            EditorGUI.DrawRect(btnRect, hover ? greenBright : green);
-            DrawRectBorder(btnRect, new Color(0.05f, 0.18f, 0.08f, 0.55f));
-            EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Link);
+            // Заливка зависит от enabled-состояния.
+            Color fill = enabled
+                ? (hover ? greenBright : green)
+                : (hover ? disabledFillH : disabledFill);
+            EditorGUI.DrawRect(btnRect, fill);
+            DrawRectBorder(btnRect,
+                enabled ? new Color(0.05f, 0.18f, 0.08f, 0.55f) : disabledBorder);
+            // Курсор: Link для активной, Arrow для disabled.
+            if (enabled)
+                EditorGUIUtility.AddCursorRect(btnRect, MouseCursor.Link);
 
             var st = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = 12,
                 alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.05f, 0.18f, 0.08f) }
+                normal = { textColor = enabled ? new Color(0.05f, 0.18f, 0.08f) : disabledTextC }
             };
             GUI.Label(btnRect, label, st);
 
-            if (e.type == EventType.MouseDown && e.button == 0 && hover)
+            // Tooltip-причина под кнопкой, если disabled и hover. Показывает
+            // юзеру конкретный шаг, который нужен чтобы Play стал доступен.
+            // Расположен с отступом 22px ниже кнопки и УЖЕ её — чтобы не
+            // врезаться в educational-hint card слева (в режиме ShowGuide).
+            if (!enabled && hover && !string.IsNullOrEmpty(disabledReason))
+            {
+                var tipSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.MiddleLeft,
+                    wordWrap = true,
+                    normal = { textColor = new Color(0.95f, 0.95f, 0.85f, 1f) },
+                    padding = new RectOffset(8, 8, 5, 5)
+                };
+                float tipW = Mathf.Min(280f, Mathf.Max(180f, btnRect.x - canvasRect.x - 24f));
+                float tipH = tipSt.CalcHeight(new GUIContent(disabledReason), tipW - 16f) + 10f;
+                // Якорим к правому краю кнопки, гэп 22px (вместо 6) — заметная
+                // визуальная щель между кнопкой и tooltip'ом.
+                Rect tipRect = new Rect(btnRect.xMax - tipW, btnRect.yMax + 22f, tipW, tipH);
+                EditorGUI.DrawRect(tipRect, new Color(0.075f, 0.082f, 0.11f, 0.96f));
+                DrawRectBorder(tipRect, new Color(0.95f, 0.78f, 0.30f, 0.55f));
+                EditorGUI.DrawRect(new Rect(tipRect.x, tipRect.y, 3, tipRect.height),
+                    new Color(0.95f, 0.78f, 0.30f, 1f));
+                GUI.Label(tipRect, "⚠ " + disabledReason, tipSt);
+            }
+
+            if (enabled && e.type == EventType.MouseDown && e.button == 0 && hover)
             {
                 if (NovellaHubWindow.Instance != null)
                     NovellaHubWindow.Instance.StartPlaytest();
                 e.Use();
             }
 
+            // Hover-tooltip для активной кнопки: всегда объясняет в чём разница
+            // между «▶ Запустить» и «✦ Превью UI». Не зависит от ShowGuide —
+            // юзер должен в любой момент понять что произойдёт по клику.
+            if (enabled && hover)
+            {
+                string tipText = isUiOnlyPreview
+                    ? ToolLang.Get(
+                        "UI-only preview — no active story selected. Press to enter Play Mode and test the interface (buttons, panels, transitions) without dialogues or choices.",
+                        "Превью без сюжета — активная история не выбрана. По клику Play откроется только для теста интерфейса (кнопки, панели, переходы), диалогов и выборов не будет.")
+                    : ToolLang.Get(
+                        "Run the active story in Play Mode — the game plays exactly as for the player. Edits made during Play are not saved.",
+                        "Запустить активную историю в Play — игра пойдёт ровно так, как её увидит игрок. Правки во время Play не сохраняются.");
+                var tipSt = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    fontSize = 10,
+                    alignment = TextAnchor.MiddleLeft,
+                    wordWrap = true,
+                    normal = { textColor = new Color(0.92f, 0.95f, 0.98f, 1f) },
+                    padding = new RectOffset(8, 8, 5, 5)
+                };
+                float tipW = 280f;
+                float tipH = tipSt.CalcHeight(new GUIContent(tipText), tipW - 16f) + 10f;
+                Rect tipRect = new Rect(btnRect.xMax - tipW, btnRect.yMax + 6f, tipW, tipH);
+                EditorGUI.DrawRect(tipRect, new Color(0.075f, 0.082f, 0.11f, 0.96f));
+                DrawRectBorder(tipRect, new Color(green.r, green.g, green.b, 0.55f));
+                EditorGUI.DrawRect(new Rect(tipRect.x, tipRect.y, 3, tipRect.height), green);
+                GUI.Label(tipRect, tipText, tipSt);
+            }
+
             // Подсказка слева от кнопки — что такое Play Mode и зачем он.
+            // Текст разный для двух режимов: полный Play и UI-only превью.
             if (NovellaSettingsModule.ShowGuide)
             {
-                string hint = ToolLang.Get(
-                    "Play Mode = preview your story exactly as players will see it. Buttons work, dialogue advances, choices count. Use it to test scenes before publishing — UI edits made during Play don't save, so you can experiment safely.",
-                    "Игровой режим = превью твоей истории так, как её увидят игроки. Кнопки работают, диалоги идут, выборы учитываются. Нужен чтобы проверять сцены перед публикацией — правки UI во время Play не сохраняются, можно безопасно эксперементировать.");
+                string hint = isUiOnlyPreview
+                    ? ToolLang.Get(
+                        "UI Preview = test your interface without a story. Buttons activate, panels show/hide, transitions play — but no dialogue or choices (you haven't picked an active story yet). Use to polish menus and panels. Edits during preview don't save.",
+                        "Превью UI = тест интерфейса без сюжета. Кнопки нажимаются, панели открываются/закрываются, анимации играют — но диалогов и выборов не будет (активная история не выбрана). Удобно для отладки меню и панелей. Правки во время превью не сохраняются.")
+                    : ToolLang.Get(
+                        "Play Mode = preview your story exactly as players will see it. Buttons work, dialogue advances, choices count. Use it to test scenes before publishing — UI edits made during Play don't save, so you can experiment safely.",
+                        "Игровой режим = превью истории так, как её увидят игроки. Кнопки работают, диалоги идут, выборы учитываются. Нужен чтобы проверять сцены перед публикацией — правки UI во время Play не сохраняются, можно безопасно экспериментировать.");
                 GUIStyle hintSt = new GUIStyle(EditorStyles.miniLabel)
                 {
                     fontSize = 10,
@@ -1073,10 +1245,20 @@ namespace NovellaEngine.Editor
                 ToolLang.Get("Empty canvas", "Пустой холст"),
                 new Color(0.55f, 0.85f, 1f),
                 ToolLang.Get(
-                    "Bare minimum to run the engine — Camera, Canvas, EventSystem, NovellaPlayer. You build the UI yourself in UI Forge.",
-                    "Минимум для работы движка — Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
+                    "Bare minimum: Camera, Canvas, EventSystem, NovellaPlayer. You build UI yourself in UI Forge.",
+                    "Минимум: Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
                 ToolLang.Get("Apply preset", "Применить шаблон"),
-                () => ApplyEmptyPresetFromForge());
+                () => {
+                    // Confirm dialog с experimental-warning'ом перед применением.
+                    bool ok = EditorUtility.DisplayDialog(
+                        ToolLang.Get("Empty canvas — experimental", "Пустой холст — бета"),
+                        ToolLang.Get(
+                            "⚠ This preset is not fully tested. If you decide to use it — go ahead, but please send any error reports to the author in DM.\n\nContinue?",
+                            "⚠ Этот пресет не до конца оттестирован. Если решишь использовать — любые ошибки шли автору в ЛС.\n\nПродолжить?"),
+                        ToolLang.Get("Yes, apply", "Да, применить"),
+                        ToolLang.Get("Cancel", "Отмена"));
+                    if (ok) ApplyEmptyPresetFromForge();
+                });
 
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
@@ -1509,6 +1691,10 @@ namespace NovellaEngine.Editor
         private void RefreshRectsCache()
         {
             _allRects.Clear();
+            // RefreshRectsCache вызывается на структурные изменения (создание/удаление/
+            // переименование) — момент идеальный сбросить и кеш row-info, чтобы
+            // юзер увидел новые элементы без задержки TTL.
+            InvalidateRowInfoCache();
             // Канвасы перебираем в порядке сцены (через GetRootGameObjects),
             // а не как FindObjectsByType вернёт — у того порядок не гарантирован
             // и канвасы прыгали в дереве при каждом рефреше.
@@ -1612,8 +1798,11 @@ namespace NovellaEngine.Editor
         private string GetDisplayIcon(RectTransform rt)
         {
             if (rt == null) return "◆";
+            // Friendly-icons (явно прописанные дизайнером) имеют приоритет.
             if (_friendlyIcons.TryGetValue(rt.gameObject, out var i)) return i;
-            return IconFor("", rt.gameObject);
+            // Иначе — кешированная IconFor через GetRowInfo (TTL 1.5с).
+            // Раньше каждый IconFor делал 4-5 GetComponent на row на кадр.
+            return GetRowInfo(rt).Icon;
         }
 
         // Возвращает короткую подпись типа объекта для второй строки в дереве.
@@ -2676,6 +2865,11 @@ namespace NovellaEngine.Editor
 
         private void DrawTreeRow(RectTransform rt, string name, string icon, int depth, int index, bool hasChildren, bool collapsed)
         {
+            // Кешированный RowInfo (icon / subtitle / hasConfigurableScript) —
+            // используется ниже в нескольких местах. Берётся ОДИН раз в начале
+            // row-рендера, иначе на каждый row было бы 10+ GetComponent на кадр.
+            var __rowInfo = GetRowInfo(rt);
+
             bool isSel = _selectedList.Contains(rt);
 
             GUILayout.BeginHorizontal();
@@ -2804,7 +2998,9 @@ namespace NovellaEngine.Editor
             //   • selfDisabled  → «· выкл»     (юзер сам выключил)
             //   • hiddenByParent→ «· скрыт»    (сам активен, но родитель выключен)
             // Полный смысл — в tooltip над подписью.
-            string subtitle = GetElementSubtitle(rt);
+            // Используем кешированный subtitle из __rowInfo (см. выше) — иначе
+            // GetElementSubtitle делал 5+ GetComponent на каждый row на каждый кадр.
+            string subtitle = __rowInfo.Subtitle;
             string subtitleTip = null;
             if (selfDisabled)
             {
@@ -2846,7 +3042,9 @@ namespace NovellaEngine.Editor
 
             // ⚙-иконка для объектов с настраиваемым NovellaEngine-скриптом.
             // Клик → выделяем элемент + переключаем инспектор на «⚙ Логика».
-            if (HasConfigurableScript(rt.gameObject))
+            // __rowInfo был получен в начале метода — без него GetComponents
+            // вызывался на каждый row на каждый OnGUI-кадр.
+            if (__rowInfo.HasConfigurableScript)
             {
                 Rect gearRect = new Rect(rightEdge - 22, row.y, 22, row.height);
                 var gearSt = new GUIStyle(EditorStyles.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter };
@@ -3351,6 +3549,10 @@ namespace NovellaEngine.Editor
             if (_camera == null) return;
 
             int targetW, targetH;
+            // Lazy-инициализация: при первом обращении выбираем preset
+            // под активную build-target платформу.
+            if (_resolutionPresetIndex < 0) _resolutionPresetIndex = ResolveDefaultResolutionPreset();
+
             if (_resolutionPresetIndex >= 0 && _resolutionPresetIndex < RESOLUTION_PRESETS.Length)
             {
                 var p = RESOLUTION_PRESETS[_resolutionPresetIndex];
@@ -6128,6 +6330,52 @@ namespace NovellaEngine.Editor
                 case NovellaEngine.Data.EVarType.String:
                     string ns = EditorGUILayout.TextField(step.VariableString ?? "");
                     if (ns != step.VariableString) { step.VariableString = ns; EditorUtility.SetDirty(b); }
+                    break;
+                case NovellaEngine.Data.EVarType.Float:
+                    float nf = EditorGUILayout.FloatField(step.VariableFloat);
+                    if (!Mathf.Approximately(nf, step.VariableFloat)) { step.VariableFloat = nf; EditorUtility.SetDirty(b); }
+                    break;
+                case NovellaEngine.Data.EVarType.Choice:
+                    if (def.Choices == null || def.Choices.Count == 0)
+                    {
+                        GUILayout.Label(ToolLang.Get("(no values defined)", "(значения не заданы)"),
+                            EditorStyles.miniLabel);
+                    }
+                    else
+                    {
+                        string[] choices = def.Choices.Select(c => (c ?? "").Replace("/", "-")).ToArray();
+                        int sel = System.Array.IndexOf(choices, (step.VariableString ?? "").Replace("/", "-"));
+                        if (sel < 0) sel = 0;
+                        int newSel = EditorGUILayout.Popup(sel, choices);
+                        if (newSel != sel) { step.VariableString = choices[newSel]; EditorUtility.SetDirty(b); }
+                        else if (string.IsNullOrEmpty(step.VariableString)) { step.VariableString = choices[0]; EditorUtility.SetDirty(b); }
+                    }
+                    break;
+                case NovellaEngine.Data.EVarType.List:
+                    // Для List показываем операцию Add/Remove/Clear + поле
+                    // элемента (если не Clear).
+                    string[] opNames = ToolLang.IsRU
+                        ? new[] { "Добавить", "Убрать", "Очистить" }
+                        : new[] { "Add item", "Remove item", "Clear all" };
+                    NovellaEngine.Data.EVarOperation[] opMap = {
+                        NovellaEngine.Data.EVarOperation.ListAdd,
+                        NovellaEngine.Data.EVarOperation.ListRemove,
+                        NovellaEngine.Data.EVarOperation.ListClear
+                    };
+                    int opIdx = System.Array.IndexOf(opMap, step.VariableListOp);
+                    if (opIdx == -1) opIdx = 0;
+                    int newOp = EditorGUILayout.Popup(opIdx, opNames, GUILayout.Width(100));
+                    if (newOp != opIdx) { step.VariableListOp = opMap[newOp]; EditorUtility.SetDirty(b); }
+                    if (step.VariableListOp != NovellaEngine.Data.EVarOperation.ListClear)
+                    {
+                        string nls = EditorGUILayout.TextField(step.VariableString ?? "");
+                        if (nls != step.VariableString) { step.VariableString = nls; EditorUtility.SetDirty(b); }
+                    }
+                    else
+                    {
+                        GUILayout.Label(ToolLang.Get("(removes all items)", "(удалит все элементы)"),
+                            EditorStyles.miniLabel);
+                    }
                     break;
             }
             GUILayout.EndHorizontal();

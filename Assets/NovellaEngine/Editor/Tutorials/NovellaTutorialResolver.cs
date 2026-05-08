@@ -133,5 +133,36 @@ namespace NovellaEngine.Editor.Tutorials
         {
             return new Rect(r.x - p, r.y - p, r.width + p * 2f, r.height + p * 2f);
         }
+
+        // ─────────────── Host window resolver (для picker'а и Test-кнопок) ───────────────
+
+        /// <summary>
+        /// По типу host-окна из ассета находит открытый EditorWindow, на котором туториал должен играться.
+        /// Возвращает null, если окно не открыто (юзеру нужно открыть его вручную).
+        /// </summary>
+        public static EditorWindow ResolveHostWindow(ETutorialHostWindow hostType)
+        {
+            // Берём ВСЕ существующие окна (включая спрятанные за докинутыми вкладками).
+            var all = Resources.FindObjectsOfTypeAll<EditorWindow>();
+
+            switch (hostType)
+            {
+                case ETutorialHostWindow.NovellaHub_Dashboard:
+                case ETutorialHostWindow.NovellaHub_CharacterEditor:
+                case ETutorialHostWindow.NovellaHub_SceneManager:
+                case ETutorialHostWindow.NovellaHub_UIEditor:
+                case ETutorialHostWindow.NovellaHub_VariableEditor:
+                    return all.FirstOrDefault(w => w != null && w.GetType().Name == "NovellaHubWindow");
+
+                case ETutorialHostWindow.GraphWindow:
+                case ETutorialHostWindow.GraphWindow_DLC:
+                case ETutorialHostWindow.GraphWindow_InteractiveLesson:
+                    return all.FirstOrDefault(w => w != null && w.GetType().Name == "NovellaGraphWindow");
+
+                case ETutorialHostWindow.WelcomeWindow_NoTarget:
+                    return all.FirstOrDefault(w => w != null && w.GetType().Name == "NovellaWelcomeWindow");
+            }
+            return null;
+        }
     }
 }

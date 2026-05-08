@@ -307,12 +307,16 @@ namespace NovellaEngine.Editor.UIBindings
             GUILayout.BeginArea(r);
             _scroll = GUILayout.BeginScrollView(_scroll);
 
-            float rowH = 26f;
             float[] colsW = ColumnWidths(r.width);
 
             for (int i = 0; i < filtered.Count; i++)
             {
                 var row = filtered[i];
+                // Высота строки динамическая: одно-, двух-, трёхрядные строки
+                // в колонке OnClick → row растёт чтобы все чипы поместились.
+                // Не помещаются в 3 ряда — в последнем «+N» остаток.
+                int chipRows = MeasureChipRows(row.Binding, colsW[4]);
+                float rowH = 22f + chipRows * 22f; // header padding + строки чипов
                 Rect rowRect = GUILayoutUtility.GetRect(0, rowH, GUILayout.ExpandWidth(true), GUILayout.Height(rowH));
 
                 // Зебра + предупреждение для неиспользуемых.
@@ -372,11 +376,17 @@ namespace NovellaEngine.Editor.UIBindings
                 return;
             }
 
-            const float chipH = 20f;
+            // Многострочный wrap: чипы переходят на следующую строку когда
+            // не влезают. Поддерживаем до 3 строк, дальше — «+N» с full-list
+            // tooltip'ом. Раньше был 1 ряд + «+N» уже после 2-3 чипов, было тесно.
+            const float chipH = 18f;
             const float chipPad = 4f;
-            float y = cell.y + (cell.height - chipH) * 0.5f;
+            const float rowGap = 4f;
+            const int MAX_ROWS = 3;
+            float startY = cell.y + 4;
             float x = cell.x + 4;
             float maxX = cell.x + cell.width - 4;
+            int currentRow = 0;
 
             for (int i = 0; i < b.ClickSequence.Count; i++)
             {
@@ -392,28 +402,52 @@ namespace NovellaEngine.Editor.UIBindings
                 {
                     fullText = $"#{i + 1}: {fullText}";
                 }
-                if (step.DelayBefore > 0.0001f) fullText += $"  (delay {step.DelayBefore:0.##}s)";
+                if (step.DelayBefore > 0.0001f)
+                {
+                    fullText += "  (" + ToolLang.Get($"delay {step.DelayBefore:0.##}s",
+                                                    $"задержка {step.DelayBefore:0.##}с") + ")";
+                }
 
-                // Считаем ширину чипа от длины строки.
                 var chipSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
                 string label = icon + "  " + shortName;
                 float textW = chipSt.CalcSize(new GUIContent(label)).x + 12;
-                float chipW = Mathf.Min(textW, 130);
+                float chipW = Mathf.Min(textW, 140);
 
-                // Не влезает — рендерим «+N» в оставшемся месте и стоп.
+                // Не влезает в текущий ряд — пробуем перейти на следующий.
                 if (x + chipW > maxX)
                 {
-                    int remaining = b.ClickSequence.Count - i;
-                    var moreSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft };
-                    moreSt.normal.textColor = new Color(0.95f, 0.96f, 0.98f);
-                    string moreLabel = "+" + remaining;
-                    Rect moreRect = new Rect(x, y, maxX - x, chipH);
-                    EditorGUI.DrawRect(moreRect, new Color(0.36f, 0.75f, 0.92f, 0.20f));
-                    GUI.Label(moreRect, new GUIContent("  " + moreLabel, "ещё " + remaining + " действие(й)"), moreSt);
-                    break;
+                    if (currentRow + 1 >= MAX_ROWS)
+                    {
+                        // Уже последний ряд — рисуем «+N» и стоп.
+                        int remaining = b.ClickSequence.Count - i;
+                        var moreSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft };
+                        moreSt.normal.textColor = new Color(0.95f, 0.96f, 0.98f);
+                        string moreLabel = "+" + remaining;
+                        // Полный список оставшихся в tooltip — раньше юзер не мог
+                        // даже узнать ЧТО скрыто за «+N».
+                        var moreList = new System.Text.StringBuilder();
+                        moreList.Append(ToolLang.Get($"+{remaining} more action(s):",
+                                                    $"ещё {remaining} действие(й):"));
+                        for (int k = i; k < b.ClickSequence.Count; k++)
+                        {
+                            var s = b.ClickSequence[k];
+                            if (s == null) continue;
+                            moreList.Append("\n#").Append(k + 1).Append(": ")
+                                    .Append(StepIcon(s.Action)).Append(" ")
+                                    .Append(StepShortName(s));
+                        }
+                        Rect moreRect = new Rect(x, startY + currentRow * (chipH + rowGap), maxX - x, chipH);
+                        EditorGUI.DrawRect(moreRect, new Color(0.36f, 0.75f, 0.92f, 0.20f));
+                        GUI.Label(moreRect, new GUIContent("  " + moreLabel, moreList.ToString()), moreSt);
+                        break;
+                    }
+                    // Переходим на следующий ряд.
+                    currentRow++;
+                    x = cell.x + 4;
                 }
 
-                Rect chipRect = new Rect(x, y, chipW, chipH);
+                float chipY = startY + currentRow * (chipH + rowGap);
+                Rect chipRect = new Rect(x, chipY, chipW, chipH);
                 EditorGUI.DrawRect(chipRect, new Color(0.36f, 0.75f, 0.92f, 0.18f));
                 DrawBorder(chipRect, new Color(0.36f, 0.75f, 0.92f, 0.45f));
 
@@ -426,7 +460,41 @@ namespace NovellaEngine.Editor.UIBindings
             }
         }
 
+        /// <summary>
+        /// Считает сколько РЯДОВ чипов нужно для показа всех действий в OnClick-колонке.
+        /// Нужно ДО рисования, чтобы правильно зарезервировать высоту row'а.
+        /// Логика идентична DrawClickChips — но без рисования, только подсчёт.
+        /// </summary>
+        private static int MeasureChipRows(NovellaUIBinding b, float colWidth)
+        {
+            if (b == null || b.ClickSequence == null || b.ClickSequence.Count == 0) return 1;
+            const float chipPad = 4f;
+            const int MAX_ROWS = 3;
+            float maxX = colWidth - 8;
+            float x = 0;
+            int row = 1;
+
+            var chipSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };
+            for (int i = 0; i < b.ClickSequence.Count; i++)
+            {
+                var step = b.ClickSequence[i];
+                if (step == null) continue;
+                string label = StepIcon(step.Action) + "  " + StepShortName(step);
+                float textW = chipSt.CalcSize(new GUIContent(label)).x + 12;
+                float chipW = Mathf.Min(textW, 140);
+                if (x + chipW > maxX)
+                {
+                    if (row >= MAX_ROWS) return MAX_ROWS;
+                    row++;
+                    x = 0;
+                }
+                x += chipW + chipPad;
+            }
+            return row;
+        }
+
         // Короткое имя для отображения в чипе (3-12 символов).
+        // Все строки локализованы через ToolLang.Get — раньше были hardcoded EN.
         private static string StepShortName(NovellaUIBinding.ClickActionStep step)
         {
             switch (step.Action)
@@ -437,18 +505,23 @@ namespace NovellaEngine.Editor.UIBindings
                     return Truncate(nm, 12);
                 }
                 case NovellaUIBinding.BindingAction.StartNewGame:      return Truncate(step.StoryToStart != null ? step.StoryToStart.name : "?", 10);
-                case NovellaUIBinding.BindingAction.LoadLastSave:      return "Load";
-                case NovellaUIBinding.BindingAction.RestartChapter:    return "Restart";
-                case NovellaUIBinding.BindingAction.QuitGame:          return "Quit";
-                case NovellaUIBinding.BindingAction.ShowPanel:         return "Show " + Truncate(TargetLabel(step.TargetBindingId), 8);
-                case NovellaUIBinding.BindingAction.HidePanel:         return "Hide " + Truncate(TargetLabel(step.TargetBindingId), 8);
-                case NovellaUIBinding.BindingAction.TogglePanel:       return "Toggle " + Truncate(TargetLabel(step.TargetBindingId), 6);
+                case NovellaUIBinding.BindingAction.LoadLastSave:      return ToolLang.Get("Load",      "Загрузить");
+                case NovellaUIBinding.BindingAction.RestartChapter:    return ToolLang.Get("Restart",   "Рестарт");
+                case NovellaUIBinding.BindingAction.QuitGame:          return ToolLang.Get("Quit",      "Выход");
+                case NovellaUIBinding.BindingAction.PauseGame:         return ToolLang.Get("Pause",     "Пауза");
+                case NovellaUIBinding.BindingAction.ResumeGame:        return ToolLang.Get("Resume",    "Продолжить");
+                case NovellaUIBinding.BindingAction.ShowPanel:         return ToolLang.Get("Show ",     "Показать ") + Truncate(TargetLabel(step.TargetBindingId), 8);
+                case NovellaUIBinding.BindingAction.HidePanel:         return ToolLang.Get("Hide ",     "Скрыть ")   + Truncate(TargetLabel(step.TargetBindingId), 8);
+                case NovellaUIBinding.BindingAction.TogglePanel:       return ToolLang.Get("Toggle ",   "Переключ. ")+ Truncate(TargetLabel(step.TargetBindingId), 6);
                 case NovellaUIBinding.BindingAction.SetVariable:       return Truncate(step.VariableName ?? "?", 10);
                 case NovellaUIBinding.BindingAction.TriggerEvent:      return Truncate(step.EventName ?? "?", 10);
                 case NovellaUIBinding.BindingAction.UnlockAchievement: return Truncate(step.AchievementId ?? "?", 10);
-                case NovellaUIBinding.BindingAction.PlaySFX:           return step.SfxClip != null ? Truncate(step.SfxClip.name, 10) : "SFX";
+                case NovellaUIBinding.BindingAction.PlaySFX:           return step.SfxClip != null ? Truncate(step.SfxClip.name, 10) : ToolLang.Get("SFX", "Звук");
                 case NovellaUIBinding.BindingAction.ChangeLanguage:    return step.LanguageCode ?? "?";
-                case NovellaUIBinding.BindingAction.OpenURL:           return "URL";
+                case NovellaUIBinding.BindingAction.OpenURL:           return ToolLang.Get("URL", "Ссылка");
+                case NovellaUIBinding.BindingAction.SaveGameSlot:      return ToolLang.Get("Save ",     "Сохр. ")    + (step.SaveSlotIndex == 0 ? "auto" : "#" + step.SaveSlotIndex);
+                case NovellaUIBinding.BindingAction.LoadGameSlot:      return ToolLang.Get("Load ",     "Загр. ")    + (step.SaveSlotIndex == 0 ? "auto" : "#" + step.SaveSlotIndex);
+                case NovellaUIBinding.BindingAction.ReturnToMainMenu:  return ToolLang.Get("To menu",   "В меню");
                 default: return "—";
             }
         }

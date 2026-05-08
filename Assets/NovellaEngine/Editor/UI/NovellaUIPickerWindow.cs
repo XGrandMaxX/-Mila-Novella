@@ -52,7 +52,13 @@ namespace NovellaEngine.Editor.UIBindings
 
         public static void Open(string label, UIBindingKind kind, string currentId, Action<string> onPick)
         {
-            var win = GetWindow<NovellaUIPickerWindow>(true, "Novella · Pick UI", true);
+            // Single-instance: закрываем предыдущий picker если открыт. Раньше
+            // GetWindow возвращало тот же инстанс — но при повторном Open
+            // переоткрытие чистее (новые callback / kind / currentId).
+            foreach (var existing in Resources.FindObjectsOfTypeAll<NovellaUIPickerWindow>())
+                if (existing != null) existing.Close();
+
+            var win = CreateInstance<NovellaUIPickerWindow>();
             win._label = label;
             win._kind = kind;
             win._initialId = currentId;
@@ -64,7 +70,13 @@ namespace NovellaEngine.Editor.UIBindings
                 new Vector2(760, 520));
             win.RefreshElements();
             win.PreselectFromInitial();
-            win.ShowUtility();
+            // ShowPopup — borderless, ВСЕГДА на верху, не теряет фокус при кликах
+            // в другие окна Unity. Нативного title bar / close button нет —
+            // рисуем свои в DrawHeader (см. ниже). Раньше использовалось
+            // ShowUtility — оно уходило за фокусированное окно и юзеру
+            // приходилось переоткрывать picker.
+            win.ShowPopup();
+            win.Focus();
         }
 
         private void RefreshElements()
@@ -131,12 +143,34 @@ namespace NovellaEngine.Editor.UIBindings
         {
             EditorGUI.DrawRect(r, C_BG_SIDE);
             EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), C_BORDER);
+            // Cyan-акцент сверху (заменяет нативный title bar в ShowPopup-режиме).
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 2),
+                new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.85f));
 
             var t = new GUIStyle(EditorStyles.boldLabel) { fontSize = 13 };
             t.normal.textColor = C_TEXT_1;
             string kindIcon = _kind == UIBindingKind.Text ? "📝" : _kind == UIBindingKind.Button ? "🔘" : "🎯";
-            GUI.Label(new Rect(r.x + 14, r.y + 8, r.width - 28, 18),
+            // Title с ✕ кнопкой справа (нативного нет — ShowPopup borderless).
+            GUI.Label(new Rect(r.x + 14, r.y + 8, r.width - 60, 18),
                 $"{kindIcon}  Выбор UI элемента для: «{_label}»", t);
+
+            // ─── ✕ Close button (top-right) ─────────────────────────
+            Rect closeRect = new Rect(r.xMax - 36, r.y + 6, 24, 24);
+            bool closeHover = closeRect.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(closeRect,
+                closeHover ? new Color(0.85f, 0.32f, 0.32f, 1f) : new Color(0, 0, 0, 0));
+            var closeSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 14, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = closeHover ? Color.white : C_TEXT_2 }
+            };
+            GUI.Label(closeRect, "✕", closeSt);
+            EditorGUIUtility.AddCursorRect(closeRect, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && closeHover)
+            {
+                Close();
+                Event.current.Use();
+                return;
+            }
 
             // Имя текущего выбранного элемента — крупно и читаемо.
             var sub = new GUIStyle(EditorStyles.label) { fontSize = 11 };
@@ -153,6 +187,36 @@ namespace NovellaEngine.Editor.UIBindings
                 subText = "Выбери элемент в дереве слева или прямо на превью →";
             }
             GUI.Label(new Rect(r.x + 14, r.y + 30, r.width - 28, 18), subText, sub);
+
+            // Drag-area: header можно тащить чтобы переместить окно (кроме ✕-кнопки).
+            // Без этого borderless-окно ShowPopup нельзя двигать.
+            Rect dragRect = new Rect(r.x, r.y + 2, r.width - 40, r.height - 2);
+            HandleWindowDrag(dragRect);
+        }
+
+        private Vector2? _dragOffset;
+        private void HandleWindowDrag(Rect dragRect)
+        {
+            Event e = Event.current;
+            EditorGUIUtility.AddCursorRect(dragRect, MouseCursor.MoveArrow);
+            if (e.type == EventType.MouseDown && e.button == 0 && dragRect.Contains(e.mousePosition))
+            {
+                _dragOffset = e.mousePosition;
+                e.Use();
+            }
+            else if (e.type == EventType.MouseDrag && _dragOffset.HasValue)
+            {
+                // Сдвигаем окно в screen-координатах — берём дельту относительно
+                // позиции мыши на момент MouseDown.
+                Vector2 delta = e.mousePosition - _dragOffset.Value;
+                position = new Rect(position.x + delta.x, position.y + delta.y, position.width, position.height);
+                Repaint();
+            }
+            else if (e.type == EventType.MouseUp && _dragOffset.HasValue)
+            {
+                _dragOffset = null;
+                e.Use();
+            }
         }
 
         // ─── Tree ───────────────────────────────────────────────────────────────
@@ -336,7 +400,13 @@ namespace NovellaEngine.Editor.UIBindings
             {
                 var ch = rt.GetChild(i) as RectTransform;
                 if (ch == null) continue;
-                if (!ch.gameObject.activeInHierarchy) continue;
+                // Раньше тут было: if (!ch.gameObject.activeInHierarchy) continue;
+                // Теперь disabled-элементы РИСУЕМ — но с приглушёнными цветами и
+                // 💤-бейджем чтобы юзер видел «это сейчас выключено» и мог выбрать
+                // его как target для ShowPanel. Без этого пикер показывал пустой
+                // canvas если pause-меню/save-панель сейчас закрыта.
+                bool isInactive = !ch.gameObject.activeInHierarchy;
+
                 // SubMeshUI авто-генерируется TMP — не рисуем как отдельный rect.
                 if (ch.GetComponent<TMPro.TMP_SubMeshUI>() != null) continue;
 
@@ -355,8 +425,38 @@ namespace NovellaEngine.Editor.UIBindings
                 {
                     Rect screenRect = MapRect(ch, canvasSize, view, scale);
                     Color fill = TintFor(ch);
+                    if (isInactive)
+                    {
+                        // Приглушаем цвет до 40% насыщенности — выглядит как "выключенное".
+                        fill = new Color(fill.r * 0.55f, fill.g * 0.55f, fill.b * 0.55f, 0.65f);
+                    }
                     EditorGUI.DrawRect(screenRect, fill);
-                    DrawBorder(screenRect, new Color(fill.r * 1.4f, fill.g * 1.4f, fill.b * 1.4f, 0.75f));
+
+                    // Border — у активных яркий, у выключенных тонкий dashed-эффект.
+                    if (isInactive)
+                    {
+                        // Имитация dashed: рисуем 6 коротких сегментов по периметру
+                        // (через массив — но проще: 4 цвета по 60% alpha).
+                        Color dashC = new Color(0.95f, 0.78f, 0.30f, 0.85f); // amber
+                        float dashStep = 6f;
+                        // Top + bottom dashed lines
+                        for (float x = 0; x < screenRect.width; x += dashStep * 2)
+                        {
+                            float w = Mathf.Min(dashStep, screenRect.width - x);
+                            EditorGUI.DrawRect(new Rect(screenRect.x + x, screenRect.y, w, 1), dashC);
+                            EditorGUI.DrawRect(new Rect(screenRect.x + x, screenRect.yMax - 1, w, 1), dashC);
+                        }
+                        for (float y = 0; y < screenRect.height; y += dashStep * 2)
+                        {
+                            float h = Mathf.Min(dashStep, screenRect.height - y);
+                            EditorGUI.DrawRect(new Rect(screenRect.x, screenRect.y + y, 1, h), dashC);
+                            EditorGUI.DrawRect(new Rect(screenRect.xMax - 1, screenRect.y + y, 1, h), dashC);
+                        }
+                    }
+                    else
+                    {
+                        DrawBorder(screenRect, new Color(fill.r * 1.4f, fill.g * 1.4f, fill.b * 1.4f, 0.75f));
+                    }
 
                     // Подпись: для текста — реальный текст, для кнопки — её inner-text
                     // (TMP или legacy), иначе DisplayName/имя GO. Рендерим всегда —
@@ -364,17 +464,40 @@ namespace NovellaEngine.Editor.UIBindings
                     string label = ResolveLabel(ch, isButton, isText);
                     if (!string.IsNullOrEmpty(label))
                     {
-                        var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = isButton ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft, wordWrap = false, clipping = TextClipping.Clip };
-                        st.normal.textColor = NovellaSettingsModule.GetContrastingText(fill);
+                        var st = new GUIStyle(EditorStyles.miniLabel) {
+                            fontSize = 10,
+                            alignment = isButton ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft,
+                            wordWrap = false, clipping = TextClipping.Clip
+                        };
+                        Color textC = NovellaSettingsModule.GetContrastingText(fill);
+                        if (isInactive) textC = new Color(textC.r, textC.g, textC.b, 0.55f);
+                        st.normal.textColor = textC;
                         var labelRect = isButton
                             ? screenRect
                             : new Rect(screenRect.x + 3, screenRect.y, screenRect.width - 6, screenRect.height);
                         GUI.Label(labelRect, label, st);
                     }
+
+                    // 💤-бейдж в верхнем-правом углу для disabled, чтобы статус был
+                    // ОЧЕНЬ заметен независимо от размера элемента.
+                    if (isInactive && screenRect.width > 24 && screenRect.height > 16)
+                    {
+                        var bSt = new GUIStyle(EditorStyles.miniLabel) {
+                            fontSize = 11,
+                            alignment = TextAnchor.MiddleCenter,
+                            normal = { textColor = new Color(0.95f, 0.78f, 0.30f, 1f) }
+                        };
+                        Rect badge = new Rect(screenRect.xMax - 18, screenRect.y + 1, 16, 16);
+                        EditorGUI.DrawRect(badge, new Color(0.075f, 0.082f, 0.11f, 0.85f));
+                        GUI.Label(badge, "💤", bSt);
+                    }
                 }
 
                 // Внутрь Button под Button-фильтром не рекурсимся — оно уже одна
                 // визуальная сущность. Под другими фильтрами идём вглубь.
+                // ВАЖНО: рекурсимся даже в disabled-родителей, потому что юзер
+                // может захотеть выбрать вложенный элемент (он его всё равно увидит
+                // в иерархии, должен видеть и в превью).
                 if (!(isButton && _kind == UIBindingKind.Button))
                     DrawElementRectsRecursive(ch, canvasSize, view, scale);
             }

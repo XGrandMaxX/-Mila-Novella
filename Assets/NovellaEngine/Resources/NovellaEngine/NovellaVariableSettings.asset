@@ -13,16 +13,42 @@ MonoBehaviour:
   m_Name: NovellaVariableSettings
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaVariableSettings
   Variables:
-  - Name: NEW_VARIABLE
-    Category: Default
+  - Name: HELLO_MY_NAME_IS_MAD
+    Category: "\u0421\u044E\u0436\u0435\u0442"
     Description: 
     Type: 0
     Scope: 0
     HasLimits: 0
     MinValue: 0
     MaxValue: 100
+    MinFloat: 0
+    MaxFloat: 100
     DefaultInt: 0
     DefaultBool: 0
     DefaultString: 
+    DefaultFloat: 0
+    Choices: []
+    DefaultChoice: 
+    DefaultList: []
     IsPremiumCurrency: 0
     Icon: {fileID: 0}
+  - Name: DDAD
+    Category: "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438"
+    Description: 
+    Type: 0
+    Scope: 1
+    HasLimits: 0
+    MinValue: 0
+    MaxValue: 100
+    MinFloat: 0
+    MaxFloat: 100
+    DefaultInt: 0
+    DefaultBool: 0
+    DefaultString: 
+    DefaultFloat: 0.2
+    Choices: []
+    DefaultChoice: 
+    DefaultList: []
+    IsPremiumCurrency: 0
+    Icon: {fileID: 0}
+  CustomCategories: []

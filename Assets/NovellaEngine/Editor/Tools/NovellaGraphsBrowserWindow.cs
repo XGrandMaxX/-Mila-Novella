@@ -47,6 +47,17 @@ namespace NovellaEngine.Editor
         private Vector2 _scroll;
         private EditorWindow _hubToRefresh; // вернуться к Hub'у на refresh
 
+        // Inline-переименование: путь графа, который сейчас редактируется,
+        // и текущее значение в textfield. "" = никого не редактируем.
+        private string _renamingPath = "";
+        private string _renamingDraft = "";
+        private bool _renamingFocusRequested = false;
+
+        // Лимит длины имени графа. 30 символов хватает для «Chapter_01_Forest_Path»
+        // и при этом не разрушает раскладку списка (см. issue со сверхдлинными
+        // именами вроде «Chapter_1_11eddвфвфв…»).
+        private const int MAX_GRAPH_NAME_LEN = 30;
+
         public static void ShowWindow(EditorWindow hubToRefresh = null)
         {
             var win = GetWindow<NovellaGraphsBrowserWindow>(true,
@@ -255,7 +266,81 @@ namespace NovellaEngine.Editor
 
             var nameStyle = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
             nameStyle.normal.textColor = isTutorial ? C_TEXT_3 : C_TEXT_1;
-            GUI.Label(new Rect(r.x + 60, r.y + 8, r.width - 280, 18), info.Tree.name, nameStyle);
+
+            bool isRenaming = !isTutorial && _renamingPath == info.Path;
+            Rect nameRect = new Rect(r.x + 60, r.y + 8, r.width - 280, 18);
+
+            if (isRenaming)
+            {
+                // Inline TextField на месте лейбла. Enter — сохранить, Esc — отмена.
+                // Справа в поле — мини-счётчик «N / 30».
+                const float COUNTER_W = 50f;
+                Rect fldRect = new Rect(nameRect.x, nameRect.y - 2, nameRect.width - COUNTER_W, 22);
+                EditorGUI.DrawRect(fldRect, C_BG_PRIMARY);
+                DrawRectBorder(fldRect, C_ACCENT);
+
+                GUI.SetNextControlName("RenameField_" + info.Path);
+                var fieldSt = new GUIStyle(EditorStyles.textField) {
+                    fontSize = 13, fontStyle = FontStyle.Bold,
+                    padding = new RectOffset(6, 6, 4, 4),
+                    normal = { background = null, textColor = C_TEXT_1 },
+                    focused = { background = null, textColor = C_TEXT_1 }
+                };
+                Rect inner = new Rect(fldRect.x + 1, fldRect.y + 1, fldRect.width - 2, fldRect.height - 2);
+                string newDraft = EditorGUI.TextField(inner, _renamingDraft ?? "", fieldSt);
+                // Жёсткий clamp длины — обрезаем при вводе.
+                if (newDraft.Length > MAX_GRAPH_NAME_LEN)
+                    newDraft = newDraft.Substring(0, MAX_GRAPH_NAME_LEN);
+                _renamingDraft = newDraft;
+
+                // Счётчик N / 30 справа от поля.
+                int curLen = (_renamingDraft ?? "").Length;
+                Rect counterRect = new Rect(fldRect.xMax + 6, fldRect.y, COUNTER_W - 6, fldRect.height);
+                var counterSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 10, alignment = TextAnchor.MiddleCenter,
+                    normal = {
+                        textColor = curLen >= MAX_GRAPH_NAME_LEN
+                            ? new Color(1f, 0.4f, 0.4f) : C_TEXT_4
+                    }
+                };
+                GUI.Label(counterRect, curLen + " / " + MAX_GRAPH_NAME_LEN, counterSt);
+
+                // Фокусим поле сразу после клика по ✏.
+                if (_renamingFocusRequested)
+                {
+                    EditorGUI.FocusTextInControl("RenameField_" + info.Path);
+                    _renamingFocusRequested = false;
+                }
+
+                // Enter — commit, Esc — cancel.
+                if (Event.current.type == EventType.KeyDown
+                    && GUI.GetNameOfFocusedControl() == "RenameField_" + info.Path)
+                {
+                    if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
+                    {
+                        var capturedInfo = info;
+                        EditorApplication.delayCall += () => CommitRename(capturedInfo);
+                        Event.current.Use();
+                    }
+                    else if (Event.current.keyCode == KeyCode.Escape)
+                    {
+                        _renamingPath = "";
+                        _renamingDraft = "";
+                        GUI.FocusControl(null);
+                        Event.current.Use();
+                    }
+                }
+            }
+            else
+            {
+                // Display-truncate существующих сверхдлинных имён чтобы они не
+                // ломали раскладку. Сам файл при этом не трогаем — правится
+                // только через rename.
+                string display = info.Tree.name ?? "";
+                if (display.Length > MAX_GRAPH_NAME_LEN)
+                    display = display.Substring(0, MAX_GRAPH_NAME_LEN - 1) + "…";
+                GUI.Label(nameRect, new GUIContent(display, info.Tree.name), nameStyle);
+            }
 
             if (isTutorial)
             {
@@ -306,16 +391,55 @@ namespace NovellaEngine.Editor
             float btnSize = 28;
             float btnY = r.y + (r.height - btnSize) / 2;
 
+            // В режиме переименования справа — пара ✓ / ✕ вместо обычных кнопок.
+            if (isRenaming)
+            {
+                Rect okBtn = new Rect(r.xMax - 80, btnY, 36, btnSize);
+                if (DrawSquareIconBtn(okBtn, "✓", C_OK, ToolLang.Get("Save name (Enter)", "Сохранить (Enter)")))
+                {
+                    var capturedInfo = info;
+                    EditorApplication.delayCall += () => CommitRename(capturedInfo);
+                }
+                Rect cancelBtn = new Rect(r.xMax - 40, btnY, 36, btnSize);
+                if (DrawSquareIconBtn(cancelBtn, "✕", C_DANGER, ToolLang.Get("Cancel (Esc)", "Отмена (Esc)")))
+                {
+                    _renamingPath = "";
+                    _renamingDraft = "";
+                    GUI.FocusControl(null);
+                }
+                GUILayout.Space(6);
+                return;
+            }
+
+            // Обычный набор кнопок: Open / Rename / Delete.
+            // (Раньше была отдельная «Show in Project view» — убрана: инструмент
+            // для авторов, не для unity-разработчиков. Если нужно ping'нуть файл
+            // — это всегда доступно через стандартное Unity Project window.)
             Rect openBtn = new Rect(r.xMax - 200, btnY, 90, btnSize);
             if (DrawAccentButton(openBtn, "▶ " + ToolLang.Get("Open", "Открыть")))
             {
                 NovellaGraphWindow.OpenGraphWindow(info.Tree);
             }
 
-            Rect pingBtn = new Rect(r.xMax - 102, btnY, 36, btnSize);
-            if (DrawSquareIconBtn(pingBtn, "📍", C_TEXT_2, ToolLang.Get("Show in Project view", "Показать файл в окне Project")))
+            Rect renameBtn = new Rect(r.xMax - 102, btnY, 36, btnSize);
+            if (isTutorial)
             {
-                EditorGUIUtility.PingObject(info.Tree);
+                EditorGUI.DrawRect(renameBtn, new Color(C_BG_PRIMARY.r, C_BG_PRIMARY.g, C_BG_PRIMARY.b, 0.6f));
+                DrawRectBorder(renameBtn, new Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.5f));
+                var rs = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 11 };
+                rs.normal.textColor = new Color(C_TEXT_4.r, C_TEXT_4.g, C_TEXT_4.b, 0.6f);
+                GUI.Label(renameBtn, new GUIContent("✏",
+                    ToolLang.Get("Tutorial graphs are protected — can't be renamed",
+                                 "Туториал-графы защищены — переименовать нельзя")), rs);
+            }
+            else
+            {
+                if (DrawSquareIconBtn(renameBtn, "✏", C_ACCENT, ToolLang.Get("Rename graph", "Переименовать граф")))
+                {
+                    _renamingPath = info.Path;
+                    _renamingDraft = info.Tree.name;
+                    _renamingFocusRequested = true;
+                }
             }
 
             Rect deleteBtn = new Rect(r.xMax - 60, btnY, 36, btnSize);
@@ -338,6 +462,77 @@ namespace NovellaEngine.Editor
             }
 
             GUILayout.Space(6);
+        }
+
+        // Сохраняет новое имя (валидация + AssetDatabase.RenameAsset).
+        // Делается в delayCall'е чтобы не мутировать ассеты прямо во время OnGUI.
+        private void CommitRename(GraphInfo info)
+        {
+            string newName = (_renamingDraft ?? "").Trim();
+            // Защита от paste'а строки длиннее лимита (TextField клампит при
+            // ручном вводе, но paste может проскочить если фокус потерян).
+            if (newName.Length > MAX_GRAPH_NAME_LEN)
+                newName = newName.Substring(0, MAX_GRAPH_NAME_LEN);
+
+            // Пустое имя — выходим без изменений.
+            if (string.IsNullOrEmpty(newName))
+            {
+                _renamingPath = "";
+                _renamingDraft = "";
+                return;
+            }
+
+            // То же имя — просто закрываем редактор.
+            if (newName == info.Tree.name)
+            {
+                _renamingPath = "";
+                _renamingDraft = "";
+                return;
+            }
+
+            // Запрещённые символы в имени файла. Unity и так отфильтрует, но
+            // вытащим понятное сообщение для юзера до попытки.
+            if (newName.IndexOfAny(new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' }) >= 0)
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Bad name", "Плохое имя"),
+                    ToolLang.Get(
+                        "Name can't contain: / \\ : * ? \" < > |",
+                        "Имя не может содержать символы: / \\ : * ? \" < > |"),
+                    "OK");
+                return;
+            }
+
+            // Проверяем что нет другого графа с таким же именем (Unity бы ругнулся,
+            // но мы покажем своё дружелюбное сообщение).
+            string dir = Path.GetDirectoryName(info.Path).Replace('\\', '/');
+            string newPath = dir + "/" + newName + ".asset";
+            if (newPath != info.Path && System.IO.File.Exists(newPath))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Name already taken", "Имя уже занято"),
+                    string.Format(ToolLang.Get(
+                        "A graph called «{0}» already exists in the same folder. Pick a different name.",
+                        "Граф с именем «{0}» уже есть в этой же папке. Выбери другое имя."), newName),
+                    "OK");
+                return;
+            }
+
+            string err = AssetDatabase.RenameAsset(info.Path, newName);
+            if (!string.IsNullOrEmpty(err))
+            {
+                EditorUtility.DisplayDialog(
+                    ToolLang.Get("Rename failed", "Не удалось переименовать"),
+                    err, "OK");
+                return;
+            }
+
+            AssetDatabase.SaveAssets();
+            _renamingPath = "";
+            _renamingDraft = "";
+            RefreshData();
+            Repaint();
+            if (_hubToRefresh != null) _hubToRefresh.Repaint();
         }
         private bool DrawSquareIconBtn(Rect r, string icon, Color color, string tooltip = "")
         {

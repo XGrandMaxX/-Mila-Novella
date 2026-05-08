@@ -90,11 +90,23 @@ namespace NovellaEngine.Editor.Tutorials
 
         public static void StartTutorial(NovellaTutorialAsset asset)
         {
+            StartTutorialAtStep(asset, 0);
+        }
+
+        /// <summary>
+        /// Запустить туториал начиная с конкретного шага (0-based).
+        /// Полезно для editor-кнопки «Test this step» — не надо листать весь
+        /// туториал чтобы проверить как выглядит шаг N.
+        /// </summary>
+        public static void StartTutorialAtStep(NovellaTutorialAsset asset, int startStepIndex)
+        {
             Init();
             if (asset == null || asset.Steps == null || asset.Steps.Count == 0) return;
 
+            int idx = Mathf.Clamp(startStepIndex, 0, asset.Steps.Count - 1);
+
             _activeAsset = asset;
-            _currentStep = 0;
+            _currentStep = idx;
             _tutorialStartTime = EditorApplication.timeSinceStartup;
             _stepStartTime = _tutorialStartTime;
             _textScrollPos = Vector2.zero;
@@ -104,7 +116,7 @@ namespace NovellaEngine.Editor.Tutorials
             NovellaTutorialOverlay.ResetTransitionState();
 
             OnTutorialStarted?.Invoke(asset);
-            OnStepChanged?.Invoke(asset, 0);
+            OnStepChanged?.Invoke(asset, idx);
             RepaintAll();
         }
 

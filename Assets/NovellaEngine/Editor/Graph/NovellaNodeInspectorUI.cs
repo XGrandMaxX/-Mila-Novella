@@ -57,16 +57,46 @@ namespace NovellaEngine.Editor
             var displayNames = settings.Variables.Select(v => (v.Type == EVarType.Integer && v.IsPremiumCurrency ? "💎 " : "") + v.Name).ToArray();
 
             int idx = Array.IndexOf(realNames, currentVar);
-            if (idx == -1) idx = 0;
 
-            int newIdx = EditorGUILayout.Popup(idx, displayNames, options);
+            // ─── Orphan variable detection ──────────────────────────────────
+            // Если переменная задана но в settings её больше нет — НЕ заменяем
+            // молча на первую в списке (как было раньше — это давало невидимые
+            // баги логики). Вставляем «⚠ (missing: name)» первым пунктом и
+            // сохраняем оригинальное имя пока юзер не выберет валидную.
+            bool orphan = !string.IsNullOrEmpty(currentVar) && idx == -1;
+            string[] dropdownNames = displayNames;
+            if (orphan)
+            {
+                dropdownNames = new string[displayNames.Length + 1];
+                dropdownNames[0] = ToolLang.Get($"⚠ (missing: {currentVar})", $"⚠ (нет такой: {currentVar})");
+                System.Array.Copy(displayNames, 0, dropdownNames, 1, displayNames.Length);
+                idx = 0;
+            }
+            else if (idx == -1) idx = 0;
+
+            // Подсветка popup'а красным если orphan — сразу видно проблему.
+            Color prevBg = GUI.backgroundColor;
+            if (orphan) GUI.backgroundColor = new Color(0.95f, 0.55f, 0.40f);
+            int newIdx = EditorGUILayout.Popup(idx, dropdownNames, options);
+            GUI.backgroundColor = prevBg;
 
             if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
             {
-                NovellaVariableEditorModule.ShowWindow(realNames[newIdx]);
+                // Открываем редактор переменных. Если orphan — без выделения,
+                // иначе с фокусом на текущей.
+                NovellaVariableEditorModule.ShowWindow(orphan ? null : realNames[newIdx]);
             }
 
             GUILayout.EndHorizontal();
+
+            // Возвращаем выбор:
+            //   • orphan + остался на «(missing)» (newIdx==0) → НЕ перезаписываем currentVar
+            //   • orphan + выбрал валидную → пишем realNames[newIdx-1]
+            //   • не orphan → пишем realNames[newIdx]
+            if (orphan)
+            {
+                return newIdx == 0 ? currentVar : realNames[newIdx - 1];
+            }
             return realNames[newIdx];
         }
 
@@ -77,19 +107,217 @@ namespace NovellaEngine.Editor
             return def != null ? def.Type : EVarType.Integer;
         }
 
+        // Возвращает массив значений для Choice-переменной (если она Choice).
+        // Иначе пустой массив. Используется при отрисовке Popup в Variable/Condition нодах.
+        private string[] GetVarChoices(string varName)
+        {
+            var settings = NovellaVariableSettings.Instance;
+            var def = settings.Variables.FirstOrDefault(v => v.Name == varName);
+            if (def == null || def.Type != EVarType.Choice || def.Choices == null) return new string[0];
+            // Подменяем '/' на '-' — Unity Popup трактует слэш как подменю.
+            return def.Choices.Select(c => (c ?? "").Replace("/", "-")).ToArray();
+        }
+
         private void DrawTypeHint(EVarType type)
         {
             string hint = type switch
             {
                 EVarType.Integer => ToolLang.Get("Type: Number (Integer)", "Тип: Число (Целое)"),
-                EVarType.Boolean => ToolLang.Get("Type: Boolean (True/False)", "Тип: Переключатель (Да/Нет)"),
+                EVarType.Boolean => ToolLang.Get("Type: Boolean (True or False)", "Тип: Переключатель (Да или Нет)"),
                 EVarType.String => ToolLang.Get("Type: String (Text)", "Тип: Строка (Текст)"),
+                EVarType.Float => ToolLang.Get("Type: Decimal (Float)", "Тип: Дробное число (Float)"),
+                EVarType.Choice => ToolLang.Get("Type: One of values (Choice)", "Тип: Из списка (Choice)"),
+                EVarType.List => ToolLang.Get("Type: List (Collection)", "Тип: Список"),
                 _ => ""
             };
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
             GUILayout.Label(hint, EditorStyles.centeredGreyMiniLabel);
             GUILayout.EndHorizontal();
+        }
+
+        // ─── ВЫБОР ОПЕРАТОРА + ЗНАЧЕНИЯ ДЛЯ CONDITION/MODIFIER ─────────────
+        // Едиая точка отрисовки части «оператор + значение» для условий разных
+        // типов переменной. Используется в Condition node + Random ChanceModifier.
+        // Возвращает true если что-то поменялось (для outer ChangeCheck).
+        private void DrawConditionOperatorAndValue(string varName, ChoiceCondition cond,
+                                                    float opW, float valW)
+        {
+            EVarType type = GetVarType(varName);
+
+            if (type == EVarType.Integer)
+            {
+                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(opW));
+                cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Float)
+            {
+                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(opW));
+                cond.ValueFloat = EditorGUILayout.FloatField(cond.ValueFloat, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Boolean)
+            {
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, cond.Operator);
+                if (idx == -1) idx = 0;
+                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+                cond.ValueBool = EditorGUILayout.Toggle(cond.ValueBool, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.String)
+            {
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, cond.Operator);
+                if (idx == -1) idx = 0;
+                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+                cond.ValueString = EditorGUILayout.TextField(cond.ValueString ?? "", GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Choice)
+            {
+                // Оператор: == / !=. Значение — popup из allowed values.
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, cond.Operator);
+                if (idx == -1) idx = 0;
+                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+
+                string[] choices = GetVarChoices(varName);
+                if (choices.Length == 0)
+                {
+                    GUILayout.Label(ToolLang.Get("(no values)", "(нет значений)"),
+                        EditorStyles.miniLabel, GUILayout.Width(valW));
+                }
+                else
+                {
+                    int sel = Array.IndexOf(choices, (cond.ValueString ?? "").Replace("/", "-"));
+                    if (sel < 0) sel = 0;
+                    int newSel = EditorGUILayout.Popup(sel, choices, GUILayout.Width(valW));
+                    if (newSel != sel) cond.ValueString = choices[newSel];
+                    else if (sel >= 0 && sel < choices.Length && string.IsNullOrEmpty(cond.ValueString))
+                        cond.ValueString = choices[0];
+                }
+            }
+            else if (type == EVarType.List)
+            {
+                // Список операторов для List: contains/not contains + count comparisons.
+                // Index в массиве = индекс в opNames.
+                string[] opNames = ToolLang.IsRU
+                    ? new[] { "содержит", "не содержит", "кол. ==", "кол. !=", "кол. >", "кол. <", "кол. >=", "кол. <=" }
+                    : new[] { "contains", "not contains", "count ==", "count !=", "count >", "count <", "count >=", "count <=" };
+                EConditionOperator[] opMap = {
+                    EConditionOperator.Contains, EConditionOperator.NotContains,
+                    EConditionOperator.Equal, EConditionOperator.NotEqual,
+                    EConditionOperator.Greater, EConditionOperator.Less,
+                    EConditionOperator.GreaterOrEqual, EConditionOperator.LessOrEqual
+                };
+                int idx = Array.IndexOf(opMap, cond.Operator);
+                if (idx == -1) idx = 0;
+                int newIdx = EditorGUILayout.Popup(idx, opNames, GUILayout.Width(opW + 30));
+                cond.Operator = opMap[newIdx];
+
+                // Под Contains/NotContains — текстовое поле (имя элемента).
+                // Под count comparisons — int.
+                if (cond.Operator == EConditionOperator.Contains || cond.Operator == EConditionOperator.NotContains)
+                {
+                    cond.ValueString = EditorGUILayout.TextField(cond.ValueString ?? "", GUILayout.Width(valW));
+                }
+                else
+                {
+                    cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(valW));
+                }
+            }
+        }
+
+        // Перегрузка для ChanceModifier (тот же UI, что у ChoiceCondition).
+        private void DrawConditionOperatorAndValue(string varName, ChanceModifier mod,
+                                                    float opW, float valW)
+        {
+            // Делегируем через временный ChoiceCondition? — нет, прямее повторить
+            // ту же логику; но чтобы не дублировать, маппим поля.
+            // ChanceModifier поля идентичны: Operator/Value/ValueBool/ValueString/ValueFloat.
+            EVarType type = GetVarType(varName);
+
+            if (type == EVarType.Integer)
+            {
+                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                mod.Operator = (EConditionOperator)EditorGUILayout.Popup((int)mod.Operator, opNames, GUILayout.Width(opW));
+                mod.Value = EditorGUILayout.IntField(mod.Value, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Float)
+            {
+                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
+                mod.Operator = (EConditionOperator)EditorGUILayout.Popup((int)mod.Operator, opNames, GUILayout.Width(opW));
+                mod.ValueFloat = EditorGUILayout.FloatField(mod.ValueFloat, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Boolean)
+            {
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, mod.Operator);
+                if (idx == -1) idx = 0;
+                mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+                mod.ValueBool = EditorGUILayout.Toggle(mod.ValueBool, GUILayout.Width(valW));
+            }
+            else if (type == EVarType.String)
+            {
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, mod.Operator);
+                if (idx == -1) idx = 0;
+                mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+                mod.ValueString = EditorGUILayout.TextField(mod.ValueString ?? "", GUILayout.Width(valW));
+            }
+            else if (type == EVarType.Choice)
+            {
+                string[] eqNames = { "==", "!=" };
+                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
+                int idx = Array.IndexOf(eqOps, mod.Operator);
+                if (idx == -1) idx = 0;
+                mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(opW))];
+
+                string[] choices = GetVarChoices(varName);
+                if (choices.Length == 0)
+                {
+                    GUILayout.Label(ToolLang.Get("(no values)", "(нет значений)"),
+                        EditorStyles.miniLabel, GUILayout.Width(valW));
+                }
+                else
+                {
+                    int sel = Array.IndexOf(choices, (mod.ValueString ?? "").Replace("/", "-"));
+                    if (sel < 0) sel = 0;
+                    int newSel = EditorGUILayout.Popup(sel, choices, GUILayout.Width(valW));
+                    if (newSel != sel) mod.ValueString = choices[newSel];
+                    else if (string.IsNullOrEmpty(mod.ValueString)) mod.ValueString = choices[0];
+                }
+            }
+            else if (type == EVarType.List)
+            {
+                string[] opNames = ToolLang.IsRU
+                    ? new[] { "содержит", "не содержит", "кол. ==", "кол. !=", "кол. >", "кол. <", "кол. >=", "кол. <=" }
+                    : new[] { "contains", "not contains", "count ==", "count !=", "count >", "count <", "count >=", "count <=" };
+                EConditionOperator[] opMap = {
+                    EConditionOperator.Contains, EConditionOperator.NotContains,
+                    EConditionOperator.Equal, EConditionOperator.NotEqual,
+                    EConditionOperator.Greater, EConditionOperator.Less,
+                    EConditionOperator.GreaterOrEqual, EConditionOperator.LessOrEqual
+                };
+                int idx = Array.IndexOf(opMap, mod.Operator);
+                if (idx == -1) idx = 0;
+                int newIdx = EditorGUILayout.Popup(idx, opNames, GUILayout.Width(opW + 30));
+                mod.Operator = opMap[newIdx];
+
+                if (mod.Operator == EConditionOperator.Contains || mod.Operator == EConditionOperator.NotContains)
+                {
+                    mod.ValueString = EditorGUILayout.TextField(mod.ValueString ?? "", GUILayout.Width(valW));
+                }
+                else
+                {
+                    mod.Value = EditorGUILayout.IntField(mod.Value, GUILayout.Width(valW));
+                }
+            }
         }
 
         private void DrawLine(Color color, int thickness = 1, int padding = 10)
@@ -770,9 +998,35 @@ namespace NovellaEngine.Editor
                     {
                         GUILayout.BeginHorizontal();
 
-                        int selectedIndex = Mathf.Max(0, sceneNames.IndexOf(endData.TargetSceneName));
-                        selectedIndex = EditorGUILayout.Popup(ToolLang.Get("Target Scene:", "Целевая сцена:"), selectedIndex, sceneNames.ToArray());
-                        endData.TargetSceneName = sceneNames[selectedIndex];
+                        // Если ранее выбранная сцена больше не в Build Settings —
+                        // НЕ перезаписываем её на первую молча. Показываем warning
+                        // с placeholder-вариантом «(missing: имя)» в начале списка,
+                        // чтобы юзер увидел проблему и решил сам.
+                        bool orphan = !string.IsNullOrEmpty(endData.TargetSceneName)
+                                       && !sceneNames.Contains(endData.TargetSceneName);
+                        List<string> dropdownNames = sceneNames;
+                        int selectedIndex = sceneNames.IndexOf(endData.TargetSceneName);
+                        if (orphan)
+                        {
+                            dropdownNames = new List<string>(sceneNames);
+                            dropdownNames.Insert(0, ToolLang.Get($"⚠ (missing: {endData.TargetSceneName})",
+                                                                $"⚠ (отсутствует: {endData.TargetSceneName})"));
+                            selectedIndex = 0;
+                        }
+                        else if (selectedIndex < 0) selectedIndex = 0;
+
+                        int newIndex = EditorGUILayout.Popup(ToolLang.Get("Target Scene:", "Целевая сцена:"),
+                                                             selectedIndex, dropdownNames.ToArray());
+                        // Записываем выбор только если юзер РЕАЛЬНО выбрал валидную
+                        // строку (т.е. не остался на orphan-плашке).
+                        if (orphan)
+                        {
+                            if (newIndex > 0) endData.TargetSceneName = sceneNames[newIndex - 1];
+                        }
+                        else
+                        {
+                            endData.TargetSceneName = sceneNames[newIndex];
+                        }
 
                         if (GUILayout.Button(new GUIContent("🛠", ToolLang.Get("Open Scene Manager", "Открыть Менеджер Сцен")), EditorStyles.miniButton, GUILayout.Width(30)))
                         {
@@ -785,6 +1039,14 @@ namespace NovellaEngine.Editor
                         }
 
                         GUILayout.EndHorizontal();
+
+                        if (orphan)
+                        {
+                            EditorGUILayout.HelpBox(ToolLang.Get(
+                                "The previously selected scene is no longer in Build Settings. The end node will fail at runtime — pick a valid scene above.",
+                                "Ранее выбранная сцена больше не в Build Settings. Нода End сломается в рантайме — выбери валидную сцену выше."),
+                                MessageType.Warning);
+                        }
                     }
                 }
 
@@ -974,8 +1236,18 @@ namespace NovellaEngine.Editor
                     if (type == EVarType.Integer)
                     {
                         string[] opNames = { ToolLang.Get("Set (=)", "Установить (=)"), ToolLang.Get("Add (+)", "Добавить (+)") };
-                        v.VarOperation = (EVarOperation)EditorGUILayout.Popup((int)v.VarOperation, opNames, GUILayout.Width(100));
+                        // Безопасный clamp на случай если Operation = ListAdd/Remove/Clear
+                        // от старого List-варианта переменной.
+                        int opIdx = (int)v.VarOperation; if (opIdx > 1) opIdx = 0;
+                        v.VarOperation = (EVarOperation)EditorGUILayout.Popup(opIdx, opNames, GUILayout.Width(100));
                         v.VarValue = EditorGUILayout.IntField(v.VarValue, GUILayout.ExpandWidth(true));
+                    }
+                    else if (type == EVarType.Float)
+                    {
+                        string[] opNames = { ToolLang.Get("Set (=)", "Установить (=)"), ToolLang.Get("Add (+)", "Добавить (+)") };
+                        int opIdx = (int)v.VarOperation; if (opIdx > 1) opIdx = 0;
+                        v.VarOperation = (EVarOperation)EditorGUILayout.Popup(opIdx, opNames, GUILayout.Width(100));
+                        v.VarFloat = EditorGUILayout.FloatField(v.VarFloat, GUILayout.ExpandWidth(true));
                     }
                     else if (type == EVarType.Boolean)
                     {
@@ -987,7 +1259,48 @@ namespace NovellaEngine.Editor
                     {
                         v.VarOperation = EVarOperation.Set;
                         GUILayout.Label(ToolLang.Get("Set to", "Задать как"), GUILayout.Width(80));
-                        v.VarString = EditorGUILayout.TextField(v.VarString, GUILayout.ExpandWidth(true));
+                        v.VarString = EditorGUILayout.TextField(v.VarString ?? "", GUILayout.ExpandWidth(true));
+                    }
+                    else if (type == EVarType.Choice)
+                    {
+                        v.VarOperation = EVarOperation.Set;
+                        GUILayout.Label(ToolLang.Get("Set to", "Задать как"), GUILayout.Width(80));
+                        string[] choices = GetVarChoices(v.VariableName);
+                        if (choices.Length == 0)
+                        {
+                            GUILayout.Label(ToolLang.Get("(no values defined)", "(значения не заданы)"),
+                                EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+                        }
+                        else
+                        {
+                            int sel = Array.IndexOf(choices, (v.VarString ?? "").Replace("/", "-"));
+                            if (sel < 0) sel = 0;
+                            int newSel = EditorGUILayout.Popup(sel, choices, GUILayout.ExpandWidth(true));
+                            if (newSel != sel) v.VarString = choices[newSel];
+                            else if (string.IsNullOrEmpty(v.VarString)) v.VarString = choices[0];
+                        }
+                    }
+                    else if (type == EVarType.List)
+                    {
+                        // Список операций: Add item / Remove item / Clear all.
+                        string[] opNames = ToolLang.IsRU
+                            ? new[] { "Добавить", "Убрать", "Очистить" }
+                            : new[] { "Add item", "Remove item", "Clear all" };
+                        EVarOperation[] opMap = { EVarOperation.ListAdd, EVarOperation.ListRemove, EVarOperation.ListClear };
+                        int idx = Array.IndexOf(opMap, v.VarOperation);
+                        if (idx == -1) idx = 0;
+                        int newIdx = EditorGUILayout.Popup(idx, opNames, GUILayout.Width(100));
+                        v.VarOperation = opMap[newIdx];
+
+                        if (v.VarOperation != EVarOperation.ListClear)
+                        {
+                            v.VarString = EditorGUILayout.TextField(v.VarString ?? "", GUILayout.ExpandWidth(true));
+                        }
+                        else
+                        {
+                            GUILayout.Label(ToolLang.Get("(removes all items)", "(удалит все элементы)"),
+                                EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+                        }
                     }
                     GUILayout.EndHorizontal();
 
@@ -1028,31 +1341,7 @@ namespace NovellaEngine.Editor
                     cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
 
                     EVarType type = GetVarType(cond.Variable);
-
-                    if (type == EVarType.Integer)
-                    {
-                        string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
-                        cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
-                        cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
-                    }
-                    else if (type == EVarType.Boolean)
-                    {
-                        string[] eqNames = { "==", "!=" };
-                        EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                        int idx = Array.IndexOf(eqOps, cond.Operator);
-                        if (idx == -1) idx = 0;
-                        cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
-                        cond.ValueBool = EditorGUILayout.Toggle(cond.ValueBool, GUILayout.Width(50));
-                    }
-                    else if (type == EVarType.String)
-                    {
-                        string[] eqNames = { "==", "!=" };
-                        EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                        int idx = Array.IndexOf(eqOps, cond.Operator);
-                        if (idx == -1) idx = 0;
-                        cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
-                        cond.ValueString = EditorGUILayout.TextField(cond.ValueString, GUILayout.Width(80));
-                    }
+                    DrawConditionOperatorAndValue(cond.Variable, cond, opW: 50, valW: 80);
 
                     bool canDeleteCond = condData.Conditions.Count > 1;
                     EditorGUI.BeginDisabledGroup(!canDeleteCond);
@@ -1129,31 +1418,7 @@ namespace NovellaEngine.Editor
                         mod.Variable = DrawVariableDropdown(mod.Variable, GUILayout.ExpandWidth(true), GUILayout.MinWidth(80));
 
                         EVarType type = GetVarType(mod.Variable);
-
-                        if (type == EVarType.Integer)
-                        {
-                            string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
-                            mod.Operator = (EConditionOperator)EditorGUILayout.Popup((int)mod.Operator, opNames, GUILayout.Width(45));
-                            mod.Value = EditorGUILayout.IntField(mod.Value, GUILayout.Width(35));
-                        }
-                        else if (type == EVarType.Boolean)
-                        {
-                            string[] eqNames = { "==", "!=" };
-                            EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                            int idx = Array.IndexOf(eqOps, mod.Operator);
-                            if (idx == -1) idx = 0;
-                            mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(45))];
-                            mod.ValueBool = EditorGUILayout.Toggle(mod.ValueBool, GUILayout.Width(35));
-                        }
-                        else if (type == EVarType.String)
-                        {
-                            string[] eqNames = { "==", "!=" };
-                            EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                            int idx = Array.IndexOf(eqOps, mod.Operator);
-                            if (idx == -1) idx = 0;
-                            mod.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(45))];
-                            mod.ValueString = EditorGUILayout.TextField(mod.ValueString, GUILayout.Width(50));
-                        }
+                        DrawConditionOperatorAndValue(mod.Variable, mod, opW: 45, valW: 50);
 
                         GUILayout.Label("➔", new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter }, GUILayout.Width(20));
                         GUILayout.Label("+", new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleRight }, GUILayout.Width(12));
@@ -1260,31 +1525,7 @@ namespace NovellaEngine.Editor
                             cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
 
                             EVarType type = GetVarType(cond.Variable);
-
-                            if (type == EVarType.Integer)
-                            {
-                                string[] opNames = { "==", "!=", ">", "<", ">=", "<=" };
-                                cond.Operator = (EConditionOperator)EditorGUILayout.Popup((int)cond.Operator, opNames, GUILayout.Width(50));
-                                cond.Value = EditorGUILayout.IntField(cond.Value, GUILayout.Width(50));
-                            }
-                            else if (type == EVarType.Boolean)
-                            {
-                                string[] eqNames = { "==", "!=" };
-                                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                                int idx = Array.IndexOf(eqOps, cond.Operator);
-                                if (idx == -1) idx = 0;
-                                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
-                                cond.ValueBool = EditorGUILayout.Toggle(cond.ValueBool, GUILayout.Width(50));
-                            }
-                            else if (type == EVarType.String)
-                            {
-                                string[] eqNames = { "==", "!=" };
-                                EConditionOperator[] eqOps = { EConditionOperator.Equal, EConditionOperator.NotEqual };
-                                int idx = Array.IndexOf(eqOps, cond.Operator);
-                                if (idx == -1) idx = 0;
-                                cond.Operator = eqOps[EditorGUILayout.Popup(idx, eqNames, GUILayout.Width(50))];
-                                cond.ValueString = EditorGUILayout.TextField(cond.ValueString, GUILayout.Width(80));
-                            }
+                            DrawConditionOperatorAndValue(cond.Variable, cond, opW: 50, valW: 80);
 
                             GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
                             if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { Undo.RecordObject(_currentTree, "Remove Condition"); choice.Conditions.RemoveAt(c); GUI.backgroundColor = Color.white; break; }
@@ -1999,10 +2240,34 @@ namespace NovellaEngine.Editor
             if (nodeData.NodeType == ENodeType.CustomDLC)
             {
                 string dlcName = "DLC Module";
+                string dlcDesc = "";
                 var attr = DLCCache.GetNodeAttribute(nodeData.GetType());
-                if (attr != null) dlcName = attr.MenuName;
+                if (attr != null)
+                {
+                    dlcName = attr.MenuName;
+                    dlcDesc = attr.Description ?? "";
+                }
 
                 DrawSectionHeader("🧩", dlcName);
+
+                // ─── Описание DLC-ноды от автора модуля ───
+                // Если DLC-разработчик прописал [NovellaDLCNode(Description="...")]
+                // в коде — показываем как вступительную плашку с акцентом.
+                // Раньше юзер видел голые поля без объяснения что это вообще за нода.
+                if (!string.IsNullOrEmpty(dlcDesc))
+                {
+                    EditorGUILayout.HelpBox(dlcDesc, MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "This is a DLC node — its fields come from a third-party module. " +
+                        "Hover over each field name to see its description (if the DLC author provided one).",
+                        "Это DLC-нода — её поля приходят из стороннего модуля. " +
+                        "Наведи мышь на название поля чтобы увидеть подсказку (если автор DLC её написал)."),
+                        MessageType.None);
+                }
+
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
                 EditorGUI.BeginChangeCheck();
@@ -2016,6 +2281,7 @@ namespace NovellaEngine.Editor
                     SerializedProperty endProperty = iterator.GetEndProperty();
 
                     bool enterChildren = true;
+                    int fieldCount = 0;
                     while (iterator.NextVisible(enterChildren))
                     {
                         enterChildren = false;
@@ -2025,7 +2291,31 @@ namespace NovellaEngine.Editor
                             iterator.name == "GraphPosition" || iterator.name == "NodeCustomColor" ||
                             iterator.name == "IsPinned") continue;
 
+                        // PropertyField сам берёт displayName (auto-nicified) и [Tooltip]-атрибут
+                        // от поля — даёт hover-подсказки если DLC-автор их прописал.
+                        // Дополнительно подсвечиваем NextNodeID-подобные поля как «выходной порт».
+                        bool isPortLike = iterator.name == "NextNodeID" ||
+                                          (iterator.name.Length > 6 && iterator.name.EndsWith("NodeID"));
+                        if (isPortLike)
+                        {
+                            // Output-порты: отдельная плашка с pin-иконкой, чтобы юзер
+                            // понимал «это куда пойдёт сюжет» а не «настройка внутри ноды».
+                            var portSt = new GUIStyle(EditorStyles.miniBoldLabel) {
+                                fontSize = 10,
+                                normal = { textColor = new Color(0.36f, 0.75f, 0.92f) }
+                            };
+                            GUILayout.Label("🔗 " + ToolLang.Get("Output port", "Выходной порт"), portSt);
+                        }
                         EditorGUILayout.PropertyField(iterator, true);
+                        fieldCount++;
+                    }
+
+                    if (fieldCount == 0)
+                    {
+                        EditorGUILayout.LabelField(ToolLang.Get(
+                            "(this DLC node has no editable fields)",
+                            "(у этой DLC-ноды нет редактируемых полей)"),
+                            EditorStyles.centeredGreyMiniLabel);
                     }
                 }
 

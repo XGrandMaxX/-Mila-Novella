@@ -116,7 +116,7 @@ namespace NovellaEngine.Editor.Tutorials
             for (int i = 0; i < _stepsProp.arraySize; i++)
             {
                 var stepProp = _stepsProp.GetArrayElementAtIndex(i);
-                DrawStepCard(stepProp, i, ref toRemove, ref swapA, ref swapB);
+                DrawStepCard(asset, stepProp, i, ref toRemove, ref swapA, ref swapB);
             }
 
             if (toRemove >= 0)
@@ -134,7 +134,7 @@ namespace NovellaEngine.Editor.Tutorials
             }
         }
 
-        private void DrawStepCard(SerializedProperty stepProp, int idx, ref int toRemove, ref int swapA, ref int swapB)
+        private void DrawStepCard(NovellaTutorialAsset asset, SerializedProperty stepProp, int idx, ref int toRemove, ref int swapA, ref int swapB)
         {
             var titleENp = stepProp.FindPropertyRelative("TitleEN");
             var titleRUp = stepProp.FindPropertyRelative("TitleRU");
@@ -230,6 +230,39 @@ namespace NovellaEngine.Editor.Tutorials
                             "Percent mode (0..1): values scale with window size. Recommended over absolute pixels.",
                             "Процентный режим (0..1): значения адаптируются к размеру окна. Рекомендуется вместо пикселей."), MessageType.Info);
                     }
+
+                    // ─── Визуальные инструменты для ManualRect ───
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.BeginHorizontal();
+
+                    // 🎯 Pick on screen — открывает picker-overlay над host-окном.
+                    GUI.backgroundColor = new Color(0.36f, 0.75f, 0.92f);
+                    if (GUILayout.Button("🎯 " + ToolLang.Get("Pick on screen", "Выбрать на экране"),
+                        GUILayout.Height(26)))
+                    {
+                        // Сначала сохраним текущие изменения (на случай если юзер поменял
+                        // host-окно/режим — picker должен видеть актуальные данные).
+                        serializedObject.ApplyModifiedProperties();
+                        NovellaTutorialRectPickerWindow.Open(asset, idx);
+                    }
+
+                    // ▶ Test this step — запускает туториал с этого шага только.
+                    GUI.backgroundColor = new Color(0.30f, 0.85f, 0.45f);
+                    if (GUILayout.Button("▶ " + ToolLang.Get("Test this step", "Тест этого шага"),
+                        GUILayout.Height(26), GUILayout.Width(140)))
+                    {
+                        serializedObject.ApplyModifiedProperties();
+                        NovellaTutorialManagerV2.StartTutorialAtStep(asset, idx);
+                    }
+                    GUI.backgroundColor = Color.white;
+                    EditorGUILayout.EndHorizontal();
+
+                    EditorGUILayout.HelpBox(ToolLang.Get(
+                        "🎯 Pick — drag a rectangle visually over the host window (saves as percent).\n" +
+                        "▶ Test — preview only this step in the host without playing the whole tutorial.",
+                        "🎯 Picker — нарисуй rect мышкой прямо над host-окном (сохранит как percent).\n" +
+                        "▶ Test — превью только этого шага, без прогона всего туториала."),
+                        MessageType.None);
                 }
 
                 if (mode != ETutorialTargetMode.None && mode != ETutorialTargetMode.WholeWindow)

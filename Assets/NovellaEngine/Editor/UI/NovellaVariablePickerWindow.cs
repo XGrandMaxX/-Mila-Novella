@@ -128,8 +128,11 @@ namespace NovellaEngine.Editor.UIBindings
             else
             {
                 if (byType.TryGetValue(EVarType.Integer, out var ints) && ints.Count > 0) DrawGroup("ЧИСЛОВЫЕ (Integer)", "🔢", ints);
+                if (byType.TryGetValue(EVarType.Float, out var flts) && flts.Count > 0) DrawGroup("ДРОБНЫЕ (Float)", "≈", flts);
                 if (byType.TryGetValue(EVarType.Boolean, out var bools) && bools.Count > 0) DrawGroup("ЛОГИЧЕСКИЕ (Boolean)", "🔘", bools);
                 if (byType.TryGetValue(EVarType.String, out var strs) && strs.Count > 0) DrawGroup("СТРОКОВЫЕ (String)", "🔤", strs);
+                if (byType.TryGetValue(EVarType.Choice, out var chs) && chs.Count > 0) DrawGroup("ИЗ СПИСКА (Choice)", "🎯", chs);
+                if (byType.TryGetValue(EVarType.List, out var lsts) && lsts.Count > 0) DrawGroup("СПИСКИ (List)", "📋", lsts);
             }
 
             GUILayout.Space(8);
@@ -208,6 +211,10 @@ namespace NovellaEngine.Editor.UIBindings
                     EVarType.Integer => "по умолчанию: " + v.DefaultInt,
                     EVarType.Boolean => "по умолчанию: " + (v.DefaultBool ? "true" : "false"),
                     EVarType.String  => "по умолчанию: \"" + (v.DefaultString ?? "") + "\"",
+                    EVarType.Float   => "по умолчанию: " + v.DefaultFloat.ToString("0.##"),
+                    EVarType.Choice  => "по умолчанию: " + (v.DefaultChoice ?? "")
+                                        + "  (" + (v.Choices?.Count ?? 0) + " вариантов)",
+                    EVarType.List    => "стартовый список: " + (v.DefaultList?.Count ?? 0) + " элем.",
                     _ => "",
                 };
                 GUI.Label(new Rect(row.x + 44, row.y + 26, row.width - 90, row.height - 26), desc + "  ·  " + defaultVal, descSt);

@@ -1,0 +1,123 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7fd50bdf9114ce4498a7f22f486539a, type: 3}
+  m_Name: Chapter_1_03713
+  m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaTree
+  RootNodeID: Dialogue_c33c8
+  StartPosition: {x: 50, y: 200}
+  EnableAutoSave: 0
+  AutoSaveInterval: 30
+  Nodes:
+  - rid: 7628001749345239105
+  - rid: 7628001749345239106
+  Groups: []
+  references:
+    version: 2
+    RefIds:
+    - rid: 7628001749345239105
+      type: {class: DialogueNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Dialogue_c33c8
+        NodeTitle: Dialogue 1
+        GraphPosition: {x: 271, y: 176}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        ActiveCharacters: []
+        DialogueLines:
+        - Speaker: {fileID: 0}
+          Mood: Default
+          HideSpeakerName: 0
+          CustomName: 
+          CustomNameColor: {r: 0.8, g: 0.8, b: 0.8, a: 1}
+          HideSpeakerSprite: 0
+          CustomizeSpeakerLayout: 0
+          FlipX: 0
+          FlipY: 0
+          SpeakerPositionPreset: 0
+          SpeakerPosX: 0
+          SpeakerPosY: 0
+          SpeakerScale: 1
+          SpeakerPlane: 20
+          OverrideDialogueFrame: {fileID: 0}
+          DelayBefore: 0
+          FontSize: 32
+          LocalizedPhrase:
+            Translations: []
+          UseTypewriter: 1
+          BaseSpeed: 40
+          UseCustomPacing: 0
+          PacingCurve:
+            serializedVersion: 2
+            m_Curve:
+            - serializedVersion: 3
+              time: 0
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            - serializedVersion: 3
+              time: 1
+              value: 1
+              inSlope: 0
+              outSlope: 0
+              tangentMode: 0
+              weightedMode: 0
+              inWeight: 0
+              outWeight: 0
+            m_PreInfinity: 2
+            m_PostInfinity: 2
+            m_RotationOrder: 4
+          CustomizeFrameLayout: 0
+          FramePositionPreset: 0
+          FramePosX: 0
+          FramePosY: 0
+          FrameScale: 1
+          UITextTargetId: 
+          UISpeakerTargetId: 
+        UnlockDialogueLimit: 0
+        NextNodeID: 
+        AudioSyncNodeID: Audio_1d008
+        AnimSyncNodeID: 
+        SceneSyncNodeID: 
+        FontSize: 32
+    - rid: 7628001749345239106
+      type: {class: AudioNodeData, ns: NovellaEngine.Data, asm: Assembly-CSharp}
+      data:
+        NodeID: Audio_1d008
+        NodeTitle: Audio 1
+        GraphPosition: {x: 531, y: 156}
+        NodeCustomColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
+        IsPinned: 0
+        AudioAsset: {fileID: 0}
+        AudioAction: 0
+        AudioChannel: 0
+        AudioVolume: 1
+        SyncWithDialogue: 1
+        AudioEvents:
+        - LineIndex: 0
+          TriggerType: 0
+          TimeDelay: 0
+          AudioAsset: {fileID: 0}
+          AudioAction: 0
+          AudioChannel: 1
+          Volume: 1
+        - LineIndex: -1
+          TriggerType: 3
+          TimeDelay: 0
+          AudioAsset: {fileID: 0}
+          AudioAction: 0
+          AudioChannel: 1
+          Volume: 1
+        NextNodeID: 

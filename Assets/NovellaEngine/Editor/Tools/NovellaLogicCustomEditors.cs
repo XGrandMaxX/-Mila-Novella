@@ -52,6 +52,21 @@ namespace NovellaEngine.Editor
                 LabelEN = "Continue (last save)", LabelRU = "Продолжить (последний сейв)",
                 HintEN = "Loads the last auto-save of the most recently played story.",
                 HintRU = "Грузит автосейв последней проигранной истории." },
+            new ActionMeta { Action = NovellaUIBinding.BindingAction.SaveGameSlot,
+                Category = ActionCategory.Game, Icon = "💾",
+                LabelEN = "Save to slot", LabelRU = "Сохранить в слот",
+                HintEN = "Saves current state to a named slot (1..N). Slot 0 = auto-save. Use with NovellaSaveSlotsUI for a slot-list UI.",
+                HintRU = "Сохраняет состояние в именованный слот (1..N). Слот 0 = автосейв. Работает в паре с NovellaSaveSlotsUI для UI выбора слотов." },
+            new ActionMeta { Action = NovellaUIBinding.BindingAction.LoadGameSlot,
+                Category = ActionCategory.Game, Icon = "📂",
+                LabelEN = "Load from slot", LabelRU = "Загрузить из слота",
+                HintEN = "Loads game state from a named slot. If slot is empty — logs a warning and does nothing.",
+                HintRU = "Загружает состояние из именованного слота. Если пусто — предупреждение в консоль и ничего не делает." },
+            new ActionMeta { Action = NovellaUIBinding.BindingAction.ReturnToMainMenu,
+                Category = ActionCategory.Game, Icon = "🏠",
+                LabelEN = "Return to main menu", LabelRU = "Вернуться в главное меню",
+                HintEN = "Loads the menu scene by name (or first scene in Build Settings if name is empty). Time.timeScale is restored to 1.",
+                HintRU = "Грузит сцену меню по имени (или первую сцену из Build Settings если имя пустое). Time.timeScale возвращается в 1." },
             new ActionMeta { Action = NovellaUIBinding.BindingAction.RestartChapter,
                 Category = ActionCategory.Game, Icon = "🔁",
                 LabelEN = "Restart chapter", LabelRU = "Перезапустить главу",
@@ -174,80 +189,116 @@ namespace NovellaEngine.Editor
 
             if (showHints)
             {
-                var introSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
-                introSt.normal.textColor = NovellaSettingsModule.GetTextSecondary();
-                GUILayout.Label(ToolLang.Get(
-                    "Each step runs top-to-bottom when this button is clicked. Steps after a terminal action (Quit / Start / etc) won't run.",
-                    "Каждый шаг выполняется сверху вниз когда нажимают эту кнопку. Шаги после терминального действия (Выход / Старт / и т.п.) не выполнятся."), introSt);
+                // Intro как карточка с булитами вместо одного слипшегося абзаца —
+                // юзер за секунду видит 3 главных правила.
+                var bulletSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 10, wordWrap = true,
+                    normal = { textColor = NovellaSettingsModule.GetTextSecondary() },
+                    padding = new RectOffset(10, 8, 4, 4)
+                };
+                string[] bullets = new[]
+                {
+                    ToolLang.Get(
+                        "▸ Steps run top-to-bottom when the button is clicked.",
+                        "▸ Шаги выполняются сверху вниз при нажатии на кнопку."),
+                    ToolLang.Get(
+                        "▸ Each step can have a delay (⏱) before it runs — useful for SFX → scene swap.",
+                        "▸ У каждого шага можно задать задержку (⏱) перед запуском — удобно для SFX → смена сцены."),
+                    ToolLang.Get(
+                        "▸ After a terminal action (Quit / Start game / Return to menu) — steps below WON'T run.",
+                        "▸ После терминального действия (Выход / Старт / Назад в меню) — шаги ниже НЕ выполнятся."),
+                };
+
+                Color acc = NovellaSettingsModule.GetAccentColor();
+                foreach (var line in bullets)
+                {
+                    Rect lr = GUILayoutUtility.GetRect(new GUIContent(line), bulletSt);
+                    EditorGUI.DrawRect(lr, new Color(acc.r, acc.g, acc.b, 0.05f));
+                    EditorGUI.DrawRect(new Rect(lr.x, lr.y, 2, lr.height), new Color(acc.r, acc.g, acc.b, 0.7f));
+                    GUI.Label(lr, line, bulletSt);
+                    GUILayout.Space(2);
+                }
             }
             GUILayout.Space(8);
 
-            // ─── Имя binding'а (для адресации) ─────────────────────────────
-            GUILayout.Label(ToolLang.Get("Display name", "Имя для пикера"), EditorStyles.miniBoldLabel);
-            string newName = EditorGUILayout.TextField(binding.Name);
-            if (newName != binding.Name) { Undo.RecordObject(binding, "Rename binding"); binding.Name = newName; EditorUtility.SetDirty(binding); }
-            if (showHints)
-                DrawHint(ToolLang.Get(
+            // ─── Hub-card field: имя binding'а ──────────────────────────────
+            // Раньше тут был голый TextField с лейблом сверху — выглядело как
+            // дефолтный Unity-инспектор. Сейчас — Hub-card с иконкой, тёмной
+            // подложкой поля и слотом для кнопки-пикера справа.
+            DrawHubField(
+                icon: "🏷",
+                label: ToolLang.Get("Display name", "Имя для пикера"),
+                hint: ToolLang.Get(
                     "Friendly name shown in graph node pickers and the Bindings overview. Doesn't affect the game — only how YOU find this element later.",
-                    "Дружелюбное имя — видно везде где этот элемент выбирается из ноды графа или таблицы Связей. На игру не влияет, нужно только тебе чтобы потом узнавать этот элемент в списке."));
-
-            // ─── Localization key ──────────────────────────────────────────
-            GUILayout.Space(8);
-            GUILayout.Label(ToolLang.Get("Localization key (optional)", "Ключ локализации (опц.)"), EditorStyles.miniBoldLabel);
-            GUILayout.BeginHorizontal();
-            string newKey = EditorGUILayout.TextField(binding.LocalizationKey ?? "");
-            if (newKey != binding.LocalizationKey)
-            {
-                Undo.RecordObject(binding, "Edit loc key");
-                binding.LocalizationKey = newKey;
-                EditorUtility.SetDirty(binding);
-                binding.Refresh();
-            }
-            if (GUILayout.Button("📂", GUILayout.Width(28), GUILayout.Height(18)))
-            {
-                var capBinding = binding;
-                NovellaLocKeyPickerWindow.Open(binding.LocalizationKey, picked =>
-                {
-                    Undo.RecordObject(capBinding, "Pick loc key");
-                    capBinding.LocalizationKey = picked;
-                    EditorUtility.SetDirty(capBinding);
-                    capBinding.Refresh();
+                    "Дружелюбное имя — видно везде где этот элемент выбирается из ноды графа или таблицы Связей. На игру не влияет, нужно только тебе чтобы потом узнавать этот элемент в списке."),
+                showHints: showHints,
+                value: binding.Name ?? "",
+                placeholder: ToolLang.Get("e.g. \"Save Button\"", "напр. «Кнопка сохранения»"),
+                pickerIcon: null,
+                onPickerClick: null,
+                onValueChanged: v => {
+                    if (v != binding.Name) { Undo.RecordObject(binding, "Rename binding"); binding.Name = v; EditorUtility.SetDirty(binding); }
                 });
-            }
-            GUILayout.EndHorizontal();
-            if (showHints)
-                DrawHint(ToolLang.Get(
+
+            GUILayout.Space(6);
+
+            DrawHubField(
+                icon: "🌐",
+                label: ToolLang.Get("Localization key (optional)", "Ключ локализации (опц.)"),
+                hint: ToolLang.Get(
                     "Connects this text to the Localization Table. When the player switches language, the text auto-updates. Leave empty if no translation is needed.",
-                    "Связывает этот текст с таблицей локализации. При смене языка игроком текст обновится сам. Оставь пустым если переводить не нужно."));
-
-            // ─── Bound variable ────────────────────────────────────────────
-            GUILayout.Space(8);
-            GUILayout.Label(ToolLang.Get("Variable (substitutes {var})", "Переменная (вместо {var})"), EditorStyles.miniBoldLabel);
-            GUILayout.BeginHorizontal();
-            string newVar = EditorGUILayout.TextField(binding.BoundVariable ?? "");
-            if (newVar != binding.BoundVariable)
-            {
-                Undo.RecordObject(binding, "Edit bound var");
-                binding.BoundVariable = newVar;
-                EditorUtility.SetDirty(binding);
-                binding.Refresh();
-            }
-            if (GUILayout.Button("📂", GUILayout.Width(28), GUILayout.Height(18)))
-            {
-                var capBinding = binding;
-                NovellaVariablePickerWindow.Open(binding.BoundVariable, picked =>
-                {
-                    Undo.RecordObject(capBinding, "Pick variable");
-                    capBinding.BoundVariable = picked;
-                    EditorUtility.SetDirty(capBinding);
-                    capBinding.Refresh();
+                    "Связывает этот текст с таблицей локализации. При смене языка игроком текст обновится сам. Оставь пустым если переводить не нужно."),
+                showHints: showHints,
+                value: binding.LocalizationKey ?? "",
+                placeholder: ToolLang.Get("e.g. \"menu.start\"", "напр. «menu.start»"),
+                pickerIcon: "📂",
+                onPickerClick: () => {
+                    var capBinding = binding;
+                    NovellaLocKeyPickerWindow.Open(binding.LocalizationKey, picked => {
+                        Undo.RecordObject(capBinding, "Pick loc key");
+                        capBinding.LocalizationKey = picked;
+                        EditorUtility.SetDirty(capBinding);
+                        capBinding.Refresh();
+                    });
+                },
+                onValueChanged: v => {
+                    if (v != binding.LocalizationKey) {
+                        Undo.RecordObject(binding, "Edit loc key");
+                        binding.LocalizationKey = v;
+                        EditorUtility.SetDirty(binding);
+                        binding.Refresh();
+                    }
                 });
-            }
-            GUILayout.EndHorizontal();
-            if (showHints)
-                DrawHint(ToolLang.Get(
-                    "Inserts a variable's value into the text. Write \"{var}\" inside the localized string and pick a variable here — at runtime \"{var}\" gets replaced. Example: \"HP: {var}\" + \"PlayerHP\" → \"HP: 42\".",
-                    "Подставляет значение переменной в текст. Вставь «{var}» внутрь локализованной строки и выбери переменную здесь — в рантайме «{var}» заменится. Пример: «HP: {var}» + «PlayerHP» → «HP: 42»."));
+
+            GUILayout.Space(6);
+
+            DrawHubField(
+                icon: "📊",
+                label: ToolLang.Get("Variable (replaces {var} in text)", "Переменная (вместо {var} в тексте)"),
+                hint: ToolLang.Get(
+                    "Substitutes a NovellaVariables value into the {var} placeholder of the localized text.\nExample: text \"HP: {var}\" + variable PlayerHP → \"HP: 42\".",
+                    "Подставляет значение NovellaVariables вместо плейсхолдера {var} в локализованном тексте.\nПример: текст «HP: {var}» + переменная PlayerHP → «HP: 42»."),
+                showHints: showHints,
+                value: binding.BoundVariable ?? "",
+                placeholder: ToolLang.Get("e.g. \"PlayerHP\"", "напр. «PlayerHP»"),
+                pickerIcon: "📂",
+                onPickerClick: () => {
+                    var capBinding = binding;
+                    NovellaVariablePickerWindow.Open(binding.BoundVariable, picked => {
+                        Undo.RecordObject(capBinding, "Pick variable");
+                        capBinding.BoundVariable = picked;
+                        EditorUtility.SetDirty(capBinding);
+                        capBinding.Refresh();
+                    });
+                },
+                onValueChanged: v => {
+                    if (v != binding.BoundVariable) {
+                        Undo.RecordObject(binding, "Edit bound var");
+                        binding.BoundVariable = v;
+                        EditorUtility.SetDirty(binding);
+                        binding.Refresh();
+                    }
+                });
 
             GUILayout.Space(12);
 
@@ -305,6 +356,45 @@ namespace NovellaEngine.Editor
                     binding.ClickSequence.RemoveAt(moveDown);
                     binding.ClickSequence.Insert(moveDown + 1, s);
                     EditorUtility.SetDirty(binding);
+                }
+
+                // ─── Проверка «Pause без Resume» ────────────────────────────
+                // Pause без парного Resume замораживает игру навсегда. Резумы могут
+                // быть на ДРУГОЙ кнопке (типичный паттерн: «Пауза» открывает панель,
+                // «Продолжить» внутри панели делает Resume), поэтому ищем по ВСЕЙ сцене.
+                bool hasPauseHere = false;
+                for (int i = 0; i < binding.ClickSequence.Count; i++)
+                    if (binding.ClickSequence[i].Action == NovellaUIBinding.BindingAction.PauseGame) { hasPauseHere = true; break; }
+                if (hasPauseHere)
+                {
+                    bool sceneHasResume = false;
+                    // Используем кешированный массив (см. GetBindingsCached) —
+                    // FindObjectsByType слишком дорогой на каждый OnGUI кадр.
+                    var allBindings = GetBindingsCached();
+                    for (int b = 0; b < allBindings.Length && !sceneHasResume; b++)
+                    {
+                        var bb = allBindings[b];
+                        if (bb == null || bb.ClickSequence == null) continue;
+                        for (int s = 0; s < bb.ClickSequence.Count; s++)
+                            if (bb.ClickSequence[s].Action == NovellaUIBinding.BindingAction.ResumeGame) { sceneHasResume = true; break; }
+                    }
+                    if (!sceneHasResume)
+                    {
+                        GUILayout.Space(8);
+                        Rect warnRect = GUILayoutUtility.GetRect(0, 32, GUILayout.ExpandWidth(true));
+                        EditorGUI.DrawRect(warnRect, new Color(0.42f, 0.30f, 0.10f, 0.30f));
+                        EditorGUI.DrawRect(new Rect(warnRect.x, warnRect.y, 3, warnRect.height),
+                            new Color(0.95f, 0.78f, 0.30f, 1f));
+                        var ws = new GUIStyle(EditorStyles.label) {
+                            fontSize = 11, fontStyle = FontStyle.Bold, wordWrap = true,
+                            alignment = TextAnchor.MiddleLeft,
+                            normal = { textColor = new Color(0.95f, 0.78f, 0.30f, 1f) },
+                            padding = new RectOffset(11, 8, 0, 0)
+                        };
+                        GUI.Label(warnRect, ToolLang.Get(
+                            "⚠ This sequence pauses the game but no other binding in the scene has a Resume action — game will freeze forever.",
+                            "⚠ Эта последовательность ставит паузу, но нигде в сцене нет Resume — игра застрянет навсегда."), ws);
+                    }
                 }
 
                 GUILayout.Space(6);
@@ -448,20 +538,43 @@ namespace NovellaEngine.Editor
 
                 case NovellaUIBinding.BindingAction.StartNewGame:
                 {
+                    // NovellaStoryPickerPopup ищет истории через AssetDatabase.FindAssets
+                    // ("t:NovellaStory") — находит ассеты ВЕЗДЕ в проекте, включая
+                    // Resources/Stories. Старый вариант (Gallery + EGalleryFilter.Story)
+                    // открывал галерею в папке Assets/NovellaEngine, которая не
+                    // содержит истории — у юзера показывался пустой список.
                     GUILayout.BeginHorizontal();
                     GUILayout.Label(ToolLang.Get("Story:", "История:"), GUILayout.Width(150));
-                    string label = step.StoryToStart != null ? "📖 " + step.StoryToStart.name : ToolLang.Get("(any first available)", "(любая первая)");
-                    if (GUILayout.Button(label, EditorStyles.popup, GUILayout.Height(22)))
+                    string label = step.StoryToStart != null
+                        ? "📖 " + step.StoryToStart.name
+                        : ToolLang.Get("(any first available)", "(любая первая)");
+
+                    Rect btnRect = GUILayoutUtility.GetRect(new GUIContent(label), EditorStyles.popup, GUILayout.Height(22), GUILayout.ExpandWidth(true));
+                    if (GUI.Button(btnRect, label, EditorStyles.popup))
                     {
                         var captured = binding;
                         var capStep = step;
-                        NovellaGalleryWindow.ShowWindow(asset =>
+                        string activeGuid = "";
+                        if (capStep.StoryToStart != null)
                         {
-                            var s = asset as NovellaStory;
-                            Undo.RecordObject(captured, "Pick story");
-                            capStep.StoryToStart = s;
-                            EditorUtility.SetDirty(captured);
-                        }, NovellaGalleryWindow.EGalleryFilter.Story);
+                            activeGuid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(capStep.StoryToStart));
+                        }
+                        Vector2 popupPos = GUIUtility.GUIToScreenPoint(new Vector2(btnRect.x, btnRect.yMax + 2));
+                        NovellaStoryPickerPopup.Open(popupPos, activeGuid,
+                            pickedGuid =>
+                            {
+                                NovellaStory picked = null;
+                                if (!string.IsNullOrEmpty(pickedGuid))
+                                {
+                                    string p = AssetDatabase.GUIDToAssetPath(pickedGuid);
+                                    if (!string.IsNullOrEmpty(p))
+                                        picked = AssetDatabase.LoadAssetAtPath<NovellaStory>(p);
+                                }
+                                Undo.RecordObject(captured, "Pick story");
+                                capStep.StoryToStart = picked;
+                                EditorUtility.SetDirty(captured);
+                            },
+                            null /* onCreateNew — пока не нужен из этого контекста */);
                     }
                     if (step.StoryToStart != null && GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(22)))
                     {
@@ -481,18 +594,56 @@ namespace NovellaEngine.Editor
                 case NovellaUIBinding.BindingAction.HidePanel:
                 case NovellaUIBinding.BindingAction.TogglePanel:
                 {
+                    // Используем NovellaUIPickerWindow — визуальный выбор элемента
+                    // в сцене с превью и подсветкой (раньше тут был сухой GenericMenu
+                    // со списком ID-строк, в котором юзер не видел что выбирает).
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Target panel ID:", "ID целевой панели:"), GUILayout.Width(150));
-                    string current = string.IsNullOrEmpty(step.TargetBindingId) ? ToolLang.Get("(not set)", "(не задано)") : step.TargetBindingId;
+                    GUILayout.Label(ToolLang.Get("Target panel:", "Целевая панель:"), GUILayout.Width(150));
+                    string current = string.IsNullOrEmpty(step.TargetBindingId)
+                        ? ToolLang.Get("(pick a UI element)", "(выбрать элемент UI)")
+                        : "🎯 " + ResolveBindingDisplay(step.TargetBindingId);
                     if (GUILayout.Button(current, EditorStyles.popup, GUILayout.Height(22)))
                     {
-                        ShowAllBindingsMenu(binding, step);
+                        var capBinding = binding;
+                        var capStep = step;
+                        NovellaUIPickerWindow.Open(
+                            ToolLang.Get("Pick UI panel", "Выбор UI-панели"),
+                            UIBindingKind.Any,
+                            capStep.TargetBindingId,
+                            picked =>
+                            {
+                                Undo.RecordObject(capBinding, "Pick panel");
+                                capStep.TargetBindingId = picked;
+                                EditorUtility.SetDirty(capBinding);
+                            });
+                    }
+                    if (!string.IsNullOrEmpty(step.TargetBindingId) && GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(22)))
+                    {
+                        Undo.RecordObject(binding, "Clear panel");
+                        step.TargetBindingId = "";
+                        EditorUtility.SetDirty(binding);
                     }
                     GUILayout.EndHorizontal();
+
+                    // ─── Sanity-warning: HidePanel над уже-выключенным target'ом ───
+                    // Если кнопка прячет panel, которая И ТАК выключена в сцене —
+                    // действие бесполезно. Юзеру наверняка нужен ShowPanel.
+                    if (step.Action == NovellaUIBinding.BindingAction.HidePanel
+                        && !string.IsNullOrEmpty(step.TargetBindingId))
+                    {
+                        var targetBinding = NovellaUIBinding.Find(step.TargetBindingId);
+                        if (targetBinding != null && !targetBinding.gameObject.activeInHierarchy)
+                        {
+                            DrawWarn(ToolLang.Get(
+                                "⚠ This panel is already disabled in the scene — Hide does nothing here. Did you mean Show?",
+                                "⚠ Эта панель и так выключена в сцене — Hide здесь бесполезен. Может, имелось в виду Show?"));
+                        }
+                    }
+
                     if (showHints)
                         DrawHint(ToolLang.Get(
-                            "Pick another NovellaUIBinding in the scene by its ID. The action will activate / deactivate / toggle that target's GameObject.",
-                            "Выбери другой NovellaUIBinding в сцене по его ID. Действие включит / выключит / переключит GameObject цели."));
+                            "Opens the visual UI Picker — click an element on the live scene preview to bind it. The action will activate / deactivate / toggle that element.",
+                            "Открывает визуальный UI-пикер — кликни по элементу на превью сцены чтобы привязать его. Действие включит / выключит / переключит этот элемент."));
                     break;
                 }
 
@@ -525,8 +676,32 @@ namespace NovellaEngine.Editor
 
                 case NovellaUIBinding.BindingAction.SetVariable:
                 {
-                    string n = TextRow(ToolLang.Get("Variable name:", "Имя переменной:"), step.VariableName, false, null);
-                    if (n != step.VariableName) { Undo.RecordObject(binding, "Edit var"); step.VariableName = n; EditorUtility.SetDirty(binding); }
+                    // Variable picker (раньше тут был голый TextField — юзер
+                    // должен был помнить точное имя переменной, что приводило
+                    // к молча сломанной логике из-за опечаток).
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Variable:", "Переменная:"), GUILayout.Width(150));
+                    string varLabel = string.IsNullOrEmpty(step.VariableName)
+                        ? ToolLang.Get("(pick a variable)", "(выбери переменную)")
+                        : "📊 " + step.VariableName;
+                    if (GUILayout.Button(varLabel, EditorStyles.popup, GUILayout.Height(22)))
+                    {
+                        var captured = binding;
+                        var capStep = step;
+                        NovellaVariablePickerWindow.Open(capStep.VariableName, picked =>
+                        {
+                            Undo.RecordObject(captured, "Pick variable");
+                            capStep.VariableName = picked;
+                            EditorUtility.SetDirty(captured);
+                        });
+                    }
+                    if (!string.IsNullOrEmpty(step.VariableName) && GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(22)))
+                    {
+                        Undo.RecordObject(binding, "Clear variable");
+                        step.VariableName = "";
+                        EditorUtility.SetDirty(binding);
+                    }
+                    GUILayout.EndHorizontal();
 
                     GUILayout.BeginHorizontal();
                     GUILayout.Label(ToolLang.Get("Int value:", "Значение (число):"), GUILayout.Width(150));
@@ -610,6 +785,87 @@ namespace NovellaEngine.Editor
                     break;
                 }
 
+                // ─── Save slot actions ────────────────────────────────────────
+                case NovellaUIBinding.BindingAction.SaveGameSlot:
+                case NovellaUIBinding.BindingAction.LoadGameSlot:
+                {
+                    bool isSave = step.Action == NovellaUIBinding.BindingAction.SaveGameSlot;
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Slot:", "Слот:"), GUILayout.Width(150));
+                    string slotLabel = step.SaveSlotIndex == 0
+                        ? "⚡ " + ToolLang.Get("Auto", "Автосейв")
+                        : "💾 " + ToolLang.Get($"Slot {step.SaveSlotIndex}", $"Слот {step.SaveSlotIndex}");
+                    Rect slotBtn = GUILayoutUtility.GetRect(new GUIContent(slotLabel), EditorStyles.popup,
+                        GUILayout.Height(22), GUILayout.ExpandWidth(true));
+                    if (GUI.Button(slotBtn, slotLabel, EditorStyles.popup))
+                    {
+                        var capBinding = binding;
+                        var capStep = step;
+                        Vector2 popupPos = GUIUtility.GUIToScreenPoint(new Vector2(slotBtn.x, slotBtn.yMax + 2));
+                        NovellaSaveSlotPickerWindow.Open(popupPos,
+                            isSave ? NovellaSaveSlotPickerWindow.Mode.Save : NovellaSaveSlotPickerWindow.Mode.Load,
+                            capStep.SaveSlotIndex,
+                            picked =>
+                            {
+                                Undo.RecordObject(capBinding, "Pick slot");
+                                capStep.SaveSlotIndex = picked;
+                                EditorUtility.SetDirty(capBinding);
+                            });
+                    }
+                    GUILayout.EndHorizontal();
+                    if (showHints)
+                        DrawHint(ToolLang.Get(
+                            "Click to pick a slot — visual grid shows previews of existing saves.",
+                            "Клик — откроется сетка слотов с превью существующих сохранений."));
+                    break;
+                }
+
+                case NovellaUIBinding.BindingAction.ReturnToMainMenu:
+                {
+                    // Picker сцен из Build Settings — карточками с иконками,
+                    // build-индексами и status-плашками. Раньше был EditorGUILayout.Popup,
+                    // некрасивый и без контекста.
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(ToolLang.Get("Menu scene:", "Сцена меню:"), GUILayout.Width(150));
+                    // Лейбл кнопки — короткий чтобы не разваливал layout инспектора.
+                    // Раньше «Auto: первая Build-сцена» (28 символов) выезжал за поле.
+                    string sceneLabel;
+                    if (string.IsNullOrEmpty(step.MainMenuSceneName))
+                        sceneLabel = "✨ " + ToolLang.Get("Auto", "Авто");
+                    else
+                        sceneLabel = "🎬 " + (step.MainMenuSceneName.Length > 22
+                            ? step.MainMenuSceneName.Substring(0, 20) + "…"
+                            : step.MainMenuSceneName);
+                    var sceneBtnSt = new GUIStyle(EditorStyles.popup) {
+                        clipping = TextClipping.Clip
+                    };
+                    Rect btnRect = GUILayoutUtility.GetRect(new GUIContent(sceneLabel,
+                            string.IsNullOrEmpty(step.MainMenuSceneName)
+                                ? ToolLang.Get("Auto: loads the first scene from Build Settings.",
+                                               "Авто: грузит первую сцену из Build Settings.")
+                                : step.MainMenuSceneName),
+                        sceneBtnSt, GUILayout.Height(22), GUILayout.ExpandWidth(true));
+                    if (GUI.Button(btnRect, sceneLabel, sceneBtnSt))
+                    {
+                        var capBinding = binding;
+                        var capStep = step;
+                        Vector2 popupPos = GUIUtility.GUIToScreenPoint(new Vector2(btnRect.x, btnRect.yMax + 2));
+                        NovellaScenePickerPopup.Open(popupPos, capStep.MainMenuSceneName,
+                            picked =>
+                            {
+                                Undo.RecordObject(capBinding, "Edit menu scene");
+                                capStep.MainMenuSceneName = picked ?? "";
+                                EditorUtility.SetDirty(capBinding);
+                            });
+                    }
+                    GUILayout.EndHorizontal();
+                    if (showHints)
+                        DrawHint(ToolLang.Get(
+                            "Click to pick a scene from Build Settings — visual cards with build indices.",
+                            "Клик — откроется визуальный выбор сцены из Build Settings с карточками."));
+                    break;
+                }
+
                 // Действия без параметров (LoadLastSave, RestartChapter, QuitGame, PauseGame, ResumeGame, None).
                 default: break;
             }
@@ -662,6 +918,224 @@ namespace NovellaEngine.Editor
             return n;
         }
 
+        /// <summary>
+        /// Hub-style карточка для одного поля ввода: иконка-чип + лейбл + тёмная
+        /// подложка под TextField + опциональная кнопка-пикер справа + опциональный hint.
+        /// Поддерживает: focus-highlight (cyan border при фокусе), filled-state-glow
+        /// (тонкая cyan-полоса слева когда поле заполнено), hover-tone, ✓-индикатор.
+        /// Заменяет старые «голые» Label + TextField — даёт связке полей современный вид.
+        /// </summary>
+        private static void DrawHubField(
+            string icon, string label, string hint, bool showHints,
+            string value, string placeholder,
+            string pickerIcon, System.Action onPickerClick,
+            System.Action<string> onValueChanged)
+        {
+            bool isFilled = !string.IsNullOrEmpty(value);
+
+            // ─── Header row: иконка-чип + лейбл + (✓ если заполнено) ───
+            Rect headerRow = GUILayoutUtility.GetRect(0, 18, GUILayout.ExpandWidth(true));
+            float chipSize = 16f;
+            Rect chipRect = new Rect(headerRow.x, headerRow.y + 1, chipSize, chipSize);
+            // Чип под иконкой — Hub-tip-tone с cyan-tint бордером.
+            Color tipBg = Color.Lerp(NovellaSettingsModule.GetInterfaceColor(),
+                                     NovellaSettingsModule.GetAccentColor(), 0.10f);
+            Color acc = NovellaSettingsModule.GetAccentColor();
+            EditorGUI.DrawRect(chipRect, tipBg);
+            EditorGUI.DrawRect(new Rect(chipRect.x, chipRect.y, chipRect.width, 1), new Color(acc.r, acc.g, acc.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(chipRect.x, chipRect.yMax - 1, chipRect.width, 1), new Color(acc.r, acc.g, acc.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(chipRect.x, chipRect.y, 1, chipRect.height), new Color(acc.r, acc.g, acc.b, 0.4f));
+            EditorGUI.DrawRect(new Rect(chipRect.xMax - 1, chipRect.y, 1, chipRect.height), new Color(acc.r, acc.g, acc.b, 0.4f));
+
+            var chipSt = new GUIStyle(EditorStyles.label) {
+                fontSize = 11, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = NovellaSettingsModule.GetTextColor() }
+            };
+            GUI.Label(chipRect, icon ?? "", chipSt);
+
+            var lblSt = new GUIStyle(EditorStyles.miniBoldLabel) {
+                fontSize = 11,
+                alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = NovellaSettingsModule.GetTextSecondary() }
+            };
+            GUI.Label(new Rect(headerRow.x + chipSize + 6, headerRow.y, headerRow.width - chipSize - 6 - 18, 18),
+                label, lblSt);
+
+            // Маленький ✓ справа если поле заполнено — позитивный feedback.
+            if (isFilled)
+            {
+                var checkSt = new GUIStyle(EditorStyles.miniBoldLabel) {
+                    fontSize = 11, alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = new Color(0.30f, 0.85f, 0.45f, 1f) }
+                };
+                GUI.Label(new Rect(headerRow.xMax - 18, headerRow.y, 16, 18), "✓", checkSt);
+            }
+
+            GUILayout.Space(3);
+
+            // ─── Field row: TextField + picker button ───
+            float fieldH = 26f;
+            float pickerW = string.IsNullOrEmpty(pickerIcon) ? 0f : 32f;
+            Rect bg = GUILayoutUtility.GetRect(0, fieldH, GUILayout.ExpandWidth(true));
+
+            // Уникальное имя контрола = label (для focus-tracking).
+            string ctrlName = "HubField_" + label;
+            bool isFocused = GUI.GetNameOfFocusedControl() == ctrlName;
+            bool isHover = bg.Contains(Event.current.mousePosition);
+
+            // Цвета: фон базовый, при фокусе — чуть светлее.
+            Color cardBg = NovellaSettingsModule.GetBgRaisedColor();
+            if (isFocused) cardBg = Color.Lerp(cardBg, acc, 0.06f);
+            else if (isHover) cardBg = Color.Lerp(cardBg, NovellaSettingsModule.GetTextColor(), 0.03f);
+            EditorGUI.DrawRect(bg, cardBg);
+
+            // Border: при фокусе — cyan (1.5px эффектом — две линии), иначе стандартный.
+            Color borderC = isFocused ? acc : NovellaSettingsModule.GetBorderColor();
+            float borderW = isFocused ? 1.4f : 1f;
+            // Аппроксимируем 1.4px двумя линиями: 1px чёткой + 1px полупрозрачной.
+            void DrawSide(Rect side) { EditorGUI.DrawRect(side, borderC); }
+            DrawSide(new Rect(bg.x, bg.y, bg.width, 1));
+            DrawSide(new Rect(bg.x, bg.yMax - 1, bg.width, 1));
+            DrawSide(new Rect(bg.x, bg.y, 1, bg.height));
+            DrawSide(new Rect(bg.xMax - 1, bg.y, 1, bg.height));
+            if (isFocused)
+            {
+                Color softer = new Color(borderC.r, borderC.g, borderC.b, 0.45f);
+                EditorGUI.DrawRect(new Rect(bg.x + 1, bg.y + 1, bg.width - 2, 1), softer);
+                EditorGUI.DrawRect(new Rect(bg.x + 1, bg.yMax - 2, bg.width - 2, 1), softer);
+            }
+
+            // Filled-state cyan-полоса слева — даёт «pop» когда поле заполнено,
+            // визуально отделяет filled от empty без агрессии.
+            if (isFilled)
+            {
+                EditorGUI.DrawRect(new Rect(bg.x, bg.y, 3, bg.height),
+                    new Color(acc.r, acc.g, acc.b, isFocused ? 1f : 0.85f));
+            }
+
+            // Текст-филд.
+            Rect fieldRect = new Rect(bg.x + (isFilled ? 10 : 8), bg.y + 4,
+                bg.width - (isFilled ? 18 : 16) - pickerW, bg.height - 8);
+            var fieldSt = new GUIStyle(EditorStyles.textField) {
+                fontSize = 12,
+                normal  = { background = null, textColor = NovellaSettingsModule.GetTextColor() },
+                focused = { background = null, textColor = NovellaSettingsModule.GetTextColor() },
+                hover   = { background = null, textColor = NovellaSettingsModule.GetTextColor() },
+                active  = { background = null, textColor = NovellaSettingsModule.GetTextColor() },
+                padding = new RectOffset(2, 2, 2, 2),
+                border  = new RectOffset(0, 0, 0, 0),
+            };
+            GUI.SetNextControlName(ctrlName);
+            string newValue = EditorGUI.TextField(fieldRect, value ?? "", fieldSt);
+            if (newValue != value) onValueChanged?.Invoke(newValue);
+
+            // Placeholder (только если поле пустое и не в фокусе).
+            if (!isFilled && !string.IsNullOrEmpty(placeholder) && !isFocused)
+            {
+                var phSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 12, fontStyle = FontStyle.Italic,
+                    normal = { textColor = NovellaSettingsModule.GetTextDisabled() },
+                    padding = new RectOffset(2, 2, 2, 2),
+                };
+                Rect phRect = new Rect(fieldRect.x + 2, fieldRect.y, fieldRect.width - 4, fieldRect.height);
+                GUI.Label(phRect, placeholder, phSt);
+            }
+
+            // Кнопка пикера справа.
+            if (!string.IsNullOrEmpty(pickerIcon) && onPickerClick != null)
+            {
+                Rect pickerRect = new Rect(bg.xMax - pickerW + 1, bg.y + 1, pickerW - 2, bg.height - 2);
+                bool pickerHover = pickerRect.Contains(Event.current.mousePosition);
+                Color pickerBg = pickerHover
+                    ? new Color(acc.r, acc.g, acc.b, 0.20f)
+                    : new Color(acc.r, acc.g, acc.b, 0.08f);
+                EditorGUI.DrawRect(pickerRect, pickerBg);
+                EditorGUI.DrawRect(new Rect(pickerRect.x, pickerRect.y, 1, pickerRect.height),
+                    new Color(acc.r, acc.g, acc.b, 0.40f));
+
+                var pickerSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 14,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = pickerHover ? NovellaSettingsModule.GetTextColor() : acc }
+                };
+                EditorGUIUtility.AddCursorRect(pickerRect, MouseCursor.Link);
+                if (GUI.Button(pickerRect, GUIContent.none, GUIStyle.none))
+                {
+                    onPickerClick.Invoke();
+                }
+                GUI.Label(pickerRect, pickerIcon, pickerSt);
+            }
+
+            if (showHints && !string.IsNullOrEmpty(hint))
+            {
+                GUILayout.Space(3);
+                DrawHint(hint);
+            }
+        }
+
+        // ─── Cached binding lookup ─────────────────────────────────────────────
+        // Раньше ResolveBindingDisplay и Pause-Resume warning вызывали
+        // Object.FindObjectsByType<NovellaUIBinding> прямо в OnGUI — это O(N всех
+        // объектов сцены) на КАЖДЫЙ ShowPanel/HidePanel/TogglePanel шаг + 1 на
+        // Pause-Resume проверку. С несколькими шагами на 60fps Кузница лагала.
+        // Теперь массив кешируется на 0.5с — юзер не видит разницы, CPU отдыхает.
+        private static NovellaUIBinding[] _bindingsCache;
+        private static double _bindingsCacheTime = -1;
+        private const double BINDINGS_CACHE_TTL = 0.5;
+
+        private static NovellaUIBinding[] GetBindingsCached()
+        {
+            double now = EditorApplication.timeSinceStartup;
+            if (_bindingsCache == null || now - _bindingsCacheTime > BINDINGS_CACHE_TTL)
+            {
+                _bindingsCache = UnityEngine.Object.FindObjectsByType<NovellaUIBinding>(
+                    FindObjectsInactive.Include, FindObjectsSortMode.None);
+                _bindingsCacheTime = now;
+            }
+            return _bindingsCache;
+        }
+
+        /// <summary>
+        /// Резолвит binding-id в человекочитаемое имя для показа на кнопках
+        /// «Target panel». Сначала пробует быстрый static-реестр Awake-зарегистрированных
+        /// bindings. Если ID нет в реестре (binding на отключённом GO или мок-сцена,
+        /// где Awake не вызывался) — идёт в кешированный массив (~раз в 0.5с).
+        /// </summary>
+        private static string ResolveBindingDisplay(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "";
+
+            // Сначала пробуем static-реестр (O(1)).
+            var fromRegistry = NovellaUIBinding.Find(id);
+            if (fromRegistry != null)
+            {
+                string n = string.IsNullOrEmpty(fromRegistry.Name) ? fromRegistry.gameObject.name : fromRegistry.Name;
+                return TruncateNice(n);
+            }
+
+            // Edit-режим: реестр пустой, идём через КЕШИРОВАННЫЙ массив.
+            var all = GetBindingsCached();
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                if (all[i].Id == id)
+                {
+                    string n = string.IsNullOrEmpty(all[i].Name) ? all[i].gameObject.name : all[i].Name;
+                    return TruncateNice(n);
+                }
+            }
+
+            // Stale ID — обрезаем до 12 символов с префиксом «?».
+            return id.Length > 12 ? "?" + id.Substring(0, 10) + "…" : "?" + id;
+        }
+
+        // Усекает имя если оно слишком длинное (чтобы не разваливать layout).
+        private static string TruncateNice(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s.Length > 28 ? s.Substring(0, 26) + "…" : s;
+        }
+
         // Стиль идентичен DrawFieldHint в NovellaUIForge — единая визуальная
         // семья по всему инструменту: тонкая полоска акцента слева + мягкий
         // акцентный фон + hint-цвет текста + 💡 префикс.
@@ -675,6 +1149,25 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(r, new Color(acc.r, acc.g, acc.b, 0.07f));
             EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), acc);
             GUI.Label(r, "💡 " + text, st);
+            GUILayout.Space(2);
+        }
+
+        // Жёлтое-оранжевое предупреждение в том же стиле что DrawHint, но
+        // ярче и заметнее. Используется для sanity-warning'ов
+        // (Pause без Resume, Hide уже выключенной панели и т.п.).
+        private static void DrawWarn(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var st = new GUIStyle(EditorStyles.label) {
+                fontSize = 11, fontStyle = FontStyle.Bold,
+                wordWrap = true,
+                padding = new RectOffset(8, 8, 6, 6)
+            };
+            st.normal.textColor = new Color(0.95f, 0.78f, 0.30f, 1f);
+            Rect r = GUILayoutUtility.GetRect(new GUIContent(text), st);
+            EditorGUI.DrawRect(r, new Color(0.95f, 0.78f, 0.30f, 0.10f));
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), new Color(0.95f, 0.78f, 0.30f, 1f));
+            GUI.Label(r, text, st);
             GUILayout.Space(2);
         }
 
