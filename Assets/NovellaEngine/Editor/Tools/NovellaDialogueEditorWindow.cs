@@ -1,9 +1,21 @@
-﻿/// <summary>
+/// <summary>
+/// Раскадровка диалогов — современный визуальный редактор реплик внутри
+/// Dialogue ноды.
+///
 /// ОТВЕЧАЕТ ЗА:
-/// 1. Отдельное окно для удобного редактирования реплик внутри Dialogue Node.
-/// 2. Позволяет добавлять/удалять/менять местами реплики.
-/// 3. Настройка эмоций спикеров, флип персонажей, задержки тайпрайтера.
-/// 4. Работа с буфером обмена (Ctrl+C, Ctrl+V).
+///   1. Просмотр и навигацию по репликам (вертикальная лента слева).
+///   2. Большое превью сцены с шахматной массовкой (3+2+1) и активным
+///      спикером впереди — как реальный кадр VN.
+///   3. Настройку спикера, эмоций, флипов, override-позиции, рамки UI,
+///      таймингов, печатной машинки и кривой скорости.
+///   4. Прокачанный редактор текста реплики: тулбар форматирования
+///      (B / I / U / color / size / pause), счётчик символов, оценка
+///      длительности печати, live-preview rich-text.
+///   5. Горячие клавиши: ← → навигация, Ctrl+C / Ctrl+V копировать /
+///      вставить реплику, Ctrl+D дублировать.
+///
+/// Логика сохранения данных и Undo НЕ менялась — это чистый редизайн UI
+/// поверх старой DialogueLine-модели.
 /// </summary>
 using UnityEditor;
 using UnityEngine;
@@ -11,6 +23,7 @@ using NovellaEngine.Data;
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text;
 
 namespace NovellaEngine.Editor
 {
@@ -22,17 +35,120 @@ namespace NovellaEngine.Editor
         private Action _onMarkUnsaved;
         private Action _onRepaintRequest;
 
-        private Vector2 _storyboardScrollPos;
-        private Vector2 _settingsScrollPos;
+        private Vector2 _linesRailScroll;
+        private Vector2 _settingsScroll;
         private int _activeLineIndex = 0;
         private NovellaLocalizationSettings _locSettings;
         private string _previewLanguage = "EN";
+        private bool _richPreviewMode;     // true = показываем отрендеренный rich-text
+        private bool _showAdvancedSpeaker; // раскрыть Override Pos / Flip / Custom Name
+        private bool _showAdvancedTiming;  // раскрыть кривую скорости
+        private bool _showHelpOverlay;     // overlay с подсказками для рядового юзера
+        private Vector2 _helpScroll;       // скролл внутри overlay'а подсказок
+
+        // ─── Multi-select для batch-операций (Del удаляет всё выделенное) ───
+        // _activeLineIndex остаётся «primary» для preview/edit. Multi-select
+        // отдельно — для batch.
+        private readonly HashSet<int> _selectedLineIndices = new HashSet<int>();
+        private int _lastClickedLineIndex = -1; // для shift-range
+
+        // ─── Undo-target: куда вернуть фокус при ближайшем Undo ───
+        // После Duplicate/Add ставим сюда индекс ОРИГИНАЛА (не нового),
+        // чтобы при Ctrl+Z пользователь оказался на той же реплике с
+        // которой делал действие, а не на конце списка.
+        // -1 = нет специальной цели, использовать обычный clamp.
+        private int _undoFocusTarget = -1;
+
+        // ─── Какая «область» была активна последней (для Del) ───
+        // Чтобы Del в зависимости от контекста удалял разное:
+        //   • Lines (последний клик в lines rail) → удалить выделенные реплики
+        //   • Character (последний клик в left strip / drag в сцене) → удалить персонажа
+        private enum ClickArea { Lines, Character }
+        private ClickArea _lastClickArea = ClickArea.Lines;
+
+        // ─── Selected character для редактирования в правой панели ───
+        // По NodeID выбираем персонажа из массовки. Все настройки
+        // (scale, visibility, animate, position, emotion, replace, remove)
+        // в правой панели применяются к этому персонажу.
+        // Левая панель strip = ВСЕ персонажи массовки, click = выбор.
+        private NovellaCharacter _editingCharacter;
+        private Vector2 _allCastScroll; // scroll левой панели если персонажей много
+
+        // ─── Реальная сцена в preview через RenderTexture ───
+        // Главная камера (Camera.main) рендерит сцену в нашу текстуру,
+        // мы рисуем её как фон stage'а. Throttle через _lastSceneRenderTime
+        // чтобы не рендерить камеру каждый кадр (дорого).
+        private RenderTexture _scenePreviewTex;
+        private double        _lastSceneRenderTime;
+        private const double  SCENE_RENDER_INTERVAL = 0.10; // 10 fps хватит
+        private bool          _showRealScenePreview = true; // toggle
+
+        // Флаг «нужно пересинхронизировать NovellaSceneEntity'и» —
+        // ставится при каждом изменении (drag, toggle, switch line, etc).
+        // Без него EditorSyncDialogueLine вызывался каждый рендер и
+        // плодил Char_NewCharacter (1, 2, 3…) в Hierarchy.
+        private bool _needsSceneSync = true;
+
+        // ─── EditorPrefs-ключи для запоминания состояния collapse-секций ───
+        // Раскрытие/свёртывание Visual / Timing / Frame персистентно между
+        // сессиями, чтобы юзер не разворачивал заново каждый раз.
+        private const string PREF_VISUAL_OPEN = "NovellaDialogueEd_VisualOpen";
+        private const string PREF_TIMING_OPEN = "NovellaDialogueEd_TimingOpen";
+        private const string PREF_FRAME_OPEN  = "NovellaDialogueEd_FrameOpen";
+        private Vector2 _moodChipsScroll;    // scroll если эмоций > 9 (зарезервировано)
+
+        // ─── Drag-state для расстановки персонажей на сцене ───
+        // Когда пользователь зажал ЛКМ на спрайте — мы запоминаем кого тащим
+        // и оффсет от mouse-down позиции до центра спрайта, чтобы движение
+        // было точным. Перетаскивание мутирует line.StagePlacements (создаёт
+        // override если его не было).
+        private NovellaCharacter _draggingChar;
+        private Vector2          _dragOffsetNorm; // оффсет в normalized-координатах stage
+
+        // ─── Tween-state для анимаций перехода между репликами ───
+        // На каждой смене активной реплики мы запоминаем «откуда» лерпить
+        // позиции тех персонажей у кого Animate=true. Tween идёт ANIM_DURATION
+        // секунд по EditorApplication.timeSinceStartup.
+        private Dictionary<int, Vector2> _prevPositions = new Dictionary<int, Vector2>();
+        private Dictionary<int, float>   _prevAlphas    = new Dictionary<int, float>();
+        private double _tweenStartTime;
+        private int    _tweenFromLineIdx = -1;
+        private const double ANIM_DURATION = 0.30;
 
         private static DialogueLine _clipboardLine = null;
 
+        // ─── Палитра — динамическая, из Settings (как и весь Hub). ───
+        private static Color BgPrimary => NovellaSettingsModule.GetInterfaceColor();
+        private static Color BgSide    => NovellaSettingsModule.GetBgSideColor();
+        private static Color BgRaised  => NovellaSettingsModule.GetBgRaisedColor();
+        private static Color Border    => NovellaSettingsModule.GetBorderColor();
+        private static Color Accent    => NovellaSettingsModule.GetAccentColor();
+        private static Color Text1     => NovellaSettingsModule.GetTextColor();
+        private static Color Text2     => NovellaSettingsModule.GetTextSecondary();
+        private static Color Text3     => NovellaSettingsModule.GetTextMuted();
+        private static Color Text4     => NovellaSettingsModule.GetTextDisabled();
+        private static readonly Color Danger  = new Color(0.85f, 0.36f, 0.36f);
+        private static readonly Color Success = new Color(0.40f, 0.78f, 0.45f);
+
+        // ─── Размеры основной раскладки ───
+        // Settings panel вернули к 320 (там слайдеры/chips нужны места).
+        // Compensate сужением cast-strip и уменьшением BLEED — camera
+        // занимает больше места внутри stageArea.
+        private const float TOP_BAR_H        = 44f;
+        private const float TEXT_EDITOR_H    = 170f;
+        private const float LINES_RAIL_W     = 120f;
+        private const float SETTINGS_PANEL_W = 320f;
+
+        // Насколько drag-зона больше камеры. 0.10 = 10% за каждым краем.
+        // Камера занимает ~83% drag-зоны — крупная и заметная. Жёлтый
+        // пунктир (drag-bounds) виден чуть больше cameraStage.
+        private const float STAGE_BLEED = 0.10f;
+
+        // ─────────────── Public API ───────────────
+
         public static void OpenWindow(NovellaTree tree, DialogueNodeData nodeData, string lang, Action<int> onLineSelected, Action onMarkUnsaved, Action onRepaintRequest)
         {
-            var win = GetWindow<NovellaDialogueEditorWindow>(ToolLang.Get("Dialogue Storyboard", "Раскадровка Диалогов"));
+            var win = GetWindow<NovellaDialogueEditorWindow>(ToolLang.Get("Dialogue Storyboard", "Раскадровка диалогов"));
             win._tree = tree;
             win._nodeData = nodeData;
             win._previewLanguage = lang;
@@ -41,22 +157,291 @@ namespace NovellaEngine.Editor
             win._onRepaintRequest = onRepaintRequest;
 
             win._locSettings = NovellaLocalizationSettings.GetOrCreateSettings();
-            win.minSize = new Vector2(1100, 750);
+            win.minSize = new Vector2(1180, 760);
+            win.wantsMouseMove = true;
             win.ShowUtility();
         }
+
+        // ─────────────── Hooks ───────────────
 
         private void OnEnable()
         {
             Undo.undoRedoPerformed += OnUndoRedo;
+            // Регулярный Repaint для real-scene preview (10 fps).
+            EditorApplication.update += TickScenePreview;
         }
-
         private void OnDisable()
         {
             Undo.undoRedoPerformed -= OnUndoRedo;
+            EditorApplication.update -= TickScenePreview;
+            // Освобождаем RenderTexture сцены — иначе утечка GPU-памяти.
+            if (_scenePreviewTex != null)
+            {
+                _scenePreviewTex.Release();
+                DestroyImmediate(_scenePreviewTex);
+                _scenePreviewTex = null;
+            }
+        }
+
+        // Дёргает Repaint раз в SCENE_RENDER_INTERVAL чтобы текстура сцены
+        // обновлялась пока пользователь смотрит на превью. Без этого preview
+        // был бы статичен пока юзер не подвинет мышь.
+        private void TickScenePreview()
+        {
+            if (!_showRealScenePreview) return;
+            if (EditorApplication.timeSinceStartup - _lastSceneRenderTime
+                >= SCENE_RENDER_INTERVAL)
+            {
+                Repaint();
+            }
+        }
+
+        // ─── Рендер активной сцены в RenderTexture ───
+        // Берём Camera.main (если её нет — первую активную). Throttle
+        // 10 fps — дороже не нужно для preview. Перед рендером пишем
+        // ТЕКСТ ТЕКУЩЕЙ РЕПЛИКИ в DialoguePanel сцены — чтобы превью
+        // показывало настоящее окно диалога с нашим текстом.
+        private void RenderScenePreviewIfNeeded(int w, int h, DialogueLine line)
+        {
+            if (!_showRealScenePreview) return;
+            if (w < 16 || h < 16) return;
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _lastSceneRenderTime < SCENE_RENDER_INTERVAL
+                && _scenePreviewTex != null
+                && _scenePreviewTex.width == w
+                && _scenePreviewTex.height == h)
+                return;
+
+            var cam = ResolvePreviewCamera();
+            if (cam == null) return;
+
+            // Пишем текст в DialoguePanel сцены ПЕРЕД рендером.
+            WriteCurrentLineToScene(line);
+
+            EnsureScenePreviewTex(w, h);
+            var oldTarget = cam.targetTexture;
+            try
+            {
+                cam.targetTexture = _scenePreviewTex;
+                cam.Render();
+            }
+            catch (System.Exception e) { Debug.LogException(e); }
+            finally
+            {
+                cam.targetTexture = oldTarget;
+            }
+            _lastSceneRenderTime = now;
+        }
+
+        // Кэш ссылки на NovellaPlayer чтобы не делать FindFirstObjectByType
+        // каждый кадр (это дорого). Обновляется когда null или destroyed.
+        private NovellaEngine.Runtime.NovellaPlayer _cachedPlayer;
+        private NovellaEngine.Runtime.NovellaPlayer ResolveScenePlayer()
+        {
+            if (_cachedPlayer != null) return _cachedPlayer;
+            _cachedPlayer = UnityEngine.Object.FindFirstObjectByType<NovellaEngine.Runtime.NovellaPlayer>();
+            return _cachedPlayer;
+        }
+
+        // Пишет текст текущей реплики в DialoguePanel.SpeakerNameText /
+        // DialogueBodyText активной сцены + спавнит/синхронизирует
+        // NovellaSceneEntity'и (персонажей) через EditorSyncDialogueLine.
+        // Без последнего Camera.Render не видит спрайтов — в RenderTexture
+        // оказывается голая сцена без участников диалога.
+        private void WriteCurrentLineToScene(DialogueLine line)
+        {
+            if (line == null) return;
+            var player = ResolveScenePlayer();
+            if (player == null) return;
+
+            // Активируем DialoguePanel если он выключен.
+            if (player.DialoguePanel != null && !player.DialoguePanel.activeSelf)
+                player.DialoguePanel.SetActive(true);
+
+            // ─── Spawn/sync персонажей в сцене ───
+            // ВАЖНО: вызывается ТОЛЬКО когда _needsSceneSync=true (real
+            // changes). Раньше дёргали каждый рендер и плодили Char_*
+            // в Hierarchy.
+            if (_needsSceneSync && _nodeData != null && player.CharactersContainer != null)
+            {
+                try { player.EditorSyncDialogueLine(_nodeData, line); }
+                catch (System.Exception e) { Debug.LogException(e); }
+                _needsSceneSync = false;
+            }
+
+            if (player.SpeakerNameText != null)
+            {
+                string spkName = line.Speaker != null ? line.Speaker.name : "";
+                if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName))
+                    spkName = line.CustomName;
+                player.SpeakerNameText.text = spkName;
+                if (line.HideSpeakerName && line.CustomNameColor.a > 0.05f)
+                    player.SpeakerNameText.color = line.CustomNameColor;
+                else if (line.Speaker != null && line.Speaker.ThemeColor.a > 0.05f)
+                    player.SpeakerNameText.color = line.Speaker.ThemeColor;
+            }
+            if (player.DialogueBodyText != null)
+            {
+                string text = line.LocalizedPhrase != null
+                    ? line.LocalizedPhrase.GetText(_previewLanguage) : "";
+                player.DialogueBodyText.text = text;
+            }
+        }
+
+        // Возвращает true если в сцене есть NovellaPlayer с DialoguePanel
+        // (нужно для решения «рисовать fallback hint или нет»).
+        private bool HasUsablePlayerInScene()
+        {
+            var p = ResolveScenePlayer();
+            return p != null && p.DialoguePanel != null;
+        }
+
+        // True если Canvas-родитель DialoguePanel — Screen Space Overlay.
+        // У Overlay UI в Camera.Render() не попадает (он рендерится
+        // отдельным проходом поверх), так что наш RenderTexture его
+        // НЕ содержит. Маскирование в этом случае показало бы background
+        // сцены вместо UI → артефакты. Лучше пропустить маскирование.
+        private bool IsDialogueCanvasOverlay()
+        {
+            var player = ResolveScenePlayer();
+            if (player == null || player.DialoguePanel == null) return false;
+            var canvas = player.DialoguePanel.GetComponentInParent<Canvas>();
+            return canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay;
+        }
+
+        // Возвращает Rect DialoguePanel в координатах cameraRect (для
+        // маскирования спрайтов которые ПОЗАДИ UI). Если панели нет или
+        // что-то не так — возвращает Rect.zero (вызывающий должен это
+        // обработать).
+        private Rect GetDialoguePanelRectInCamera(Rect cameraRect)
+        {
+            var player = ResolveScenePlayer();
+            if (player == null || player.DialoguePanel == null) return Rect.zero;
+            var panelRT = player.DialoguePanel.GetComponent<RectTransform>();
+            if (panelRT == null) return Rect.zero;
+            var cam = ResolvePreviewCamera();
+            if (cam == null) return Rect.zero;
+            // Canvas с режимом Overlay использует null-camera, иначе worldCamera.
+            var canvas = panelRT.GetComponentInParent<Canvas>();
+            Camera projectionCam = (canvas != null && canvas.renderMode == RenderMode.ScreenSpaceOverlay)
+                ? null : cam;
+
+            Vector3[] worldCorners = new Vector3[4];
+            panelRT.GetWorldCorners(worldCorners);
+
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2 sp = RectTransformUtility.WorldToScreenPoint(projectionCam, worldCorners[i]);
+                minX = Mathf.Min(minX, sp.x); maxX = Mathf.Max(maxX, sp.x);
+                minY = Mathf.Min(minY, sp.y); maxY = Mathf.Max(maxY, sp.y);
+            }
+            // Pixels → cameraRect coords. Y инвертирован (0 снизу в Unity,
+            // сверху в GUI).
+            float scaleX = cameraRect.width  / Mathf.Max(1, cam.pixelWidth);
+            float scaleY = cameraRect.height / Mathf.Max(1, cam.pixelHeight);
+            return new Rect(
+                cameraRect.x + minX * scaleX,
+                cameraRect.y + (cam.pixelHeight - maxY) * scaleY,
+                (maxX - minX) * scaleX,
+                (maxY - minY) * scaleY);
+        }
+
+        // Рисует patch из RenderTexture сцены в области пересечения
+        // spriteR и uiRect — это маскирует спрайт областью UI и создаёт
+        // эффект «UI поверх спрайта». Используется для персонажей с
+        // InFrontOfUI = false (по умолчанию).
+        private void OverlayUIPatch(Rect spriteR, Rect cameraRect, Rect uiRect)
+        {
+            if (_scenePreviewTex == null) return;
+            if (uiRect.width <= 0 || uiRect.height <= 0) return;
+
+            Rect intersect = Rect.MinMaxRect(
+                Mathf.Max(spriteR.xMin, uiRect.xMin),
+                Mathf.Max(spriteR.yMin, uiRect.yMin),
+                Mathf.Min(spriteR.xMax, uiRect.xMax),
+                Mathf.Min(spriteR.yMax, uiRect.yMax));
+            if (intersect.width <= 0 || intersect.height <= 0) return;
+
+            // Нормализованные tex-coords. Y в RenderTexture инвертирован
+            // относительно GUI: tex.y=0 это низ, GUI.y=cameraRect.yMax это низ.
+            Rect texCoords = new Rect(
+                (intersect.x - cameraRect.x) / cameraRect.width,
+                1f - (intersect.yMax - cameraRect.y) / cameraRect.height,
+                intersect.width  / cameraRect.width,
+                intersect.height / cameraRect.height);
+            GUI.DrawTextureWithTexCoords(intersect, _scenePreviewTex, texCoords);
+        }
+
+        private static Camera ResolvePreviewCamera()
+        {
+            // Camera.main — приоритет (тагнутая MainCamera).
+            if (Camera.main != null) return Camera.main;
+            // Fallback: первая активная камера в сцене.
+            if (Camera.allCamerasCount > 0)
+            {
+                var arr = Camera.allCameras;
+                for (int i = 0; i < arr.Length; i++)
+                    if (arr[i] != null && arr[i].isActiveAndEnabled) return arr[i];
+            }
+            return null;
+        }
+
+        private void EnsureScenePreviewTex(int w, int h)
+        {
+            if (_scenePreviewTex != null
+                && _scenePreviewTex.width == w
+                && _scenePreviewTex.height == h)
+                return;
+            if (_scenePreviewTex != null)
+            {
+                _scenePreviewTex.Release();
+                DestroyImmediate(_scenePreviewTex);
+            }
+            _scenePreviewTex = new RenderTexture(w, h, 24, RenderTextureFormat.Default);
+            _scenePreviewTex.Create();
         }
 
         private void OnUndoRedo()
         {
+            // КРИТИЧНО: после Undo/Redo Tree десериализуется заново из снимка,
+            // и наша reference _nodeData может указывать на «мёртвый» объект
+            // которого больше нет в Tree.Nodes (особенно после изменений
+            // которые мутируют список Nodes). Re-резолвим по NodeID, иначе
+            // изменения видны в Tree, но окно показывает старое состояние.
+            if (_tree != null && _nodeData != null)
+            {
+                string nid = _nodeData.NodeID;
+                if (!string.IsNullOrEmpty(nid) && _tree.Nodes != null)
+                {
+                    foreach (var n in _tree.Nodes)
+                    {
+                        if (n is DialogueNodeData d && d.NodeID == nid)
+                        { _nodeData = d; break; }
+                    }
+                }
+            }
+
+            // Кламп активного индекса — после удаления реплики он мог стать невалидным.
+            if (_nodeData != null && _nodeData.DialogueLines != null)
+            {
+                int count = _nodeData.DialogueLines.Count;
+                // Если у нас был «target после Undo» (например после
+                // Duplicate мы запомнили индекс оригинала) — возвращаем
+                // фокус именно туда, а не на хвост списка.
+                if (_undoFocusTarget >= 0 && _undoFocusTarget < count)
+                {
+                    _activeLineIndex = _undoFocusTarget;
+                }
+                else
+                {
+                    _activeLineIndex = Mathf.Clamp(_activeLineIndex, 0,
+                        Mathf.Max(0, count - 1));
+                }
+                _undoFocusTarget = -1; // одноразовое срабатывание
+            }
+
             GUI.FocusControl(null);
             _onMarkUnsaved?.Invoke();
             _onRepaintRequest?.Invoke();
@@ -65,269 +450,547 @@ namespace NovellaEngine.Editor
             Repaint();
         }
 
+        // ─────────────── OnGUI ───────────────
+
         private void OnGUI()
         {
             if (_tree == null || _nodeData == null) { Close(); return; }
 
+            // Фон окна.
+            EditorGUI.DrawRect(new Rect(0, 0, position.width, position.height), BgPrimary);
+
             ProcessKeyboardNavigation();
-            DrawHeader();
 
-            _storyboardScrollPos = GUILayout.BeginScrollView(_storyboardScrollPos, GUILayout.ExpandHeight(true));
-            DrawStoryboard();
-            GUILayout.EndScrollView();
+            // ─── Layout-расчёт rect'ов ───
+            Rect topBarR     = new Rect(0, 0, position.width, TOP_BAR_H);
+            float midY       = TOP_BAR_H;
+            float midH       = position.height - TOP_BAR_H - TEXT_EDITOR_H;
+            Rect leftRailR   = new Rect(0, midY, LINES_RAIL_W, midH);
+            Rect settingsR   = new Rect(position.width - SETTINGS_PANEL_W, midY, SETTINGS_PANEL_W, midH);
+            Rect previewR    = new Rect(LINES_RAIL_W, midY,
+                position.width - LINES_RAIL_W - SETTINGS_PANEL_W, midH);
+            Rect editorR     = new Rect(0, position.height - TEXT_EDITOR_H, position.width, TEXT_EDITOR_H);
 
-            Rect divider = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(3));
-            EditorGUI.DrawRect(divider, new Color(0.15f, 0.15f, 0.15f, 1f));
+            DrawTopBar(topBarR);
+            DrawLinesRail(leftRailR);
+            DrawScenePreview(previewR);
+            DrawSettingsPanel(settingsR);
+            DrawTextEditor(editorR);
 
-            _settingsScrollPos = GUILayout.BeginScrollView(_settingsScrollPos, GUILayout.Height(350));
-            DrawBottomSettingsPanel();
-            GUILayout.EndScrollView();
+            // Help overlay поверх всего остального — рисуется последним.
+            if (_showHelpOverlay) DrawHelpOverlay();
+
+            // Hover-эффекты требуют active repaint при движении мыши.
+            if (Event.current.type == EventType.MouseMove) Repaint();
         }
+
+        // ─────────────── Keyboard nav ───────────────
 
         private void ProcessKeyboardNavigation()
         {
-            if (Event.current.type == EventType.KeyDown)
-            {
-                bool isActionKey = Event.current.control || Event.current.command;
+            if (Event.current.type != EventType.KeyDown) return;
+            bool ctrl = Event.current.control || Event.current.command;
 
-                if (Event.current.keyCode == KeyCode.LeftArrow)
+            // Не перехватываем стрелки если фокус в текстовом поле.
+            bool textFocused = EditorGUIUtility.editingTextField;
+
+            if (Event.current.keyCode == KeyCode.LeftArrow && !textFocused)
+            {
+                if (_activeLineIndex > 0) SetActiveLine(_activeLineIndex - 1);
+                Event.current.Use();
+            }
+            else if (Event.current.keyCode == KeyCode.RightArrow && !textFocused)
+            {
+                if (_activeLineIndex < _nodeData.DialogueLines.Count - 1) SetActiveLine(_activeLineIndex + 1);
+                Event.current.Use();
+            }
+            else if (Event.current.keyCode == KeyCode.C && ctrl && !textFocused)
+            {
+                if (InRange(_activeLineIndex))
                 {
-                    if (_activeLineIndex > 0)
-                    {
-                        _activeLineIndex--;
-                        TriggerLiveSync(true);
-                    }
+                    _clipboardLine = JsonUtility.FromJson<DialogueLine>(JsonUtility.ToJson(_nodeData.DialogueLines[_activeLineIndex]));
+                    ShowNotification(new GUIContent(ToolLang.Get("Line Copied!", "Реплика скопирована!")));
+                }
+                Event.current.Use();
+            }
+            else if (Event.current.keyCode == KeyCode.V && ctrl && !textFocused)
+            {
+                if (_clipboardLine != null && InRange(_activeLineIndex))
+                {
+                    // RegisterCompleteObjectUndo нужен потому что
+                    // JsonUtility.FromJsonOverwrite — глубокая мутация
+                    // элемента списка, которую RecordObject не подхватывает
+                    // в Undo-стек. Делает полный snapshot tree.
+                    Undo.RegisterCompleteObjectUndo(_tree, "Paste Dialogue Line");
+                    JsonUtility.FromJsonOverwrite(JsonUtility.ToJson(_clipboardLine), _nodeData.DialogueLines[_activeLineIndex]);
+                    EditorUtility.SetDirty(_tree);
+                    _onMarkUnsaved?.Invoke();
+                    TriggerLiveSync(true);
+                    ShowNotification(new GUIContent(ToolLang.Get("Line Pasted!", "Реплика вставлена!")));
+                }
+                Event.current.Use();
+            }
+            else if (Event.current.keyCode == KeyCode.D && ctrl && !textFocused)
+            {
+                if (InRange(_activeLineIndex))
+                {
+                    int origIdx = _activeLineIndex;
+                    Undo.RegisterCompleteObjectUndo(_tree, "Duplicate Line");
+                    var src = _nodeData.DialogueLines[origIdx];
+                    var dup = JsonUtility.FromJson<DialogueLine>(JsonUtility.ToJson(src));
+                    _nodeData.DialogueLines.Insert(origIdx + 1, dup);
+                    _activeLineIndex = origIdx + 1;
+                    // На случай Undo — возвращаем фокус на ОРИГИНАЛ.
+                    _undoFocusTarget = origIdx;
+                    EditorUtility.SetDirty(_tree);
+                    _onMarkUnsaved?.Invoke();
+                    TriggerLiveSync(true);
+                    ShowNotification(new GUIContent(ToolLang.Get("Line Duplicated!", "Реплика дублирована!")));
+                }
+                Event.current.Use();
+            }
+            // Delete / Backspace — context-aware:
+            //   • если последний клик в left strip / drag персонажа →
+            //     удаляем выбранного персонажа из массовки
+            //   • иначе (последний клик в lines rail) → удаляем выделенные
+            //     реплики
+            else if ((Event.current.keyCode == KeyCode.Delete
+                   || Event.current.keyCode == KeyCode.Backspace)
+                   && !textFocused)
+            {
+                if (_lastClickArea == ClickArea.Character && _editingCharacter != null)
+                {
+                    RemoveEditingCharacter();
                     Event.current.Use();
                 }
-                else if (Event.current.keyCode == KeyCode.RightArrow)
+                else if (_selectedLineIndices.Count > 0)
                 {
-                    if (_activeLineIndex < _nodeData.DialogueLines.Count - 1)
-                    {
-                        _activeLineIndex++;
-                        TriggerLiveSync(true);
-                    }
-                    Event.current.Use();
-                }
-                else if (Event.current.keyCode == KeyCode.C && isActionKey)
-                {
-                    if (_activeLineIndex >= 0 && _activeLineIndex < _nodeData.DialogueLines.Count)
-                    {
-                        string json = JsonUtility.ToJson(_nodeData.DialogueLines[_activeLineIndex]);
-                        _clipboardLine = JsonUtility.FromJson<DialogueLine>(json);
-                        this.ShowNotification(new GUIContent(ToolLang.Get("Line Copied!", "Реплика скопирована!")));
-                    }
-                    Event.current.Use();
-                }
-                else if (Event.current.keyCode == KeyCode.V && isActionKey)
-                {
-                    if (_clipboardLine != null && _activeLineIndex >= 0 && _activeLineIndex < _nodeData.DialogueLines.Count)
-                    {
-                        Undo.RecordObject(_tree, "Paste Dialogue Line");
-                        string json = JsonUtility.ToJson(_clipboardLine);
-                        JsonUtility.FromJsonOverwrite(json, _nodeData.DialogueLines[_activeLineIndex]);
-                        EditorUtility.SetDirty(_tree);
-                        _onMarkUnsaved?.Invoke();
-                        TriggerLiveSync(true);
-                        this.ShowNotification(new GUIContent(ToolLang.Get("Line Pasted!", "Реплика вставлена!")));
-                    }
+                    DeleteSelectedLines();
                     Event.current.Use();
                 }
             }
+            // Ctrl+A — select all.
+            else if (Event.current.keyCode == KeyCode.A && ctrl && !textFocused)
+            {
+                _selectedLineIndices.Clear();
+                for (int i = 0; i < _nodeData.DialogueLines.Count; i++)
+                    _selectedLineIndices.Add(i);
+                Repaint();
+                Event.current.Use();
+            }
         }
+
+        private bool InRange(int i) => i >= 0 && i < _nodeData.DialogueLines.Count;
 
         private void TriggerLiveSync(bool clearFocus = false)
         {
             if (clearFocus) GUI.FocusControl(null);
             _onLineSelected?.Invoke(_activeLineIndex);
+            // Любая мутация state'а реплики (drag, toggle, switch, etc)
+            // → нужно пересинхронизировать NovellaSceneEntity'и в сцене.
+            _needsSceneSync = true;
             SceneView.RepaintAll();
             Repaint();
         }
 
-        private void DrawHeader()
+        // Сменить активную реплику + запустить tween-переход.
+        // Используется ВСЕГДА когда меняется _activeLineIndex, чтобы
+        // анимация работала во всех случаях (стрелки, click on rail,
+        // floating actions).
+        private void SetActiveLine(int newIdx)
         {
-            GUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label($"🎞 {ToolLang.Get("Storyboard Node:", "Раскадровка Ноды:")} {(_nodeData.NodeTitle == "" ? _nodeData.NodeID : _nodeData.NodeTitle)}", EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(ToolLang.Get("Use Left/Right Arrows to navigate", "Стрелки Влево/Вправо для быстрой навигации"), EditorStyles.miniLabel);
-            GUILayout.EndHorizontal();
-
-            if (GetAvailableSpeakers().Count == 0)
-                EditorGUILayout.HelpBox(ToolLang.Get("No characters in Scene Layout! Assign characters in the Inspector to use speakers.", "Массовка пуста! Добавьте персонажей в 'Scene Layout' в инспекторе, чтобы использовать их здесь."), MessageType.Warning);
+            if (newIdx == _activeLineIndex) return;
+            int prev = _activeLineIndex;
+            _activeLineIndex = newIdx;
+            // Single-select: после простой смены активной — selection
+            // приводится к одной (текущей) реплике. Multi-select делается
+            // отдельно через Ctrl+Click / Shift+Click.
+            _selectedLineIndices.Clear();
+            _selectedLineIndices.Add(newIdx);
+            _lastClickedLineIndex = newIdx;
+            StartTransitionTween(prev, newIdx);
+            TriggerLiveSync(true);
         }
 
-        private List<NovellaCharacter> GetAvailableSpeakers()
+        // Обработка клика по строке в rail с учётом модификаторов:
+        //   Click          — single-select + сделать активной
+        //   Ctrl+Click     — toggle: добавить/убрать из selection
+        //   Shift+Click    — range от _lastClickedLineIndex до i
+        private void HandleLineRailClick(int i)
         {
-            if (_nodeData.ActiveCharacters == null) return new List<NovellaCharacter>();
-            return _nodeData.ActiveCharacters.Where(ac => ac.CharacterAsset != null).Select(ac => ac.CharacterAsset).Distinct().ToList();
+            _lastClickArea = ClickArea.Lines;
+            bool ctrl  = Event.current.control || Event.current.command;
+            bool shift = Event.current.shift;
+
+            if (shift && _lastClickedLineIndex >= 0)
+            {
+                int from = Mathf.Min(i, _lastClickedLineIndex);
+                int to   = Mathf.Max(i, _lastClickedLineIndex);
+                _selectedLineIndices.Clear();
+                for (int k = from; k <= to; k++) _selectedLineIndices.Add(k);
+                if (_activeLineIndex != i)
+                {
+                    int prev = _activeLineIndex;
+                    _activeLineIndex = i;
+                    StartTransitionTween(prev, i);
+                }
+                TriggerLiveSync(true);
+            }
+            else if (ctrl)
+            {
+                if (_selectedLineIndices.Contains(i))
+                    _selectedLineIndices.Remove(i);
+                else
+                    _selectedLineIndices.Add(i);
+                _lastClickedLineIndex = i;
+                // Активная не меняется (если она ещё в selection), иначе
+                // активной становится последняя добавленная.
+                if (!_selectedLineIndices.Contains(_activeLineIndex)
+                    && _selectedLineIndices.Count > 0)
+                {
+                    int newAct = _selectedLineIndices.OrderByDescending(x => x).First();
+                    SetActiveLineKeepSelection(newAct);
+                }
+                Repaint();
+            }
+            else
+            {
+                SetActiveLine(i);
+            }
         }
 
-        private void DrawStoryboard()
+        // То же что SetActiveLine но не сбрасывает _selectedLineIndices —
+        // используется в Ctrl+Click flow.
+        private void SetActiveLineKeepSelection(int newIdx)
         {
-            GUILayout.Space(10);
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(10);
+            if (newIdx == _activeLineIndex) return;
+            int prev = _activeLineIndex;
+            _activeLineIndex = newIdx;
+            _lastClickedLineIndex = newIdx;
+            StartTransitionTween(prev, newIdx);
+            TriggerLiveSync(true);
+        }
 
-            var activeAssets = GetAvailableSpeakers();
-            List<string> speakerOptions = new List<string> { ToolLang.Get("-- No Speaker --", "-- Без спикера --") };
-            speakerOptions.AddRange(activeAssets.Select(a => a.name));
+        // Удалить ВСЕ выделенные реплики (с подтверждением если их > 1).
+        private void DeleteSelectedLines()
+        {
+            if (_selectedLineIndices.Count == 0) return;
+            // Защита: оставляем хотя бы одну реплику в ноде.
+            int totalToDelete = _selectedLineIndices.Count;
+            int total = _nodeData.DialogueLines.Count;
+            if (totalToDelete >= total)
+            {
+                ShowNotification(new GUIContent(ToolLang.Get(
+                    "Can't delete all lines (keep at least one)",
+                    "Нельзя удалить все реплики (нужна хотя бы одна)")));
+                return;
+            }
 
-            SerializedObject treeObj = new SerializedObject(_tree);
-            int nodeIndex = _tree.Nodes.IndexOf(_nodeData);
-            SerializedProperty fontSizeProp = nodeIndex != -1 ? treeObj.FindProperty("Nodes").GetArrayElementAtIndex(nodeIndex).FindPropertyRelative("FontSize") : null;
+            string msg = totalToDelete == 1
+                ? ToolLang.Get("Delete this line?", "Удалить эту реплику?")
+                : string.Format(
+                    ToolLang.Get("Delete {0} selected lines?", "Удалить {0} выделенных реплик?"),
+                    totalToDelete);
 
-            int actionDelete = -1, actionMoveLeft = -1, actionMoveRight = -1;
+            if (!EditorUtility.DisplayDialog(
+                ToolLang.Get("Delete lines", "Удаление реплик"),
+                msg,
+                ToolLang.Get("Delete", "Удалить"),
+                ToolLang.Get("Cancel", "Отмена")))
+                return;
+
+            Undo.RegisterCompleteObjectUndo(_tree, "Delete Selected Lines");
+            // Удаляем с конца чтобы не сдвигать индексы.
+            var sorted = _selectedLineIndices.OrderByDescending(x => x).ToList();
+            foreach (int idx in sorted)
+            {
+                if (idx >= 0 && idx < _nodeData.DialogueLines.Count)
+                    _nodeData.DialogueLines.RemoveAt(idx);
+            }
+            _selectedLineIndices.Clear();
+            _activeLineIndex = Mathf.Clamp(_activeLineIndex, 0, _nodeData.DialogueLines.Count - 1);
+            _selectedLineIndices.Add(_activeLineIndex);
+            EditorUtility.SetDirty(_tree);
+            TriggerLiveSync(true);
+        }
+
+        // Перед сменой активной реплики снимаем «снимок» текущих позиций
+        // персонажей, чтобы можно было анимировать переход к новой реплике.
+        // Снимок берётся ТОЛЬКО для тех персонажей у кого Animate=true
+        // в новой реплике (телепорт остальных — мгновенный).
+        private void StartTransitionTween(int fromLineIdx, int toLineIdx)
+        {
+            _prevPositions.Clear();
+            _prevAlphas.Clear();
+            if (fromLineIdx < 0 || fromLineIdx >= _nodeData.DialogueLines.Count) return;
+            if (toLineIdx   < 0 || toLineIdx   >= _nodeData.DialogueLines.Count) return;
+
+            var fromLine = _nodeData.DialogueLines[fromLineIdx];
+            var toLine   = _nodeData.DialogueLines[toLineIdx];
+            var fromCast = GetEffectiveCast(fromLine);
+            var toCast   = GetEffectiveCast(toLine);
+
+            foreach (var to in toCast)
+            {
+                if (!to.Animate) continue;
+                // Ищем персонажа в from-кадре.
+                var from = fromCast.FirstOrDefault(f => f.Character != null
+                    && f.Character.GetInstanceID() == to.Character.GetInstanceID());
+                if (from.Character != null)
+                {
+                    _prevPositions[to.Character.GetInstanceID()] = from.NormPos;
+                    _prevAlphas[to.Character.GetInstanceID()] = from.Visible ? 1f : 0f;
+                }
+                else
+                {
+                    // Появился новый — fade-in без перемещения.
+                    _prevPositions[to.Character.GetInstanceID()] = to.NormPos;
+                    _prevAlphas[to.Character.GetInstanceID()] = 0f;
+                }
+            }
+
+            _tweenStartTime   = EditorApplication.timeSinceStartup;
+            _tweenFromLineIdx = fromLineIdx;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // 1) TOP BAR
+        // ════════════════════════════════════════════════════════════════════
+
+        private void DrawTopBar(Rect r)
+        {
+            EditorGUI.DrawRect(r, BgSide);
+            EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), Border);
+
+            // Название + sub-info.
+            string nodeTitle = string.IsNullOrEmpty(_nodeData.NodeTitle) ? _nodeData.NodeID : _nodeData.NodeTitle;
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 13, normal = { textColor = Text1 }
+            };
+            GUI.Label(new Rect(r.x + 14, r.y + 5, 460, 20),
+                "🎞  " + ToolLang.Get("Dialogue Storyboard", "Раскадровка диалогов"), titleSt);
+
+            var subSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, normal = { textColor = Text3 }
+            };
+            string sub = string.Format(
+                ToolLang.Get("Node: {0}  ·  {1}",
+                             "Нода: {0}  ·  {1}"),
+                nodeTitle,
+                ToolLang.IsRU ? NovellaPlurals.Lines(_nodeData.DialogueLines.Count)
+                              : _nodeData.DialogueLines.Count + " line" + (_nodeData.DialogueLines.Count == 1 ? "" : "s"));
+            GUI.Label(new Rect(r.x + 14, r.y + 24, 460, 16), sub, subSt);
+
+            // Hint про клавиши — справа, оставляя место под ?-кнопку.
+            var hintSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, alignment = TextAnchor.MiddleRight,
+                normal = { textColor = Text3 }
+            };
+            string hintLbl = ToolLang.Get(
+                "← →  nav    Ctrl+C/V  copy    Ctrl+D  dup    Del  delete    Ctrl+click  multi",
+                "← →  навиг.    Ctrl+C/V  копир.    Ctrl+D  дубл.    Del  удалить    Ctrl+клик  выделить");
+            GUI.Label(new Rect(r.xMax - 620, r.y + 14, 444, 18), hintLbl, hintSt);
+
+            // ─── Toggle «🎬 Реальная сцена» ───
+            // Включает/выключает использование Camera.main как фона preview.
+            // По умолчанию ВКЛ — юзер видит игровую сцену с диалоговым окном
+            // и может расставлять персонажей поверх неё.
+            Rect realR = new Rect(r.xMax - 168, r.y + 10, 124, 24);
+            bool realHover = realR.Contains(Event.current.mousePosition);
+            Color realBg = _showRealScenePreview
+                ? new Color(Accent.r, Accent.g, Accent.b, realHover ? 0.32f : 0.22f)
+                : (realHover ? new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.85f) : Color.clear);
+            EditorGUI.DrawRect(realR, realBg);
+            NovellaInspectorChrome.DrawBorder(realR,
+                _showRealScenePreview ? Accent : (realHover ? new Color(Accent.r, Accent.g, Accent.b, 0.55f) : Border));
+            var realSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 11, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = _showRealScenePreview ? Accent : Text2 }
+            };
+            GUI.Label(realR,
+                "🎬  " + ToolLang.Get("Real scene", "Реальная сцена"),
+                realSt);
+            EditorGUIUtility.AddCursorRect(realR, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && realHover && Event.current.button == 0)
+            {
+                _showRealScenePreview = !_showRealScenePreview;
+                Event.current.Use();
+                Repaint();
+            }
+
+            // ─── Кнопка «?» — открывает overlay с подсказками ───
+            // Выделяется accent-фоном чтобы юзер сразу видел «здесь help».
+            Rect helpR = new Rect(r.xMax - 38, r.y + 10, 28, 24);
+            bool helpHover = helpR.Contains(Event.current.mousePosition);
+            Color helpBg = _showHelpOverlay
+                ? new Color(Accent.r, Accent.g, Accent.b, 0.32f)
+                : (helpHover ? new Color(Accent.r, Accent.g, Accent.b, 0.18f) : Color.clear);
+            EditorGUI.DrawRect(helpR, helpBg);
+            NovellaInspectorChrome.DrawBorder(helpR,
+                _showHelpOverlay || helpHover ? Accent : Border);
+            var helpSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 14, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = _showHelpOverlay || helpHover ? Accent : Text2 }
+            };
+            GUI.Label(helpR, "?", helpSt);
+            EditorGUIUtility.AddCursorRect(helpR, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && helpHover && Event.current.button == 0)
+            {
+                _showHelpOverlay = !_showHelpOverlay;
+                Event.current.Use();
+                Repaint();
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // 2) LINES RAIL (левая лента)
+        // ════════════════════════════════════════════════════════════════════
+
+        private void DrawLinesRail(Rect r)
+        {
+            EditorGUI.DrawRect(r, BgSide);
+            EditorGUI.DrawRect(new Rect(r.xMax - 1, r.y, 1, r.height), Border);
+
+            // Header.
+            var headerSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                normal = { textColor = Text3 }
+            };
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 16),
+                ToolLang.Get("LINES", "РЕПЛИКИ"), headerSt);
+
+            // Scroll content.
+            float topPad = 26;
+            Rect scrollR = new Rect(r.x + 4, r.y + topPad, r.width - 8, r.height - topPad - 50);
+
+            const float ROW_H = 50f; // 2 строки: имя спикера · кол-во людей
+            float contentH = _nodeData.DialogueLines.Count * (ROW_H + 4) + 10;
+            Rect viewR = new Rect(0, 0, scrollR.width - 14, contentH);
+
+            _linesRailScroll = GUI.BeginScrollView(scrollR, _linesRailScroll, viewR);
 
             for (int i = 0; i < _nodeData.DialogueLines.Count; i++)
             {
                 var line = _nodeData.DialogueLines[i];
+                bool isActive   = i == _activeLineIndex;
+                bool isSelected = _selectedLineIndices.Contains(i);
+                Rect rowR = new Rect(2, i * (ROW_H + 4), viewR.width - 4, ROW_H);
 
-                if (line.Speaker != null && !activeAssets.Contains(line.Speaker))
-                {
-                    line.Speaker = null;
-                    line.Mood = "Default";
-                    TriggerLiveSync(true);
-                }
+                bool hover = rowR.Contains(Event.current.mousePosition);
 
-                bool isSelected = _activeLineIndex == i;
-
-                GUI.backgroundColor = isSelected ? new Color(1f, 0.95f, 0.8f) : new Color(0.85f, 0.85f, 0.85f);
-                GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(220), GUILayout.ExpandHeight(true));
-                GUI.backgroundColor = Color.white;
-
-                Rect cardRect = EditorGUILayout.BeginVertical();
-
-                GUILayout.BeginHorizontal(EditorStyles.toolbar);
-                GUIStyle numStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter };
-                numStyle.normal.textColor = isSelected ? new Color(0.9f, 0.5f, 0f) : new Color(0.5f, 0.5f, 0.5f);
-                GUILayout.Label($"#{i + 1}", numStyle, GUILayout.Width(30));
-
-                if (GUILayout.Button("◀", EditorStyles.toolbarButton, GUILayout.Width(25)) && i > 0) actionMoveLeft = i;
-                if (GUILayout.Button("▶", EditorStyles.toolbarButton, GUILayout.Width(25)) && i < _nodeData.DialogueLines.Count - 1) actionMoveRight = i;
-
-                GUILayout.FlexibleSpace();
-                bool canDeleteLine = _nodeData.DialogueLines.Count > 1;
-                EditorGUI.BeginDisabledGroup(!canDeleteLine);
-                GUI.backgroundColor = canDeleteLine ? new Color(0.9f, 0.4f, 0.4f) : Color.grey;
-                if (GUILayout.Button("✖", EditorStyles.toolbarButton, GUILayout.Width(30))) actionDelete = i;
-                GUI.backgroundColor = Color.white;
-                EditorGUI.EndDisabledGroup();
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(5);
-                string displayName = line.Speaker != null ? line.Speaker.name : ToolLang.Get("No Speaker", "Без спикера");
-                if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName)) displayName = line.CustomName;
-
-                GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, fontSize = 16, richText = true };
-                nameStyle.normal.textColor = isSelected ? (line.Speaker != null ? line.Speaker.ThemeColor : Color.black) : new Color(0.4f, 0.4f, 0.4f);
-                GUILayout.Label($"{ToolLang.Get("Speaker:", "Спикер:")} {displayName}", nameStyle);
-
-                if (isSelected)
-                {
-                    GUIStyle activeHintStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0.2f, 0.6f, 0.2f) } };
-                    GUILayout.Label(ToolLang.Get($"Editing line #{i + 1}", $"Настраивается реплика #{i + 1}"), activeHintStyle);
-                }
-                else GUILayout.Space(14);
-
-                GUILayout.Space(5);
-
-                Rect imgRect = GUILayoutUtility.GetRect(200, 230, GUILayout.ExpandHeight(true));
-
-                if (isSelected)
-                {
-                    Rect goldBorder = new Rect(imgRect.x - 3, imgRect.y - 3, imgRect.width + 6, imgRect.height + 6);
-                    EditorGUI.DrawRect(goldBorder, new Color(1f, 0.85f, 0f, 1f));
-                }
-
-                EditorGUI.DrawRect(imgRect, new Color(0.15f, 0.15f, 0.15f, 1f));
-
-                Sprite targetSprite = null;
-                if (line.Speaker != null && !line.HideSpeakerSprite)
-                {
-                    targetSprite = line.Speaker.DefaultSprite;
-                    if (line.Mood != "Default" && line.Speaker.Emotions != null)
-                    {
-                        int emotionIndex = line.Speaker.Emotions.FindIndex(e => e.EmotionName == line.Mood);
-                        if (emotionIndex != -1)
-                        {
-                            var overrides = line.Speaker.Emotions[emotionIndex].LayerOverrides;
-                            if (overrides != null && overrides.Count > 0)
-                            {
-                                var firstOverride = overrides.FirstOrDefault(o => o.OverrideSprite != null);
-                                if (firstOverride != null)
-                                    targetSprite = firstOverride.OverrideSprite;
-                            }
-                        }
-                    }
-                }
-
-                if (targetSprite != null && targetSprite.texture != null)
-                {
-                    if (!isSelected) GUI.color = new Color(0.6f, 0.6f, 0.6f, 1f);
-
-                    Matrix4x4 oldMatrix = GUI.matrix;
-                    if (line.FlipX || line.FlipY)
-                    {
-                        Vector2 pivot = new Vector2(imgRect.x + imgRect.width / 2f, imgRect.y + imgRect.height / 2f);
-                        GUIUtility.ScaleAroundPivot(new Vector2(line.FlipX ? -1 : 1, line.FlipY ? -1 : 1), pivot);
-                    }
-
-                    GUI.DrawTexture(imgRect, targetSprite.texture, ScaleMode.ScaleToFit);
-
-                    GUI.matrix = oldMatrix;
-                    GUI.color = Color.white;
-                }
+                // Card background — accent fill для active или selected,
+                // hover чуть светлее. Multi-selected (но не active) рисуется
+                // более бледным accent-tint чтобы отличать от primary.
+                Color cardBg;
+                if (isActive)
+                    cardBg = new Color(Accent.r, Accent.g, Accent.b, 0.22f);
+                else if (isSelected)
+                    cardBg = new Color(Accent.r, Accent.g, Accent.b, 0.12f);
+                else if (hover)
+                    cardBg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.85f);
                 else
+                    cardBg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f);
+                EditorGUI.DrawRect(rowR, cardBg);
+                NovellaInspectorChrome.DrawBorder(rowR,
+                    (isActive || isSelected) ? Accent
+                        : (hover ? new Color(Accent.r, Accent.g, Accent.b, 0.55f) : Border));
+
+                // Цветная полоска слева (ThemeColor спикера).
+                Color spkCol = line.Speaker != null
+                    ? line.Speaker.ThemeColor
+                    : new Color(Border.r, Border.g, Border.b, 0.85f);
+                EditorGUI.DrawRect(new Rect(rowR.x, rowR.y, 3, rowR.height), spkCol);
+
+                // Number в верхнем-правом углу.
+                var numSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = isActive ? Accent : Text3 }
+                };
+                GUI.Label(new Rect(rowR.xMax - 30, rowR.y + 4, 26, 14),
+                    "#" + (i + 1), numSt);
+
+                // Speaker name (top-left). Цвет — ThemeColor спикера для
+                // быстрой визуальной идентификации.
+                string spkName = line.Speaker != null
+                    ? line.Speaker.name
+                    : ToolLang.Get("Narrator", "Без спикера");
+                if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName)) spkName = line.CustomName;
+                Color spkNameCol = line.Speaker != null
+                    ? (line.Speaker.ThemeColor.a > 0.05f ? line.Speaker.ThemeColor : Text1)
+                    : Text3;
+                var spkSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 11,
+                    normal = { textColor = spkNameCol },
+                    clipping = TextClipping.Clip
+                };
+                GUI.Label(new Rect(rowR.x + 8, rowR.y + 6, rowR.width - 36, 16), spkName, spkSt);
+
+                // Sub-line: «N чел. в сцене» (видимых, без скрытых).
+                // Считаем visible-cast прямо здесь — это лёгкая операция.
+                int visibleCount = 0;
+                if (_nodeData.ActiveCharacters != null)
                 {
-                    GUI.color = new Color(1f, 1f, 1f, 0.3f);
-                    GUIStyle centeredStyle = new GUIStyle(EditorStyles.whiteMiniLabel) { alignment = TextAnchor.MiddleCenter };
-                    GUI.Label(imgRect, line.HideSpeakerSprite ? ToolLang.Get("👻 Hidden", "👻 Скрыт") : ToolLang.Get("No Sprite", "Нет спрайта"), centeredStyle);
-                    GUI.color = Color.white;
+                    var seen = new HashSet<int>();
+                    foreach (var ac in _nodeData.ActiveCharacters)
+                    {
+                        if (ac?.CharacterAsset == null) continue;
+                        int chId = ac.CharacterAsset.GetInstanceID();
+                        if (!seen.Add(chId)) continue;
+                        // Проверяем placement.Visible (default true если нет override).
+                        var pl = FindPlacement(line, ac.CharacterAsset);
+                        bool vis = pl?.Visible ?? true;
+                        if (vis) visibleCount++;
+                    }
                 }
+                string subTxt = visibleCount == 0
+                    ? ToolLang.Get("empty stage", "пустая сцена")
+                    : (ToolLang.IsRU
+                        ? NovellaPlurals.People(visibleCount) + " на сцене"
+                        : NovellaPlurals.People(visibleCount) + " on stage");
+                var subSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Italic,
+                    normal = { textColor = visibleCount == 0 ? Text4 : Text3 },
+                    clipping = TextClipping.Clip
+                };
+                GUI.Label(new Rect(rowR.x + 8, rowR.y + 24, rowR.width - 14, 14),
+                    subTxt, subSt);
 
-                GUILayout.Space(10);
-                GUILayout.Label($"✏ {ToolLang.Get("Text", "Текст")} [{_previewLanguage}]:", EditorStyles.miniBoldLabel);
+                // (Сниппет текста удалён по фидбеку — в rail только спикер
+                // и кол-во людей. Сам текст виден в speech-bubble на сцене
+                // и в большом редакторе снизу.)
 
-                EditorGUI.BeginChangeCheck();
-                string newPhrase = EditorGUILayout.TextArea(line.LocalizedPhrase.GetText(_previewLanguage), new GUIStyle(EditorStyles.textArea) { wordWrap = true, fontSize = 13 }, GUILayout.Height(75));
-
-                if (EditorGUI.EndChangeCheck())
+                // Click → multi-select / single-select / range-select.
+                if (hover && Event.current.type == EventType.MouseDown && Event.current.button == 0)
                 {
-                    Undo.RecordObject(_tree, "Edit Phrase");
-                    line.LocalizedPhrase.SetText(_previewLanguage, newPhrase);
-                    EditorUtility.SetDirty(_tree);
-                    TriggerLiveSync(false);
-                }
-
-                GUILayout.Space(5);
-                if (GUILayout.Button(new GUIContent($"📝 {ToolLang.Get("Full Text Editor", "Полный редактор текста")}"), EditorStyles.miniButton))
-                {
-                    NovellaTextEditorWindow.OpenWindow(line, fontSizeProp, _tree, () => { _onMarkUnsaved?.Invoke(); _onRepaintRequest?.Invoke(); });
-                }
-
-                EditorGUILayout.EndVertical();
-
-                if (Event.current.type == EventType.MouseDown && cardRect.Contains(Event.current.mousePosition))
-                {
-                    _activeLineIndex = i;
-                    TriggerLiveSync(true);
+                    HandleLineRailClick(i);
                     Event.current.Use();
                 }
-
-                GUILayout.Space(5);
-                GUILayout.EndVertical();
-
-                GUILayout.Space(10);
             }
 
-            ProcessDeferredActions(actionDelete, actionMoveLeft, actionMoveRight);
+            GUI.EndScrollView();
 
-            GUILayout.BeginVertical(GUILayout.Width(130), GUILayout.ExpandHeight(true));
-            GUILayout.FlexibleSpace();
+            // ─── Кнопка «🗑 Удалить выделенные» — видна только при multi-select ───
+            // Отрисовывается ВЫШЕ Add-кнопки, чтобы юзер видел действие
+            // когда у него есть выделение.
+            float bottomY = r.yMax - 44;
+            if (_selectedLineIndices.Count > 1)
+            {
+                Rect delBtnR = new Rect(r.x + 8, bottomY - 32, r.width - 16, 28);
+                string delLbl = string.Format(
+                    ToolLang.Get("🗑  Delete {0} (Del)", "🗑  Удалить {0} (Del)"),
+                    _selectedLineIndices.Count);
+                if (DrawSlimRectBtn(delBtnR, delLbl, danger: true))
+                    DeleteSelectedLines();
+                bottomY -= 36;
+            }
 
+            // ─── + Add Line / лимит — фиксированно снизу ленты ───
+            Rect addBtnR = new Rect(r.x + 8, r.yMax - 44, r.width - 16, 36);
             if (_nodeData.DialogueLines.Count >= 10 && !_nodeData.UnlockDialogueLimit)
             {
-                EditorGUILayout.HelpBox(ToolLang.Get("Limit reached (10 lines). We recommend splitting dialogues into multiple nodes.", "Достигнут лимит (10 реплик). Рекомендуем разбивать длинные диалоги на несколько нод."), MessageType.Warning);
-                if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять лимит"), EditorStyles.miniButton, GUILayout.Height(30)))
+                if (DrawSlimRectBtn(addBtnR, "🔓  " + ToolLang.Get("Remove limit", "Снять лимит"), danger: false))
                 {
                     Undo.RecordObject(_tree, "Unlock Limit");
                     _nodeData.UnlockDialogueLimit = true;
@@ -337,344 +1000,2770 @@ namespace NovellaEngine.Editor
             }
             else
             {
-                if (GUILayout.Button("+\n" + ToolLang.Get("Add Line", "Добавить\nреплику"), new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold }, GUILayout.Height(80)))
+                if (DrawAccentRectBtn(addBtnR, "+  " + ToolLang.Get("Add line", "Реплика")))
                 {
-                    Undo.RecordObject(_tree, "Add Line");
+                    int origIdx = _activeLineIndex;
+                    Undo.RegisterCompleteObjectUndo(_tree, "Add Line");
                     var newLine = new DialogueLine();
                     if (_nodeData.DialogueLines.Count > 0) newLine.Speaker = _nodeData.DialogueLines.Last().Speaker;
-                    if (newLine.Speaker != null && !activeAssets.Contains(newLine.Speaker)) newLine.Speaker = null;
+                    var active = GetAvailableSpeakers();
+                    if (newLine.Speaker != null && !active.Contains(newLine.Speaker)) newLine.Speaker = null;
                     newLine.FrameScale = 1f; newLine.SpeakerScale = 1f;
-
                     _nodeData.DialogueLines.Add(newLine);
                     _activeLineIndex = _nodeData.DialogueLines.Count - 1;
+                    // На случай Undo — вернёмся на ту реплику с которой добавляли.
+                    if (origIdx >= 0) _undoFocusTarget = origIdx;
                     EditorUtility.SetDirty(_tree);
                     TriggerLiveSync(true);
-                    _storyboardScrollPos.x = float.MaxValue;
                 }
             }
-            GUILayout.FlexibleSpace();
-            GUILayout.EndVertical();
-
-            GUILayout.Space(20);
-            GUILayout.EndHorizontal();
         }
 
-        private void ProcessDeferredActions(int delete, int moveLeft, int moveRight)
-        {
-            if (delete != -1)
-            {
-                Undo.RecordObject(_tree, "Remove Line");
-                _nodeData.DialogueLines.RemoveAt(delete);
-                _activeLineIndex = Mathf.Clamp(_activeLineIndex, 0, _nodeData.DialogueLines.Count - 1);
-                EditorUtility.SetDirty(_tree);
-                TriggerLiveSync(true);
-            }
-            else if (moveLeft != -1)
-            {
-                Undo.RecordObject(_tree, "Move Line Left");
-                var temp = _nodeData.DialogueLines[moveLeft];
-                _nodeData.DialogueLines[moveLeft] = _nodeData.DialogueLines[moveLeft - 1];
-                _nodeData.DialogueLines[moveLeft - 1] = temp;
-                if (_activeLineIndex == moveLeft) _activeLineIndex = moveLeft - 1;
-                else if (_activeLineIndex == moveLeft - 1) _activeLineIndex = moveLeft;
-                EditorUtility.SetDirty(_tree);
-                TriggerLiveSync(true);
-            }
-            else if (moveRight != -1)
-            {
-                Undo.RecordObject(_tree, "Move Line Right");
-                var temp = _nodeData.DialogueLines[moveRight];
-                _nodeData.DialogueLines[moveRight] = _nodeData.DialogueLines[moveRight + 1];
-                _nodeData.DialogueLines[moveRight + 1] = temp;
-                if (_activeLineIndex == moveRight) _activeLineIndex = moveRight + 1;
-                else if (_activeLineIndex == moveRight + 1) _activeLineIndex = moveRight;
-                EditorUtility.SetDirty(_tree);
-                TriggerLiveSync(true);
-            }
-        }
+        // ════════════════════════════════════════════════════════════════════
+        // 3) SCENE PREVIEW (центральная большая область)
+        // ════════════════════════════════════════════════════════════════════
 
-        private void DrawBottomSettingsPanel()
+        private void DrawScenePreview(Rect r)
         {
-            if (_activeLineIndex < 0 || _activeLineIndex >= _nodeData.DialogueLines.Count) return;
+            EditorGUI.DrawRect(r, BgPrimary);
+
+            if (!InRange(_activeLineIndex))
+            {
+                var emptySt = new GUIStyle(EditorStyles.label) {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 12, fontStyle = FontStyle.Italic,
+                    normal = { textColor = Text3 }
+                };
+                GUI.Label(r, ToolLang.Get("No lines yet · click + on the left",
+                    "Реплик нет · нажми + слева чтобы создать"), emptySt);
+                return;
+            }
+
             var line = _nodeData.DialogueLines[_activeLineIndex];
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(10);
+            // ─── Внутренний preview-rect (с padding) ───
+            // Минимальный padding 8px со всех сторон.
+            Rect inner = new Rect(r.x + 8, r.y + 8, r.width - 16, r.height - 16);
 
-            // ================= КОЛОНКА 1: НАСТРОЙКИ СПИКЕРА И ЭМОЦИИ =================
-            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(310));
+            // ─── ALL CAST strip — колонка СЛЕВА со ВСЕМИ персонажами ───
+            // Сетка 3×N. Click по карточке выбирает персонажа для
+            // редактирования в правой панели. Скрытые отмечены 👻,
+            // спикер — 🎤. Selected — accent fill.
+            // Width 170px — минимально-комфортный для 3-колоночной сетки
+            // (карточка ~50px). Compensate за SETTINGS_PANEL_W=320.
+            const float HIDDEN_STRIP_W = 170f;
+            Rect hiddenStripR = new Rect(inner.x, inner.y, HIDDEN_STRIP_W, inner.height - 130);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("🎭 " + ToolLang.Get("Speaker Settings", "Настройки спикера"), EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("↺ " + ToolLang.Get("Reset", "Сброс"), EditorStyles.miniButton))
+            // Auto-select первого персонажа массовки если ещё не выбран.
+            var __cast = GetUniqueCast();
+            if (_editingCharacter == null && __cast.Count > 0)
+                _editingCharacter = __cast[0];
+            // Если выбранный больше не в массовке — сбросить.
+            if (_editingCharacter != null && !__cast.Any(c =>
+                c != null && c.GetInstanceID() == _editingCharacter.GetInstanceID()))
+                _editingCharacter = __cast.FirstOrDefault();
+
+            // Stage начинается ПОСЛЕ strip'а (плюс gap).
+            Rect stageArea = new Rect(
+                inner.x + HIDDEN_STRIP_W + 8, inner.y,
+                inner.width - HIDDEN_STRIP_W - 8, inner.height);
+
+            // Preview занимает 16:9 пропорцию (видимая «камера»).
+            // Camera = central rect, drag-зона (yellow dashed) расширена
+            // на STAGE_BLEED во все стороны. Persons рисуются относительно
+            // CAMERA: NormPos=0 → cameraStage.x, NormPos=1 → cameraStage.xMax.
+            // Drag clamp [-BLEED..1+BLEED] позволяет уйти за камеру.
+            //
+            // Внутренние paddings минимизированы чтобы preview занимал
+            // максимум места.
+            float aspect = 16f / 9f;
+            float topPad = 12f;
+            float availW = stageArea.width;
+            float availH = stageArea.height - 60 - topPad;
+
+            // Camera-ширина по доступному месту с учётом bleed (и для X и Y).
+            float maxCamW = availW / (1f + STAGE_BLEED * 2f);
+            float maxCamH = availH / (1f + STAGE_BLEED * 2f);
+            float pw = Mathf.Min(maxCamW, maxCamH * aspect);
+            float ph = pw / aspect;
+
+            // cameraStage = видимый кадр (то что увидит игрок).
+            Rect cameraStage = new Rect(
+                stageArea.x + (stageArea.width - pw) * 0.5f,
+                stageArea.y + topPad + ph * STAGE_BLEED, pw, ph);
+            // stage = drag-зона = cameraRect + 20% bleed во все стороны.
+            float bleedX = pw * STAGE_BLEED;
+            float bleedY = ph * STAGE_BLEED;
+            Rect stage = new Rect(
+                cameraStage.x - bleedX,
+                cameraStage.y - bleedY,
+                cameraStage.width  + bleedX * 2,
+                cameraStage.height + bleedY * 2);
+
+            // Если включён real-scene preview — рендерим Unity-сцену в нашу
+            // RenderTexture и используем как фон camera-rect'а. Перед
+            // рендером пишем текст текущей реплики в DialoguePanel сцены
+            // (см. WriteCurrentLineToScene).
+            RenderScenePreviewIfNeeded((int)cameraStage.width, (int)cameraStage.height, line);
+
+            // Stage background рисуется на extended-rect, а camera-frame
+            // отдельно (показывает «вот что увидит игрок»).
+            DrawStageBackground(stage, cameraStage);
+
+            // ─── Расстановка ───
+            // NormPos маппится относительно cameraStage (NormPos=0 → camera left).
+            // Drag-bounds (yellow rect = stage) — где можно тащить мышкой.
+            var cast = GetEffectiveCast(line);
+            DrawCastFormation(stage, cameraStage, cast, line);
+
+            // ─── Все персонажи в vertical strip слева ───
+            // Click — выбирает для редактирования в правой панели.
+            DrawAllCastStrip(hiddenStripR, cast, line);
+
+            // Speech bubble удалён — теперь текст реплики виден прямо в
+            // диалоговом окне сцены через RenderTexture (см.
+            // WriteCurrentLineToScene). Если в сцене нет NovellaPlayer
+            // или DialoguePanel — рисуем fallback warn-плашку.
+            if (!HasUsablePlayerInScene() && _showRealScenePreview)
+                DrawNoPlayerHint(cameraStage, line);
+
+            // ─── Floating actions: ◀ ▶ ⧉ ✕ ↺ (поверх cameraStage в углу) ───
+            DrawFloatingActions(cameraStage);
+        }
+
+        // Fallback-плашка когда NovellaPlayer не найден или у него нет
+        // DialoguePanel — текст показываем в самом превью.
+        private void DrawNoPlayerHint(Rect cameraStage, DialogueLine line)
+        {
+            float h = Mathf.Min(110, cameraStage.height * 0.30f);
+            Rect hintR = new Rect(cameraStage.x + 12, cameraStage.yMax - h - 12,
+                cameraStage.width - 24, h);
+            EditorGUI.DrawRect(hintR, new Color(0, 0, 0, 0.78f));
+            NovellaInspectorChrome.DrawBorder(hintR,
+                new Color(Accent.r, Accent.g, Accent.b, 0.85f));
+
+            // Заголовок + спикер.
+            string spkName = line.Speaker != null ? line.Speaker.name : ToolLang.Get("Narrator", "Рассказчик");
+            if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName)) spkName = line.CustomName;
+            Color spkCol = line.Speaker != null
+                ? (line.Speaker.ThemeColor.a > 0.05f ? line.Speaker.ThemeColor : Text1)
+                : Text2;
+            var spkSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12, normal = { textColor = spkCol }, richText = true
+            };
+            GUI.Label(new Rect(hintR.x + 10, hintR.y + 6, hintR.width - 20, 18),
+                spkName + ":", spkSt);
+
+            // Текст реплики.
+            string text = line.LocalizedPhrase != null
+                ? line.LocalizedPhrase.GetText(_previewLanguage) : "";
+            if (string.IsNullOrEmpty(text)) text = ToolLang.Get(
+                "(empty line — type the text below)",
+                "(пустая реплика — впиши текст ниже)");
+            int rawFs = line.FontSize > 0 ? line.FontSize
+                : (_nodeData.FontSize > 0 ? _nodeData.FontSize : 32);
+            int previewFs = Mathf.Clamp(Mathf.RoundToInt(rawFs / 2.5f), 10, 24);
+            var bodySt = new GUIStyle(EditorStyles.label) {
+                fontSize = previewFs,
+                normal = { textColor = Text1 },
+                wordWrap = true, richText = true,
+                clipping = TextClipping.Clip
+            };
+            GUI.Label(new Rect(hintR.x + 10, hintR.y + 24, hintR.width - 20, hintR.height - 30),
+                text, bodySt);
+
+            // Внизу — мелкая warn-метка «нет NovellaPlayer».
+            var warnSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Italic,
+                alignment = TextAnchor.MiddleRight,
+                normal = { textColor = new Color(Danger.r, Danger.g, Danger.b, 0.85f) }
+            };
+            GUI.Label(new Rect(hintR.xMax - 240, hintR.y - 14, 236, 12),
+                "⚠  " + ToolLang.Get(
+                    "no NovellaPlayer on scene — using fallback bubble",
+                    "на сцене нет NovellaPlayer — показываю запасной бабл"),
+                warnSt);
+        }
+
+        // ─── Левая панель — ВСЕ персонажи массовки (выбор для правой) ───
+        // Сетка 2×N. Каждая мини-карточка:
+        //   • avatar (затемнён если скрыт, нормальная если виден)
+        //   • 👻-индикатор если скрыт
+        //   • 🎤-индикатор если спикер
+        //   • + Add character chip в конце
+        // Click → выбирает персонажа для редактирования в правой панели
+        //         (становится _editingCharacter).
+        private void DrawAllCastStrip(Rect r, List<EffectivePlacement> cast, DialogueLine line)
+        {
+            // ─── Кнопка «+ Добавить» СВЕРХУ — primary CTA ───
+            Rect addR = new Rect(r.x + 4, r.y, r.width - 8, 28);
+            if (DrawAccentRectBtn(addR,
+                "+  " + ToolLang.Get("Add character", "Добавить персонажа")))
+                ShowAddCharacterMenu();
+
+            // Header под кнопкой.
+            var hdrSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Text3 }
+            };
+            GUI.Label(new Rect(r.x, r.y + 32, r.width, 16),
+                "👥  " + ToolLang.Get("CAST", "МАССОВКА"), hdrSt);
+
+            if (cast.Count == 0)
             {
-                Undo.RecordObject(_tree, "Reset Line Settings");
-                line.HideSpeakerName = false; line.HideSpeakerSprite = false; line.CustomizeSpeakerLayout = false;
-                line.FlipX = false; line.FlipY = false;
-                line.CustomizeFrameLayout = false; line.OverrideDialogueFrame = null;
-                line.FrameScale = 1f; line.SpeakerScale = 1f;
-                line.FramePosX = 0f; line.FramePosY = 0f; line.SpeakerPosX = 0f; line.SpeakerPosY = 0f;
-                line.DelayBefore = 0; line.FontSize = 0; line.UseTypewriter = true; line.UseCustomPacing = false;
-                EditorUtility.SetDirty(_tree);
-                TriggerLiveSync(true);
+                var emptySt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Italic,
+                    normal = { textColor = Text4 }, wordWrap = true
+                };
+                GUI.Label(new Rect(r.x + 4, r.y + 54, r.width - 8, 60),
+                    ToolLang.Get("Click + above to add a character",
+                                 "Жми + сверху чтобы добавить персонажа"), emptySt);
+                return;
             }
-            GUILayout.EndHorizontal();
 
-            GUILayout.Space(5);
+            // ─── Сетка 3×N ───
+            const int   COLS    = 3;
+            const float GAP     = 5f;
+            const float CARD_H  = 92f;  // увеличено под 250px-ширину strip'а
+            float topY  = r.y + 54;
+            float chipW = (r.width - GAP * (COLS + 1)) / COLS;
 
-            var activeAssets = GetAvailableSpeakers();
-            List<string> speakerOptions = new List<string> { ToolLang.Get("-- No Speaker --", "-- Без спикера --") };
-            speakerOptions.AddRange(activeAssets.Select(a => a.name));
+            // Прокручиваемая область — занимает всё свободное место
+            // под header'ом (Add-кнопка теперь сверху, не нужно резервировать).
+            Rect listR = new Rect(r.x, topY, r.width, r.height - 58);
 
-            EditorGUI.BeginChangeCheck();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("👤 " + ToolLang.Get("Speaker:", "Спикер:"), GUILayout.Width(70));
+            int speakerId = line?.Speaker != null ? line.Speaker.GetInstanceID() : 0;
+            int editingId = _editingCharacter != null ? _editingCharacter.GetInstanceID() : 0;
 
-            int currentSpeakerIdx = (line.Speaker != null && activeAssets.Contains(line.Speaker)) ? activeAssets.IndexOf(line.Speaker) + 1 : 0;
-            int newSpeakerIdx = EditorGUILayout.Popup(currentSpeakerIdx, speakerOptions.ToArray());
+            int total = cast.Count;
+            int rowsTotal = Mathf.CeilToInt(total / (float)COLS);
+            float contentH = rowsTotal * (CARD_H + GAP) + 4;
 
-            if (line.Speaker != null)
+            // ScrollView если контент не влезает.
+            bool useScroll = contentH > listR.height;
+            if (useScroll)
             {
-                if (GUILayout.Button("🛠", EditorStyles.miniButton, GUILayout.Width(25)))
-                    NovellaCharacterEditorModule.OpenWithCharacter(line.Speaker);
-            }
-            GUILayout.EndHorizontal();
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                Undo.RecordObject(_tree, "Change Speaker");
-                line.Speaker = newSpeakerIdx == 0 ? null : activeAssets[newSpeakerIdx - 1];
-                line.Mood = "Default";
-                EditorUtility.SetDirty(_tree);
-                TriggerLiveSync(true);
+                _allCastScroll = GUI.BeginScrollView(listR, _allCastScroll,
+                    new Rect(0, 0, listR.width - 14, contentH));
+                topY = 0;
             }
 
-            if (line.Speaker != null)
+            for (int i = 0; i < total; i++)
             {
-                EditorGUI.BeginChangeCheck();
-                List<string> moodList = new List<string> { "Default" };
-                if (line.Speaker.Emotions != null) moodList.AddRange(line.Speaker.Emotions.Select(e => e.EmotionName));
+                var p = cast[i];
+                int row = i / COLS;
+                int col = i % COLS;
+                float cardX = (useScroll ? 0 : r.x) + GAP + col * (chipW + GAP);
+                float cardY = topY + row * (CARD_H + GAP);
+                Rect cardR = new Rect(cardX, cardY, chipW, CARD_H);
 
-                int moodIdx = moodList.IndexOf(line.Mood);
-                if (moodIdx == -1) moodIdx = 0;
-
-                GUILayout.Space(5);
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("😃 " + ToolLang.Get("Emotion:", "Эмоция:"), GUILayout.Width(70));
-                line.Mood = moodList[EditorGUILayout.Popup(moodIdx, moodList.ToArray())];
-                GUILayout.EndHorizontal();
-
-                if (line.Speaker.Emotions == null || line.Speaker.Emotions.Count < 1)
-                    GUILayout.Label(ToolLang.Get("💡 Add emotions in Character Editor.", "💡 Эмоции добавляются в редакторе персонажа."), EditorStyles.centeredGreyMiniLabel);
-
-                if (EditorGUI.EndChangeCheck())
-                {
-                    Undo.RecordObject(_tree, "Change Mood");
-                    EditorUtility.SetDirty(_tree);
-                    TriggerLiveSync(false);
-                }
-
-                GUILayout.Space(10);
-                GUILayout.Label(ToolLang.Get("Visual Overrides", "Переопределение визуала на сцене"), EditorStyles.miniBoldLabel);
-
-                EditorGUI.BeginChangeCheck();
-                GUILayout.BeginHorizontal();
-                line.HideSpeakerName = GUILayout.Toggle(line.HideSpeakerName, new GUIContent(" 👁 " + ToolLang.Get("Fake Name", "Фейк Имя"), "Заменяет имя в окне UI."), EditorStyles.miniButton);
-                line.HideSpeakerSprite = GUILayout.Toggle(line.HideSpeakerSprite, new GUIContent(" 👻 " + ToolLang.Get("Hide Sprite", "Скрыть Спрайт"), "Убирает персонажа со сцены."), EditorStyles.miniButton);
-                line.CustomizeSpeakerLayout = GUILayout.Toggle(line.CustomizeSpeakerLayout, new GUIContent(" ⚙ " + ToolLang.Get("Override Pos", "Сдвиг Поз."), "Изменить координаты/размер."), EditorStyles.miniButton);
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(5);
-                GUILayout.BeginHorizontal();
-                line.FlipX = GUILayout.Toggle(line.FlipX, new GUIContent(" ↔ Flip X"), EditorStyles.miniButton);
-                line.FlipY = GUILayout.Toggle(line.FlipY, new GUIContent(" ↕ Flip Y"), EditorStyles.miniButton);
-                GUILayout.EndHorizontal();
-
-                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Change Toggles"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
-
-                if (line.HideSpeakerName)
-                {
-                    GUILayout.Space(5);
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Name:", "Имя:"), GUILayout.Width(40));
-                    line.CustomName = EditorGUILayout.TextField(line.CustomName, GUILayout.ExpandWidth(true));
-                    GUILayout.Label(ToolLang.Get("Color:", "Цвет:"), GUILayout.Width(40));
-                    line.CustomNameColor = EditorGUILayout.ColorField(line.CustomNameColor, GUILayout.Width(60));
-                    GUILayout.EndHorizontal();
-                    GUILayout.Label(ToolLang.Get("💡 Replaces name. Rich Text (e.g. <b>) supported.", "💡 Заменяет имя. Поддерживает Rich Text теги."), EditorStyles.miniLabel);
-                }
-
-                if (line.HideSpeakerSprite)
-                {
-                    GUILayout.Space(5);
-                    GUILayout.Label(ToolLang.Get("💡 Character will be hidden from the scene.", "💡 Спрайт персонажа временно исчезнет со сцены."), EditorStyles.miniLabel);
-                }
-
-                if (line.CustomizeSpeakerLayout)
-                {
-                    GUILayout.Space(5);
-                    EditorGUI.BeginChangeCheck();
-
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label("X:", GUILayout.Width(20));
-                    line.SpeakerPosX = EditorGUILayout.FloatField(line.SpeakerPosX, GUILayout.Width(50));
-                    GUILayout.Space(5);
-                    GUILayout.Label("Y:", GUILayout.Width(20));
-                    line.SpeakerPosY = EditorGUILayout.FloatField(line.SpeakerPosY, GUILayout.Width(50));
-                    GUILayout.EndHorizontal();
-
-                    GUILayout.Space(5);
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Scale:", "Масшт:"), GUILayout.Width(45));
-                    if (line.SpeakerScale <= 0f) line.SpeakerScale = 1f;
-                    line.SpeakerScale = EditorGUILayout.FloatField(line.SpeakerScale, GUILayout.Width(50));
-                    line.SpeakerScale = Mathf.Max(0.1f, line.SpeakerScale);
-
-                    GUILayout.Space(5);
-                    GUILayout.Label(ToolLang.Get("Layer:", "Слой:"), GUILayout.Width(40));
-                    line.SpeakerPlane = (ECharacterPlane)EditorGUILayout.EnumPopup(line.SpeakerPlane, GUILayout.ExpandWidth(true));
-                    GUILayout.EndHorizontal();
-
-                    GUILayout.Label(ToolLang.Get("💡 X/Y values act as OFFSETS from the base scene pos.", "💡 Значения X и Y применяются как СДВИГ от базовой позиции в массовке."), EditorStyles.miniLabel);
-
-                    if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Change Pos"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
-                }
-            }
-            GUILayout.EndVertical();
-
-            // ================= КОЛОНКА 2: РАМКА ДИАЛОГА (CUSTOM FRAME) =================
-            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(350));
-            GUILayout.Label("🖼 " + ToolLang.Get("Dialogue UI Frame", "Настройки рамки диалога"), EditorStyles.boldLabel);
-            GUILayout.Space(5);
-
-            EditorGUI.BeginChangeCheck();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Prefab:", "Префаб:"), GUILayout.Width(55));
-            string uiName = line.OverrideDialogueFrame != null ? line.OverrideDialogueFrame.name : ToolLang.Get("Default (Global)", "Базовая (Глобальная)");
-
-            if (GUILayout.Button(uiName, EditorStyles.popup, GUILayout.ExpandWidth(true)))
-            {
-                NovellaGalleryWindow.ShowWindow(obj => {
-                    Undo.RecordObject(_tree, "Override UI");
-                    line.OverrideDialogueFrame = obj as GameObject;
-                    EditorUtility.SetDirty(_tree);
-                    TriggerLiveSync(true);
-                }, NovellaGalleryWindow.EGalleryFilter.CustomUI);
+                bool isSpeaker = p.Character.GetInstanceID() == speakerId;
+                bool isEditing = p.Character.GetInstanceID() == editingId;
+                DrawCastSidebarCard(cardR, p, isSpeaker, isEditing);
             }
 
-            if (line.OverrideDialogueFrame != null)
-            {
-                if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25)))
-                    NovellaUIForge.OpenWithCustomPrefab(line.OverrideDialogueFrame);
+            if (useScroll) GUI.EndScrollView();
+        }
 
-                GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
-                if (GUILayout.Button("X", EditorStyles.miniButton, GUILayout.Width(25))) { Undo.RecordObject(_tree, "Clear UI"); line.OverrideDialogueFrame = null; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); }
-                GUI.backgroundColor = Color.white;
+        // Карточка персонажа в left strip — поддерживает hidden/speaker/editing
+        // визуальные состояния. Click → выбор для редактирования.
+        private void DrawCastSidebarCard(Rect cardR, EffectivePlacement p,
+            bool isSpeaker, bool isEditing)
+        {
+            bool hover = cardR.Contains(Event.current.mousePosition);
+            bool hidden = !p.Visible;
+
+            // Card background.
+            Color cardBg;
+            Color rim;
+            if (isEditing)
+            {
+                // Editing — самое яркое выделение.
+                cardBg = new Color(Accent.r, Accent.g, Accent.b, hover ? 0.38f : 0.28f);
+                rim = Accent;
+            }
+            else if (isSpeaker)
+            {
+                // Speaker — slabое accent-tint.
+                cardBg = new Color(Accent.r, Accent.g, Accent.b, hover ? 0.22f : 0.14f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.85f);
+            }
+            else if (hover)
+            {
+                cardBg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.95f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.55f);
             }
             else
             {
-                if (GUILayout.Button("✏", EditorStyles.miniButton, GUILayout.Width(25)))
-                    NovellaUIForge.ShowWindow();
+                cardBg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f);
+                rim = new Color(Border.r, Border.g, Border.b, 0.85f);
             }
-            GUILayout.EndHorizontal();
-            GUILayout.Label(ToolLang.Get("💡 Swaps dialogue window style for this specific line.", "💡 Полностью меняет дизайн окна под эту реплику."), EditorStyles.miniLabel);
+            EditorGUI.DrawRect(cardR, cardBg);
+            NovellaInspectorChrome.DrawBorder(cardR, rim);
 
-            // UI Bindings — drag&drop UI элементов из сцены, чтобы Player писал
-            // фразу/имя спикера прямо в них, а не в DialoguePanel.
-            GUILayout.Space(8);
-            GUILayout.Label("🎯 " + ToolLang.Get("Scene UI targets (optional)", "UI цели в сцене (опц.)"), EditorStyles.boldLabel);
-            NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("Body text → ", "Текст реплики → "),
-                line.UITextTargetId,
-                NovellaEngine.Runtime.UI.UIBindingKind.Text,
-                newId => { line.UITextTargetId = newId; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
-            NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(ToolLang.Get("Speaker name → ", "Имя спикера → "),
-                line.UISpeakerTargetId,
-                NovellaEngine.Runtime.UI.UIBindingKind.Text,
-                newId => { line.UISpeakerTargetId = newId; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
+            // Avatar 42×42 (3 колонки в 170px strip'е).
+            float avSize = 42f;
+            Rect avR = new Rect(cardR.x + (cardR.width - avSize) * 0.5f, cardR.y + 4, avSize, avSize);
+            Color themeCol = p.Character.ThemeColor;
+            EditorGUI.DrawRect(avR,
+                new Color(themeCol.r * 0.30f, themeCol.g * 0.30f, themeCol.b * 0.30f, 1f));
+            NovellaInspectorChrome.DrawBorder(avR,
+                new Color(themeCol.r, themeCol.g, themeCol.b, 0.65f));
 
-            // СДВИГ РАМКИ
-            GUILayout.Space(10);
-            line.CustomizeFrameLayout = EditorGUILayout.ToggleLeft(new GUIContent("📍 " + ToolLang.Get("Override Frame Position", "Сдвиг рамки по экрану (Live Sync)"), "Позволяет сместить окно диалога (Например наверх)"), line.CustomizeFrameLayout, EditorStyles.boldLabel);
-
-            if (line.CustomizeFrameLayout)
+            Sprite sprite = ResolveSpriteFor(p.Character, null);
+            if (sprite != null && sprite.texture != null)
             {
-                GUILayout.Space(5);
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("X:", GUILayout.Width(20));
-                line.FramePosX = EditorGUILayout.FloatField(line.FramePosX, GUILayout.Width(60));
-                GUILayout.Space(10);
-                GUILayout.Label("Y:", GUILayout.Width(20));
-                line.FramePosY = EditorGUILayout.FloatField(line.FramePosY, GUILayout.Width(60));
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(5);
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(ToolLang.Get("Scale:", "Масшт:"), GUILayout.Width(45));
-                if (line.FrameScale <= 0f) line.FrameScale = 1f; // Защита
-                line.FrameScale = EditorGUILayout.FloatField(line.FrameScale, GUILayout.Width(60));
-                line.FrameScale = Mathf.Max(0.1f, line.FrameScale); // Жесткий лимит
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(10);
-                EditorGUILayout.HelpBox(ToolLang.Get("Look at the Game Window or UI Forge! Frame moves in real-time.", "Посмотрите в Game Window или Кузницу UI! Вы двигаете рамку в реальном времени (Offset)."), MessageType.Info);
+                var tex = AssetPreview.GetAssetPreview(sprite);
+                if (tex == null) tex = sprite.texture;
+                Color old = GUI.color;
+                GUI.color = new Color(1, 1, 1, hidden ? 0.40f : 1f);
+                Rect fit = FitInto(avR, new Vector2(tex.width, tex.height), 0.92f);
+                GUI.DrawTexture(fit, tex, ScaleMode.ScaleToFit, true);
+                GUI.color = old;
+            }
+            else
+            {
+                string ini = !string.IsNullOrEmpty(p.Character.name)
+                    ? p.Character.name.Substring(0, 1).ToUpperInvariant() : "?";
+                var iniSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 16, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, hidden ? 0.45f : 0.85f) }
+                };
+                GUI.Label(avR, ini, iniSt);
             }
 
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Change Frame Settings"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
-            GUILayout.EndVertical();
-
-
-            // ================= КОЛОНКА 3: ТАЙМИНГИ И ТАЙПРАЙТЕР =================
-            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
-            GUILayout.Label("⏱ " + ToolLang.Get("Timing & Text Animation", "Тайминги и Анимация"), EditorStyles.boldLabel);
-            GUILayout.Space(5);
-
-            EditorGUI.BeginChangeCheck();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("⏳ " + ToolLang.Get("Wait Before:", "Пауза перед:")), GUILayout.Width(100));
-            line.DelayBefore = EditorGUILayout.FloatField(line.DelayBefore, GUILayout.Width(50));
-            GUILayout.Label(ToolLang.Get("sec", "сек"), EditorStyles.miniLabel);
-            GUILayout.EndHorizontal();
-            GUILayout.Label(ToolLang.Get("💡 Adds a silent delay before printing starts.", "💡 Добавляет немую паузу перед появлением текста."), EditorStyles.miniLabel);
-
-            GUILayout.Space(5);
-            GUILayout.BeginHorizontal();
-            if (line.FontSize <= 0) line.FontSize = _nodeData.FontSize > 0 ? _nodeData.FontSize : 32;
-            EditorGUIUtility.labelWidth = ToolLang.IsRU ? 120 : 100;
-            line.FontSize = EditorGUILayout.IntField(new GUIContent("🔠 " + ToolLang.Get("Override Font Size:", "Размер шрифта:"), "Переопределить размер текста конкретно для этой реплики."), line.FontSize, GUILayout.Width(170));
-            EditorGUIUtility.labelWidth = 0;
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(10);
-            line.UseTypewriter = EditorGUILayout.ToggleLeft(new GUIContent("⌨ " + ToolLang.Get("Enable Typewriter Effect", "Включить печатную машинку"), "Печатать текст по буквам."), line.UseTypewriter, EditorStyles.boldLabel);
-
-            if (line.UseTypewriter)
+            // Бейджи в углах аватара.
+            if (hidden)
             {
-                GUILayout.Label(ToolLang.Get("💡 Text appears letter by letter.", "💡 Текст будет печататься по буквам."), EditorStyles.miniLabel);
-                GUILayout.Space(5);
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("⚡ " + ToolLang.Get("Speed:", "Скорость:"), GUILayout.Width(90));
-                line.BaseSpeed = EditorGUILayout.FloatField(line.BaseSpeed, GUILayout.Width(50));
-                GUILayout.Label(ToolLang.Get("chars/s", "симв/с"), EditorStyles.miniLabel, GUILayout.MinWidth(45));
-                GUILayout.EndHorizontal();
+                Rect ghostR = new Rect(avR.xMax - 12, avR.y - 3, 12, 12);
+                EditorGUI.DrawRect(ghostR, new Color(0, 0, 0, 0.85f));
+                NovellaInspectorChrome.DrawBorder(ghostR,
+                    new Color(Accent.r, Accent.g, Accent.b, 0.85f));
+                var ghostSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 8, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = Color.white }
+                };
+                GUI.Label(ghostR, "👻", ghostSt);
+            }
+            if (isSpeaker)
+            {
+                Rect micR = new Rect(avR.x - 3, avR.y - 3, 12, 12);
+                EditorGUI.DrawRect(micR, new Color(Accent.r, Accent.g, Accent.b, 0.95f));
+                NovellaInspectorChrome.DrawBorder(micR, Accent);
+                var micSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 8, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = Color.white }
+                };
+                GUI.Label(micR, "🎤", micSt);
+            }
 
-                GUILayout.Space(5);
-                line.UseCustomPacing = EditorGUILayout.ToggleLeft(new GUIContent("📈 " + ToolLang.Get("Use Custom Pacing Curve", "Использовать кривую скорости"), "Динамическое изменение скорости во время вывода текста (например, в конце медленнее)."), line.UseCustomPacing);
+            // Имя — wordWrap, accent если editing.
+            var nameSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.UpperCenter,
+                wordWrap = true,
+                normal = { textColor = isEditing
+                    ? Accent
+                    : (isSpeaker ? Accent : (hover ? Text1 : Text2)) },
+                clipping = TextClipping.Clip
+            };
+            Rect nameR = new Rect(cardR.x + 2, avR.yMax + 2, cardR.width - 4,
+                cardR.yMax - avR.yMax - 4);
+            GUI.Label(nameR, p.Character.name, nameSt);
 
-                if (line.UseCustomPacing)
+            EditorGUIUtility.AddCursorRect(cardR, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0
+                && hover)
+            {
+                _editingCharacter = p.Character;
+                _lastClickArea = ClickArea.Character;
+                Event.current.Use();
+                Repaint();
+            }
+        }
+
+        // Удалить выбранного _editingCharacter из массовки (со всех реплик).
+        // Вызывается из Del-клавиши когда _lastClickArea = Character.
+        private void RemoveEditingCharacter()
+        {
+            if (_editingCharacter == null) return;
+            var ch = _editingCharacter;
+            if (!EditorUtility.DisplayDialog(
+                ToolLang.Get("Remove character?", "Убрать персонажа?"),
+                string.Format(ToolLang.Get(
+                    "Remove «{0}» from this dialogue's cast? Their placements and speaker references on all lines will be cleared.",
+                    "Убрать «{0}» из массовки этого диалога? Расстановка и роль спикера во всех репликах будут очищены."), ch.name),
+                ToolLang.Get("Remove", "Убрать"),
+                ToolLang.Get("Cancel", "Отмена")))
+                return;
+
+            Undo.RegisterCompleteObjectUndo(_tree, "Remove Character from Cast");
+            int chId = ch.GetInstanceID();
+            _nodeData.ActiveCharacters.RemoveAll(a => a?.CharacterAsset != null
+                && a.CharacterAsset.GetInstanceID() == chId);
+            foreach (var l in _nodeData.DialogueLines)
+            {
+                l.StagePlacements?.RemoveAll(p => p?.Character != null
+                    && p.Character.GetInstanceID() == chId);
+                if (l.Speaker != null && l.Speaker.GetInstanceID() == chId)
+                    l.Speaker = null;
+            }
+            _editingCharacter = null;
+            EditorUtility.SetDirty(_tree);
+            TriggerLiveSync(true);
+        }
+
+        // ─── Сетка 2×N скрытых персонажей слева от stage'а ───
+        // Каждая мини-карточка: avatar с 👻-индикатором + имя снизу.
+        // Click — возвращает персонажа на сцену (Visible=true).
+        // «+N» появляется только если скрытых > MAX_VISIBLE_HIDDEN (10).
+        private const int MAX_VISIBLE_HIDDEN = 10;
+
+        private void DrawHiddenVerticalStrip(Rect r, List<EffectivePlacement> hidden)
+        {
+            // Заголовок секции (мелкий, сверху).
+            var hdrSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Text3 }
+            };
+            Rect hdrR = new Rect(r.x, r.y, r.width, 16);
+            GUI.Label(hdrR,
+                "👻  " + ToolLang.Get("HIDDEN", "СКРЫТО"),
+                hdrSt);
+
+            if (hidden.Count == 0)
+            {
+                var emptySt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Italic,
+                    normal = { textColor = Text4 }
+                };
+                GUI.Label(new Rect(r.x, r.y + 24, r.width, 36),
+                    ToolLang.Get("(no one)", "(никого)"), emptySt);
+                return;
+            }
+
+            // ─── Сетка 2×N ───
+            const int   COLS   = 2;
+            const float GAP    = 4f;
+            const float CARD_H = 86f; // avatar 44 + 2 строки имени (fontSize 9)
+
+            float topY  = r.y + 22;
+            float chipW = (r.width - GAP * (COLS + 1)) / COLS;
+
+            // Сколько показываем без сворачивания. До MAX_VISIBLE_HIDDEN — все.
+            int shown = Mathf.Min(hidden.Count, MAX_VISIBLE_HIDDEN);
+            int hiddenOverflow = hidden.Count - shown;
+
+            // Узнаём активного спикера — нужно для 🎤-индикатора в карточке
+            // если этот спикер сейчас СКРЫТ.
+            var line = _nodeData.DialogueLines[_activeLineIndex];
+            int speakerId = line?.Speaker != null ? line.Speaker.GetInstanceID() : 0;
+
+            for (int i = 0; i < shown; i++)
+            {
+                var p = hidden[i];
+                int row = i / COLS;
+                int col = i % COLS;
+                float cardX = r.x + GAP + col * (chipW + GAP);
+                float cardY = topY + row * (CARD_H + GAP);
+                if (cardY + CARD_H > r.yMax) { hiddenOverflow = hidden.Count - i; break; }
+
+                Rect cardR = new Rect(cardX, cardY, chipW, CARD_H);
+                bool isSpeakerHere = p.Character != null
+                    && p.Character.GetInstanceID() == speakerId;
+                DrawHiddenCard(cardR, p, isSpeakerHere);
+            }
+
+            // Если есть overflow (а такое возможно только когда hidden > MAX
+            // или если строки физически не влезли по высоте) — показываем
+            // «+N» в последней позиции.
+            if (hiddenOverflow > 0)
+            {
+                int idx = shown;
+                int row = idx / COLS;
+                int col = idx % COLS;
+                float cardX = r.x + GAP + col * (chipW + GAP);
+                float cardY = topY + row * (CARD_H + GAP);
+                Rect cardR = new Rect(cardX, cardY, chipW, CARD_H);
+                if (cardR.yMax <= r.yMax) DrawOverflowChip(cardR, hiddenOverflow);
+            }
+        }
+
+        // Одна мини-карточка скрытого персонажа.
+        // isSpeaker = true → дополнительный 🎤-индикатор в левом-верхнем углу
+        // аватара + accent-rim карточки (показывает что скрыт активный спикер).
+        private void DrawHiddenCard(Rect cardR, EffectivePlacement p, bool isSpeaker)
+        {
+            bool hover = cardR.Contains(Event.current.mousePosition);
+            Color cardBg;
+            Color rimCol;
+            if (isSpeaker)
+            {
+                cardBg = new Color(Accent.r, Accent.g, Accent.b, hover ? 0.32f : 0.22f);
+                rimCol = Accent;
+            }
+            else
+            {
+                cardBg = hover
+                    ? new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.95f)
+                    : new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f);
+                rimCol = hover
+                    ? new Color(Accent.r, Accent.g, Accent.b, 0.85f)
+                    : new Color(Border.r, Border.g, Border.b, 0.85f);
+            }
+            EditorGUI.DrawRect(cardR, cardBg);
+            NovellaInspectorChrome.DrawBorder(cardR, rimCol);
+
+            // Avatar 44×44 — оставляем больше места под 2-строчное имя снизу.
+            float avSize = 44f;
+            Rect avR = new Rect(cardR.x + (cardR.width - avSize) * 0.5f, cardR.y + 4, avSize, avSize);
+            Color themeCol = p.Character.ThemeColor;
+            EditorGUI.DrawRect(avR,
+                new Color(themeCol.r * 0.30f, themeCol.g * 0.30f, themeCol.b * 0.30f, 1f));
+            NovellaInspectorChrome.DrawBorder(avR,
+                new Color(themeCol.r, themeCol.g, themeCol.b, 0.65f));
+
+            Sprite sprite = ResolveSpriteFor(p.Character, null);
+            if (sprite != null && sprite.texture != null)
+            {
+                var tex = AssetPreview.GetAssetPreview(sprite);
+                if (tex == null) tex = sprite.texture;
+                Color old = GUI.color;
+                GUI.color = new Color(1, 1, 1, 0.50f);
+                Rect fit = FitInto(avR, new Vector2(tex.width, tex.height), 0.92f);
+                GUI.DrawTexture(fit, tex, ScaleMode.ScaleToFit, true);
+                GUI.color = old;
+            }
+            else
+            {
+                string ini = !string.IsNullOrEmpty(p.Character.name)
+                    ? p.Character.name.Substring(0, 1).ToUpperInvariant() : "?";
+                var iniSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 18, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, 0.55f) }
+                };
+                GUI.Label(avR, ini, iniSt);
+            }
+
+            // 👻 индикатор поверх правого-верхнего угла аватара.
+            Rect ghostR = new Rect(avR.xMax - 14, avR.y - 3, 14, 14);
+            EditorGUI.DrawRect(ghostR, new Color(0, 0, 0, 0.85f));
+            NovellaInspectorChrome.DrawBorder(ghostR,
+                new Color(Accent.r, Accent.g, Accent.b, 0.85f));
+            var ghostSt = new GUIStyle(EditorStyles.label) {
+                fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Color.white }
+            };
+            GUI.Label(ghostR, "👻", ghostSt);
+
+            // 🎤 индикатор для скрытого спикера (левый-верхний угол).
+            if (isSpeaker)
+            {
+                Rect micR = new Rect(avR.x - 3, avR.y - 3, 14, 14);
+                EditorGUI.DrawRect(micR, new Color(Accent.r, Accent.g, Accent.b, 0.95f));
+                NovellaInspectorChrome.DrawBorder(micR, Accent);
+                var micSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = Color.white }
+                };
+                GUI.Label(micR, "🎤", micSt);
+            }
+
+            // Имя снизу — wordWrap, 2 строки. Под него выделена бóльшая
+            // высота (cardR.yMax - avR.yMax - 2 ≈ 26px).
+            var nameSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.UpperCenter,
+                wordWrap = true,
+                normal = { textColor = isSpeaker
+                    ? Accent
+                    : (hover ? Text1 : Text2) },
+                clipping = TextClipping.Clip
+            };
+            Rect nameR = new Rect(cardR.x + 2, avR.yMax + 2, cardR.width - 4,
+                cardR.yMax - avR.yMax - 4);
+            GUI.Label(nameR, p.Character.name, nameSt);
+
+            EditorGUIUtility.AddCursorRect(cardR, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0
+                && hover)
+            {
+                var ov = EnsurePlacement(_nodeData.DialogueLines[_activeLineIndex],
+                    p.Character, 0);
+                Undo.RecordObject(_tree, "Show Character");
+                ov.Visible = true;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+                Event.current.Use();
+            }
+        }
+
+        // Карточка-«+N» для overflow.
+        private void DrawOverflowChip(Rect cardR, int n)
+        {
+            EditorGUI.DrawRect(cardR, new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f));
+            NovellaInspectorChrome.DrawBorder(cardR, Border);
+            var st = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 14, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Text2 }
+            };
+            GUI.Label(cardR, "+" + n, st);
+            var subSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Italic,
+                normal = { textColor = Text3 }
+            };
+            GUI.Label(new Rect(cardR.x, cardR.yMax - 14, cardR.width, 14),
+                ToolLang.Get("more", "ещё"), subSt);
+        }
+
+        private void DrawStageBackground(Rect stage, Rect cameraRect)
+        {
+            // ─── Extended drag-зона (overflow вокруг камеры) ───
+            // Заливаем тёмным цветом всё extended-пространство — туда можно
+            // ставить персонажей, но они окажутся за кадром в runtime.
+            Color overflowC = Color.Lerp(BgPrimary, Color.black, 0.35f);
+            EditorGUI.DrawRect(stage, overflowC);
+
+            // ─── Внутренняя «камера» — то что увидит игрок ───
+            // Если есть свежий рендер сцены (Camera.main → RenderTexture) —
+            // рисуем его как фон. Иначе fallback на тёмно-фиолетовый
+            // gradient-плейсхолдер с горизонтом.
+            if (_showRealScenePreview && _scenePreviewTex != null)
+            {
+                // RenderTexture у нас именно cameraRect-размером, рисуем 1:1.
+                GUI.DrawTexture(cameraRect, _scenePreviewTex,
+                    ScaleMode.StretchToFill, false);
+            }
+            else
+            {
+                Color baseC = Color.Lerp(BgPrimary, new Color(0.12f, 0.10f, 0.18f), 0.5f);
+                EditorGUI.DrawRect(cameraRect, baseC);
+                // Горизонт — внутри камеры.
+                Rect horizon = new Rect(cameraRect.x, cameraRect.y + cameraRect.height * 0.55f,
+                    cameraRect.width, cameraRect.height * 0.45f);
+                EditorGUI.DrawRect(horizon, Color.Lerp(baseC, Color.black, 0.25f));
+            }
+
+            // Жёлтый пунктир вокруг ВСЕЙ drag-зоны — physical bounds,
+            // дальше которых персонажа двигать нельзя. Ярко и явно
+            // обозначает «вот тут лимит».
+            DrawDashedRect(stage,
+                new Color(1f, 0.93f, 0.30f, 0.85f), // насыщенный жёлтый
+                dashLen: 10f, gapLen: 6f, thickness: 2f);
+
+            // Пунктирная accent-рамка вокруг КАМЕРЫ — показывает viewport
+            // (что увидит игрок). Внутри камеры — нормальная зона; между
+            // камерой и жёлтым пунктиром — overflow (за кадром в runtime).
+            DrawDashedRect(cameraRect,
+                new Color(Accent.r, Accent.g, Accent.b, 0.95f),
+                dashLen: 8f, gapLen: 4f, thickness: 2f);
+
+            // «GAME PREVIEW» бейдж — в углу cameraRect (внутри видимого кадра).
+            Rect badgeR = new Rect(cameraRect.x + 8, cameraRect.y + 8, 110, 18);
+            EditorGUI.DrawRect(badgeR, new Color(0, 0, 0, 0.65f));
+            NovellaInspectorChrome.DrawBorder(badgeR, new Color(Accent.r, Accent.g, Accent.b, 0.55f));
+            var badgeSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Accent }
+            };
+            GUI.Label(badgeR, "▶  " + ToolLang.Get("GAME PREVIEW", "ПРЕВЬЮ ИГРЫ"), badgeSt);
+
+            // Подпись «вне камеры» в углах extended-зоны (если есть место).
+            if (stage.width - cameraRect.width > 30)
+            {
+                var offSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 8, fontStyle = FontStyle.Italic,
+                    alignment = TextAnchor.LowerRight,
+                    normal = { textColor = new Color(Text3.r, Text3.g, Text3.b, 0.6f) }
+                };
+                GUI.Label(new Rect(stage.xMax - 100, stage.yMax - 16, 96, 14),
+                    ToolLang.Get("off-camera", "вне кадра"), offSt);
+            }
+        }
+
+        // ─── Дефолтные позиции по индексу персонажа в массовке (0..5) ───
+        // Используются как старт когда у персонажа нет явного StagePlacement.
+        // После того как пользователь подвинет персонажа мышкой — создаётся
+        // override и эти дефолты больше не используются для него.
+        // Y-координаты подняты ближе к низу (0.95-0.98) — массовка должна
+        // стоять «на полу», а не висеть в верху сцены.
+        private static readonly Vector2[] DEFAULT_POSITIONS = new[]
+        {
+            new Vector2(0.50f, 0.98f), // 0 — front-C (часто спикер)
+            new Vector2(0.20f, 0.95f), // 1 — front-L
+            new Vector2(0.80f, 0.95f), // 2 — front-R
+            new Vector2(0.34f, 0.86f), // 3 — mid-L
+            new Vector2(0.66f, 0.86f), // 4 — mid-R
+            new Vector2(0.50f, 0.74f), // 5 — back-C
+        };
+        // DEFAULT_SCALE уменьшен с 0.92 до 0.72 — раньше спрайт занимал
+        // 78% высоты stage и торчал почти до верха. Теперь занимает ~61%,
+        // оставляя место для бэкграунда сцены.
+        private const float DEFAULT_SCALE = 0.72f;
+
+        // ─── Эффективная расстановка одного персонажа после применения
+        // override'ов (или дефолтов если override'а нет). ───
+        private struct EffectivePlacement
+        {
+            public NovellaCharacter Character;
+            public Vector2 NormPos;     // 0..1 в координатах stage
+            public bool    Visible;
+            public float   Scale;
+            public bool    Animate;     // плавный tween позиции при смене реплики
+            public bool    IsSpeaker;
+            public bool    HasOverride; // true если placement из StagePlacements (а не дефолт)
+        }
+
+        // Уникальный список персонажей в массовке (по InstanceID).
+        // Лимита по количеству нет — пользователь сам определяет сколько
+        // ему нужно. На сцене они расставляются свободно.
+        private List<NovellaCharacter> GetUniqueCast()
+        {
+            var seen = new HashSet<int>();
+            var result = new List<NovellaCharacter>();
+            if (_nodeData.ActiveCharacters == null) return result;
+            foreach (var ac in _nodeData.ActiveCharacters)
+            {
+                if (ac?.CharacterAsset == null) continue;
+                if (seen.Add(ac.CharacterAsset.GetInstanceID()))
+                    result.Add(ac.CharacterAsset);
+            }
+            return result;
+        }
+
+        // Считает финальную раскладку на сцене для конкретной реплики.
+        // Возвращает по одной EffectivePlacement на каждого уникального
+        // персонажа из массовки (включая невидимых — Visible=false).
+        private List<EffectivePlacement> GetEffectiveCast(DialogueLine line)
+        {
+            var cast = GetUniqueCast();
+            var result = new List<EffectivePlacement>(cast.Count);
+            int speakerId = line.Speaker != null ? line.Speaker.GetInstanceID() : 0;
+
+            for (int i = 0; i < cast.Count; i++)
+            {
+                var ch = cast[i];
+                var ov = FindPlacement(line, ch);
+                EffectivePlacement p = new EffectivePlacement {
+                    Character   = ch,
+                    NormPos     = ov != null ? ov.NormalizedPos : DEFAULT_POSITIONS[Mathf.Clamp(i, 0, 5)],
+                    Visible     = ov != null ? ov.Visible : true,
+                    Scale       = ov != null ? Mathf.Max(0.1f, ov.Scale) : DEFAULT_SCALE,
+                    Animate     = ov != null ? ov.Animate : false,
+                    IsSpeaker   = ch.GetInstanceID() == speakerId,
+                    HasOverride = ov != null
+                };
+                result.Add(p);
+            }
+            return result;
+        }
+
+        private static CharacterStagePlacement FindPlacement(DialogueLine line, NovellaCharacter ch)
+        {
+            if (line.StagePlacements == null || ch == null) return null;
+            int id = ch.GetInstanceID();
+            foreach (var p in line.StagePlacements)
+            {
+                if (p.Character != null && p.Character.GetInstanceID() == id) return p;
+            }
+            return null;
+        }
+
+        // Гарантирует наличие placement для персонажа (создаёт если нет).
+        private CharacterStagePlacement EnsurePlacement(DialogueLine line, NovellaCharacter ch, int defaultIdx)
+        {
+            var p = FindPlacement(line, ch);
+            if (p != null) return p;
+            p = new CharacterStagePlacement {
+                Character     = ch,
+                NormalizedPos = DEFAULT_POSITIONS[Mathf.Clamp(defaultIdx, 0, 5)],
+                Visible       = true,
+                Animate       = false,
+                Scale         = DEFAULT_SCALE
+            };
+            line.StagePlacements.Add(p);
+            return p;
+        }
+
+        // Layout-снимок для одного персонажа (всё необходимое для отрисовки).
+        // Считается ОДИН раз на кадр в Layout-фазе, чтобы render и drag-pass
+        // читали идентичные rect'ы.
+        private struct CharRender {
+            public EffectivePlacement Placement;
+            public Rect    SpriteRect;
+            public Sprite  Sprite;
+            public Vector2 EffPos;
+            public float   Alpha;
+        }
+
+        private void DrawCastFormation(Rect dragStage, Rect cameraStage,
+            List<EffectivePlacement> cast, DialogueLine line)
+        {
+            // Если массовка пуста — placeholder.
+            if (cast.Count == 0)
+            {
+                var emptySt = new GUIStyle(EditorStyles.label) {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 13, fontStyle = FontStyle.Italic,
+                    normal = { textColor = Text4 }
+                };
+                GUI.Label(cameraStage, ToolLang.Get("Add characters in Scene Layout (Inspector)",
+                    "Добавь персонажей в массовку (инспектор графа)"), emptySt);
+                return;
+            }
+
+            // На сцене — ТОЛЬКО видимые персонажи. Z-order: не-спикеры
+            // сначала (по Y — дальние первыми), спикер последним.
+            var ordered = cast
+                .Where(p => p.Visible)
+                .OrderBy(p => p.IsSpeaker ? 1 : 0)
+                .ThenBy(p => p.NormPos.y)
+                .ToList();
+
+            // Готовим renders[] заранее — координаты считаются относительно
+            // cameraStage (NormPos [0..1] = camera).
+            var renders = new List<CharRender>(ordered.Count);
+            foreach (var p in ordered)
+                renders.Add(BuildCharRender(cameraStage, p, line));
+
+            // Pass 1: drag-обработка в обратном порядке (front → back).
+            for (int i = renders.Count - 1; i >= 0; i--)
+            {
+                var r = renders[i];
+                bool isDraggingThis = _draggingChar != null
+                    && _draggingChar.GetInstanceID() == r.Placement.Character.GetInstanceID();
+                if (HandleCharDrag(cameraStage, dragStage, r.SpriteRect, r.Placement.Character, line, isDraggingThis))
+                    break;
+            }
+
+            // Pass 2: рендер.
+            for (int i = 0; i < renders.Count; i++)
+                DrawCastCharVisuals(cameraStage, renders[i], line);
+        }
+
+        // Считает финальную геометрию одного персонажа на кадре.
+        // cameraRect — это видимая «камера», NormPos [0..1] mapped в неё.
+        private CharRender BuildCharRender(Rect cameraRect, EffectivePlacement p, DialogueLine line)
+        {
+            Vector2 effPos = p.NormPos;
+            float   alpha  = 1f;
+            if (p.Animate && _tweenFromLineIdx >= 0)
+            {
+                var pl = FindPlacement(line, p.Character);
+                float dur = pl != null ? Mathf.Max(0.05f, pl.AnimDuration) : (float)ANIM_DURATION;
+                float t = (float)((EditorApplication.timeSinceStartup - _tweenStartTime) / dur);
+                t = Mathf.Clamp01(t);
+                if (t < 1f)
                 {
-                    GUILayout.Label(ToolLang.Get("💡 Speeds up or slows down text printing dynamically.", "💡 Кривая позволяет ускорять или замедлять печать текста."), EditorStyles.miniLabel);
-                    GUILayout.Space(5);
-                    line.PacingCurve = EditorGUILayout.CurveField(line.PacingCurve, Color.green, new Rect(0, 0, 1, 2), GUILayout.Height(25));
+                    int id = p.Character.GetInstanceID();
+                    if (_prevPositions.TryGetValue(id, out var prev))
+                        effPos = Vector2.Lerp(prev, p.NormPos, EaseOutCubic(t));
+                    if (_prevAlphas.TryGetValue(id, out var prevA))
+                        alpha = Mathf.Lerp(prevA, 1f, t);
+                    Repaint();
                 }
             }
 
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Change Timings"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
-            GUILayout.EndVertical();
+            float h = cameraRect.height * p.Scale * 0.85f;
+            Sprite sprite = ResolveSpriteFor(p.Character, p.IsSpeaker ? line : null);
+            float aspect = (sprite != null && sprite.texture != null)
+                ? (float)sprite.texture.width / Mathf.Max(1, sprite.texture.height)
+                : 0.55f;
+            float w = h * aspect;
 
-            GUILayout.Space(10);
+            float bottomY = cameraRect.y + cameraRect.height * effPos.y;
+            float cx      = cameraRect.x + cameraRect.width  * effPos.x;
+            Rect spriteR  = new Rect(cx - w / 2f, bottomY - h, w, h);
+
+            return new CharRender {
+                Placement = p, SpriteRect = spriteR, Sprite = sprite,
+                EffPos = effPos, Alpha = alpha
+            };
+        }
+
+        // Чисто отрисовка персонажа в уже посчитанных координатах.
+        private void DrawCastCharVisuals(Rect stage, CharRender r, DialogueLine line)
+        {
+            var p        = r.Placement;
+            Rect spriteR = r.SpriteRect;
+            Sprite sprite = r.Sprite;
+            float alpha  = r.Alpha;
+
+            // Скрытые сюда не попадают (DrawCastFormation фильтрует их в
+            // strip слева). HideSpeakerSprite для спикера — старое поле
+            // совместимости, обрабатываем отдельно (alpha + надпись).
+            bool isHiddenForLine = p.IsSpeaker && line.HideSpeakerSprite;
+            if (isHiddenForLine) alpha *= 0.30f;
+
+            // Спикер визуально отличается accent fill в left strip card
+            // + 🎤-индикатором — отдельную тень/rim под спрайтом убрали:
+            // тень давала чёрную полоску под ногами которая выглядела
+            // как «лишние пиксели». Accent rim оставлен ТОЛЬКО когда
+            // спрайта нет (placeholder с буквой).
+            if (p.IsSpeaker && !isHiddenForLine && (sprite == null || sprite.texture == null))
+            {
+                Rect rim = new Rect(spriteR.x - 2, spriteR.y - 2, spriteR.width + 4, spriteR.height + 4);
+                NovellaInspectorChrome.DrawBorder(rim,
+                    new Color(Accent.r, Accent.g, Accent.b, 0.65f));
+            }
+
+            // Спрайт.
+            Color old = GUI.color;
+            Color tint = p.IsSpeaker
+                ? new Color(1, 1, 1, alpha)
+                : new Color(0.7f, 0.7f, 0.78f, 0.9f * alpha);
+            GUI.color = tint;
+
+            if (sprite != null && sprite.texture != null)
+            {
+                Matrix4x4 oldMatrix = GUI.matrix;
+                if (p.IsSpeaker && (line.FlipX || line.FlipY))
+                {
+                    Vector2 pivot = new Vector2(spriteR.x + spriteR.width / 2f, spriteR.y + spriteR.height / 2f);
+                    GUIUtility.ScaleAroundPivot(new Vector2(line.FlipX ? -1 : 1, line.FlipY ? -1 : 1), pivot);
+                }
+                GUI.DrawTexture(spriteR, sprite.texture, ScaleMode.ScaleToFit, true);
+                GUI.matrix = oldMatrix;
+            }
+            else
+            {
+                // ─── Sprite=null: явный плейсхолдер с красной плашкой ───
+                // Чтобы пользователь СРАЗУ видел: «у этого персонажа нет
+                // спрайта — добавь в Character Editor», а не гадал куда он
+                // подевался.
+                Color body = p.IsSpeaker
+                    ? new Color(p.Character.ThemeColor.r * 0.55f, p.Character.ThemeColor.g * 0.55f, p.Character.ThemeColor.b * 0.55f, 0.85f)
+                    : new Color(p.Character.ThemeColor.r * 0.30f, p.Character.ThemeColor.g * 0.30f, p.Character.ThemeColor.b * 0.30f, 0.65f);
+                EditorGUI.DrawRect(spriteR, body);
+                NovellaInspectorChrome.DrawBorder(spriteR,
+                    new Color(p.Character.ThemeColor.r, p.Character.ThemeColor.g, p.Character.ThemeColor.b, 0.95f));
+
+                // Красная плашка «нет спрайта» сверху.
+                float warnH = Mathf.Min(20, spriteR.height * 0.18f);
+                Rect warnR = new Rect(spriteR.x, spriteR.y, spriteR.width, warnH);
+                EditorGUI.DrawRect(warnR, new Color(Danger.r, Danger.g, Danger.b, 0.85f * alpha));
+                var warnSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, alpha) }
+                };
+                GUI.Label(warnR, "⚠  " + ToolLang.Get("NO SPRITE", "НЕТ СПРАЙТА"), warnSt);
+
+                // Большой инициал в центре.
+                string ini = !string.IsNullOrEmpty(p.Character.name)
+                    ? p.Character.name.Substring(0, 1).ToUpperInvariant() : "?";
+                var initSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = (int)(spriteR.height * 0.35f),
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, 0.85f * alpha) }
+                };
+                GUI.Label(spriteR, ini, initSt);
+
+                // Имя персонажа ВНУТРИ placeholder'а (нижняя полоса), не
+                // снаружи — иначе вылезает за пределы спрайта и видно
+                // «из-за» переднего персонажа.
+                float nameAreaH = 16f;
+                Rect nameInsideR = new Rect(
+                    spriteR.x + 2, spriteR.yMax - nameAreaH - 2,
+                    spriteR.width - 4, nameAreaH);
+                // Тёмная подложка чтобы текст читался поверх инициала.
+                EditorGUI.DrawRect(nameInsideR,
+                    new Color(0, 0, 0, 0.55f * alpha));
+                var nullNameSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 10, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleCenter,
+                    clipping = TextClipping.Clip,
+                    normal = { textColor = new Color(
+                        p.Character.ThemeColor.a > 0.05f ? p.Character.ThemeColor.r : Text1.r,
+                        p.Character.ThemeColor.a > 0.05f ? p.Character.ThemeColor.g : Text1.g,
+                        p.Character.ThemeColor.a > 0.05f ? p.Character.ThemeColor.b : Text1.b,
+                        alpha) }
+                };
+                string label = p.Character.name;
+                if (p.IsSpeaker && line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName))
+                    label = line.CustomName;
+                GUI.Label(nameInsideR, label, nullNameSt);
+            }
+
+            GUI.color = old;
+
+            // Если скрыт — большая надпись «👻 СКРЫТ» по центру поверх.
+            if (isHiddenForLine)
+            {
+                var hideSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = Mathf.Clamp((int)(spriteR.height * 0.10f), 11, 18),
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(Accent.r, Accent.g, Accent.b, 0.95f) },
+                    wordWrap = true
+                };
+                GUI.Label(spriteR, "👻\n" + ToolLang.Get("HIDDEN", "СКРЫТ"), hideSt);
+            }
+
+            // (Имя персонажа на сцене НЕ рисуем — оно перекрывало UI диалога
+            // и в runtime его не существует. Имя видно в left strip card.)
+
+            // ─── Маскирование «позади UI» ───
+            // Только если Canvas НЕ Overlay (Overlay рендерится отдельно
+            // от camera и не попадает в RenderTexture — patch брал бы
+            // background-картинку вместо UI и давал артефакты).
+            // Для Overlay Canvas в runtime persons всегда позади UI
+            // автоматически (особенность Unity), поэтому маскировать
+            // в editor preview не критично.
+            var ovForFront = FindPlacement(line, p.Character);
+            bool inFrontOfUI = ovForFront?.InFrontOfUI ?? false;
+            if (!inFrontOfUI && _showRealScenePreview && HasUsablePlayerInScene()
+                && !IsDialogueCanvasOverlay())
+            {
+                Rect uiRect = GetDialoguePanelRectInCamera(stage);
+                OverlayUIPatch(spriteR, stage, uiRect);
+            }
+
+            EditorGUIUtility.AddCursorRect(spriteR, MouseCursor.MoveArrow);
+        }
+
+        // Резолвит спрайт персонажа с учётом эмоции (только для спикера).
+        private static Sprite ResolveSpriteFor(NovellaCharacter ch, DialogueLine speakerLine)
+        {
+            if (ch == null) return null;
+            Sprite sprite = ch.DefaultSprite;
+            if (speakerLine != null && speakerLine.Mood != "Default" && ch.Emotions != null)
+            {
+                int ei = ch.Emotions.FindIndex(e => e.EmotionName == speakerLine.Mood);
+                if (ei >= 0)
+                {
+                    var ovs = ch.Emotions[ei].LayerOverrides;
+                    if (ovs != null)
+                    {
+                        var first = ovs.FirstOrDefault(o => o.OverrideSprite != null);
+                        if (first != null) sprite = first.OverrideSprite;
+                    }
+                }
+            }
+            return sprite;
+        }
+
+        // Drag handler — теперь принимает 2 rect'а:
+        //   cameraRect — для маппинга NormPos [0..1] → screen px.
+        //   dragRect   — physical bounds для mouse capture (немного больше
+        //                cameraRect, BLEED * camera для удобства).
+        // Возвращает true если событие потреблено.
+        private bool HandleCharDrag(Rect cameraRect, Rect dragRect, Rect spriteR, NovellaCharacter ch, DialogueLine line, bool isDraggingThis)
+        {
+            if (_draggingChar != null && !isDraggingThis) return false;
+
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            Event e = Event.current;
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && spriteR.Contains(e.mousePosition))
+                    {
+                        _draggingChar = ch;
+                        _editingCharacter = ch;
+                        _lastClickArea = ClickArea.Character;
+                        // Оффсет считаем относительно cameraRect (NormPos space).
+                        Vector2 anchorPx = new Vector2(spriteR.x + spriteR.width / 2f, spriteR.yMax);
+                        Vector2 anchorNorm = StageToNorm(cameraRect, anchorPx);
+                        Vector2 mouseNorm  = StageToNorm(cameraRect, e.mousePosition);
+                        _dragOffsetNorm = anchorNorm - mouseNorm;
+                        GUIUtility.hotControl = controlId;
+                        e.Use();
+                        return true;
+                    }
+                    break;
+                case EventType.MouseDrag:
+                    if (isDraggingThis && GUIUtility.hotControl == 0
+                        || (isDraggingThis && e.button == 0))
+                    {
+                        var pl = EnsurePlacement(line, ch, 0);
+                        Vector2 mNorm = StageToNorm(cameraRect, e.mousePosition);
+                        Vector2 newPos = mNorm + _dragOffsetNorm;
+                        // Drag clamp = camera bounds + BLEED во все стороны.
+                        // Желтый пунктир рамки рисуется ровно по этим bounds.
+                        newPos.x = Mathf.Clamp(newPos.x, -STAGE_BLEED, 1f + STAGE_BLEED);
+                        newPos.y = Mathf.Clamp(newPos.y, -STAGE_BLEED, 1f + STAGE_BLEED);
+                        if (pl.NormalizedPos != newPos)
+                        {
+                            Undo.RecordObject(_tree, "Move Character");
+                            pl.NormalizedPos = newPos;
+                            EditorUtility.SetDirty(_tree);
+                            // Каждое движение → пересинк persons в сцене
+                            // (throttled до 10 fps в RenderScenePreviewIfNeeded).
+                            _needsSceneSync = true;
+                            Repaint();
+                        }
+                        e.Use();
+                    }
+                    break;
+                case EventType.MouseUp:
+                    if (isDraggingThis)
+                    {
+                        _draggingChar = null;
+                        if (GUIUtility.hotControl == controlId) GUIUtility.hotControl = 0;
+                        TriggerLiveSync(false);
+                        e.Use();
+                        return true;
+                    }
+                    break;
+            }
+            return false;
+        }
+
+        private static Vector2 StageToNorm(Rect stage, Vector2 px)
+        {
+            return new Vector2(
+                (px.x - stage.x) / Mathf.Max(0.001f, stage.width),
+                (px.y - stage.y) / Mathf.Max(0.001f, stage.height));
+        }
+
+        private static float EaseOutCubic(float t) => 1f - Mathf.Pow(1f - t, 3f);
+
+        // ─── Пунктирная рамка для cameraRect ───
+        // EditorGUI.DrawRect не поддерживает пунктир, рисуем сами:
+        // 4 стороны, на каждой бьём отрезок на dash-gap-dash-gap…
+        // dashLen=8, gapLen=4 — оптимально для accent-выделения камеры.
+        private static void DrawDashedRect(Rect r, Color c, float dashLen, float gapLen, float thickness)
+        {
+            float step = dashLen + gapLen;
+            // Top.
+            for (float x = r.x; x < r.xMax; x += step)
+            {
+                float w = Mathf.Min(dashLen, r.xMax - x);
+                EditorGUI.DrawRect(new Rect(x, r.y, w, thickness), c);
+            }
+            // Bottom.
+            for (float x = r.x; x < r.xMax; x += step)
+            {
+                float w = Mathf.Min(dashLen, r.xMax - x);
+                EditorGUI.DrawRect(new Rect(x, r.yMax - thickness, w, thickness), c);
+            }
+            // Left.
+            for (float y = r.y; y < r.yMax; y += step)
+            {
+                float h = Mathf.Min(dashLen, r.yMax - y);
+                EditorGUI.DrawRect(new Rect(r.x, y, thickness, h), c);
+            }
+            // Right.
+            for (float y = r.y; y < r.yMax; y += step)
+            {
+                float h = Mathf.Min(dashLen, r.yMax - y);
+                EditorGUI.DrawRect(new Rect(r.xMax - thickness, y, thickness, h), c);
+            }
+        }
+
+
+        // (Старые DrawStageLayoutControls + DrawStageRow удалены целиком —
+        // их заменили DrawAllCastStrip + DrawSelectedCharacterPanel
+        // с моделью «выбираешь одного слева, настраиваешь его справа».)
+
+        // ─── Replace через NovellaCharacterSelectorWindow ───
+        // Открываем окно с exclude-фильтром: персонажи уже в массовке
+        // (кроме самого «current») в списке не показываются. Юзер видит
+        // только тех, кого можно поставить вместо.
+        private void ShowReplaceCharacterMenu(NovellaCharacter current)
+        {
+            var exclude = GetUniqueCast()
+                .Where(c => c != current)
+                .ToList();
+            NovellaCharacterSelectorWindow.ShowWindow(picked =>
+            {
+                if (picked == null) return; // отмена
+                if (current != null && picked.GetInstanceID() == current.GetInstanceID()) return;
+                ReplaceCharacterInCast(current, picked);
+            }, exclude);
+        }
+
+        // ─── Add через NovellaCharacterSelectorWindow ───
+        // Тоже с exclude — все кто УЖЕ в массовке скрыты, остаются только
+        // доступные для добавления.
+        private void ShowAddCharacterMenu()
+        {
+            var exclude = GetUniqueCast();
+            NovellaCharacterSelectorWindow.ShowWindow(picked =>
+            {
+                if (picked == null) return;
+                AddCharacterToCast(picked);
+            }, exclude);
+        }
+
+        private void ReplaceCharacterInCast(NovellaCharacter from, NovellaCharacter to)
+        {
+            if (from == null || to == null || from == to) return;
+            Undo.RegisterCompleteObjectUndo(_tree, "Replace Character");
+            int fromId = from.GetInstanceID();
+            // 1) В ActiveCharacters заменяем asset (сохраняя per-line данные).
+            foreach (var ac in _nodeData.ActiveCharacters)
+            {
+                if (ac?.CharacterAsset != null && ac.CharacterAsset.GetInstanceID() == fromId)
+                    ac.CharacterAsset = to;
+            }
+            // 2) Во всех репликах: меняем в StagePlacements + Speaker.
+            foreach (var l in _nodeData.DialogueLines)
+            {
+                if (l.StagePlacements != null)
+                {
+                    foreach (var p in l.StagePlacements)
+                        if (p?.Character != null && p.Character.GetInstanceID() == fromId)
+                            p.Character = to;
+                }
+                if (l.Speaker != null && l.Speaker.GetInstanceID() == fromId)
+                    l.Speaker = to;
+            }
+            EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+        }
+
+        private void AddCharacterToCast(NovellaCharacter ch)
+        {
+            if (ch == null) return;
+            Undo.RegisterCompleteObjectUndo(_tree, "Add Character to Cast");
+            _nodeData.ActiveCharacters.Add(new CharacterInDialogue {
+                CharacterAsset = ch,
+                Plane = ECharacterPlane.Speaker,
+                Scale = 1f, Emotion = "Default",
+                PosX = 0f, PosY = 0f,
+                PositionPreset = ECharacterPosition.Center,
+                FlipX = false, FlipY = false
+            });
+            EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+        }
+
+        private void DrawSpeechBubble(Rect r, DialogueLine line)
+        {
+            // Фон бабла — чуть светлее BgRaised, accent rim.
+            EditorGUI.DrawRect(r, new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.95f));
+            NovellaInspectorChrome.DrawBorder(r, new Color(Accent.r, Accent.g, Accent.b, 0.55f));
+
+            // Имя спикера — header бабла.
+            string spkName = line.Speaker != null ? line.Speaker.name : ToolLang.Get("Narrator", "Рассказчик");
+            if (line.HideSpeakerName && !string.IsNullOrEmpty(line.CustomName)) spkName = line.CustomName;
+            Color spkCol = line.Speaker != null ? line.Speaker.ThemeColor : Text2;
+            if (line.HideSpeakerName && line.CustomNameColor.a > 0.05f) spkCol = line.CustomNameColor;
+
+            var spkSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12,
+                normal = { textColor = spkCol }, richText = true
+            };
+            GUI.Label(new Rect(r.x + 12, r.y + 6, r.width - 24, 18), spkName + ":", spkSt);
+
+            // Текст реплики.
+            string text = line.LocalizedPhrase != null
+                ? line.LocalizedPhrase.GetText(_previewLanguage) : "";
+            if (string.IsNullOrEmpty(text)) text = ToolLang.Get(
+                "(empty line — type the text below)",
+                "(пустая реплика — впиши текст ниже)");
+
+            // ─── Применяем line.FontSize к превью ───
+            // В runtime FontSize обычно 24-72pt — для bubble делим на 2.5
+            // и кламп [10..32] чтобы текст влезал и был читаемым.
+            // FontSize = 0 (не задан) → фоллбек на _nodeData.FontSize или 32.
+            int rawFs = line.FontSize > 0
+                ? line.FontSize
+                : (_nodeData.FontSize > 0 ? _nodeData.FontSize : 32);
+            int previewFs = Mathf.Clamp(Mathf.RoundToInt(rawFs / 2.5f), 10, 32);
+
+            var bodySt = new GUIStyle(EditorStyles.label) {
+                fontSize = previewFs,
+                normal = { textColor = Text1 },
+                wordWrap = true, richText = true,
+                fontStyle = FontStyle.Normal,
+                clipping = TextClipping.Clip,
+                padding = new RectOffset(0, 0, 0, 0)
+            };
+            GUI.Label(new Rect(r.x + 12, r.y + 24, r.width - 24, r.height - 30), text, bodySt);
+        }
+
+        private void DrawFloatingActions(Rect stage)
+        {
+            float btnSize = 28;
+            float gap = 4;
+            // Положение: правый-верхний угол stage.
+            Rect prevR = new Rect(stage.xMax - (btnSize * 5 + gap * 4) - 8, stage.y + 8, btnSize, btnSize);
+            Rect nextR = new Rect(prevR.xMax + gap, prevR.y, btnSize, btnSize);
+            Rect dupR  = new Rect(nextR.xMax + gap, prevR.y, btnSize, btnSize);
+            Rect delR  = new Rect(dupR.xMax + gap,  prevR.y, btnSize, btnSize);
+            Rect rstR  = new Rect(delR.xMax + gap,  prevR.y, btnSize, btnSize);
+
+            bool canPrev = _activeLineIndex > 0;
+            bool canNext = _activeLineIndex < _nodeData.DialogueLines.Count - 1;
+            bool canDel  = _nodeData.DialogueLines.Count > 1;
+
+            if (DrawCardIconBtn(prevR, "◀", canPrev, false,
+                ToolLang.Get("Previous line (←)", "Предыдущая реплика (←)")))
+            { SetActiveLine(_activeLineIndex - 1); }
+
+            if (DrawCardIconBtn(nextR, "▶", canNext, false,
+                ToolLang.Get("Next line (→)", "Следующая реплика (→)")))
+            { SetActiveLine(_activeLineIndex + 1); }
+
+            if (DrawCardIconBtn(dupR, "⧉", true, false,
+                ToolLang.Get("Duplicate line (Ctrl+D)", "Дублировать реплику (Ctrl+D)")))
+            {
+                int origIdx = _activeLineIndex;
+                Undo.RegisterCompleteObjectUndo(_tree, "Duplicate Line");
+                var src = _nodeData.DialogueLines[origIdx];
+                var dup = JsonUtility.FromJson<DialogueLine>(JsonUtility.ToJson(src));
+                _nodeData.DialogueLines.Insert(origIdx + 1, dup);
+                SetActiveLine(origIdx + 1);
+                _undoFocusTarget = origIdx; // вернёмся на оригинал при Ctrl+Z
+                EditorUtility.SetDirty(_tree); _onMarkUnsaved?.Invoke();
+            }
+
+            if (DrawCardIconBtn(delR, "✕", canDel, true,
+                ToolLang.Get("Delete this line", "Удалить эту реплику")))
+            {
+                Undo.RegisterCompleteObjectUndo(_tree, "Remove Line");
+                _nodeData.DialogueLines.RemoveAt(_activeLineIndex);
+                _activeLineIndex = Mathf.Clamp(_activeLineIndex, 0, _nodeData.DialogueLines.Count - 1);
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+            }
+
+            if (DrawCardIconBtn(rstR, "↺", true, false,
+                ToolLang.Get("Reset all line settings", "Сбросить все настройки реплики")))
+            {
+                Undo.RegisterCompleteObjectUndo(_tree, "Reset Line Settings");
+                var l = _nodeData.DialogueLines[_activeLineIndex];
+                l.HideSpeakerName = false; l.HideSpeakerSprite = false; l.CustomizeSpeakerLayout = false;
+                l.FlipX = false; l.FlipY = false;
+                l.CustomizeFrameLayout = false; l.OverrideDialogueFrame = null;
+                l.FrameScale = 1f; l.SpeakerScale = 1f;
+                l.FramePosX = 0f; l.FramePosY = 0f; l.SpeakerPosX = 0f; l.SpeakerPosY = 0f;
+                l.DelayBefore = 0; l.FontSize = 0; l.UseTypewriter = true; l.UseCustomPacing = false;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // 4) SETTINGS PANEL (правая)
+        // ════════════════════════════════════════════════════════════════════
+
+        private void DrawSettingsPanel(Rect r)
+        {
+            EditorGUI.DrawRect(r, BgSide);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, 1, r.height), Border);
+
+            if (!InRange(_activeLineIndex)) return;
+            var line = _nodeData.DialogueLines[_activeLineIndex];
+
+            GUILayout.BeginArea(new Rect(r.x + 12, r.y + 6, r.width - 24, r.height - 12));
+            _settingsScroll = GUILayout.BeginScrollView(_settingsScroll);
+
+            // ════════════════════════════════════════════════════════════
+            // БЛОК 1: 👤 НАСТРОЙКИ ВЫБРАННОГО ПЕРСОНАЖА (всегда видно)
+            // ────────────────────────────────────────────────────────────
+            // Слева в strip'е выбираем персонажа кликом — здесь крутим его
+            // настройки на этой реплике (scale, видимость, спикер, эмоция,
+            // позиция, анимация, замена/удаление). Раньше тут была общая
+            // массовка одним списком — она переехала в левую strip.
+            // ════════════════════════════════════════════════════════════
+            if (_editingCharacter != null)
+            {
+                DrawBigBlockHeader("👤", _editingCharacter.name ?? "Character");
+                DrawSelectedCharacterPanel(line, _editingCharacter);
+            }
+            else
+            {
+                DrawBigBlockHeader("👥", ToolLang.Get("Cast", "Массовка"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Massовка empty. Add a character using «+ Add» in the left panel.",
+                    "Массовка пуста. Добавь персонажа кнопкой «+ Добавить» в левой панели."));
+            }
+
+            // (Toggle «Без спикера / Narrator» удалён — он дублировал
+            // функционал кнопки 🎤 на карточке выбранного персонажа.
+            // Чтобы реплика была без спикера — снимай 🎤 со всех карточек
+            // в левом strip'е.)
+
+            // ─── Fake-name (применяется к ТЕКУЩЕМУ спикеру линии) ───
+            GUILayout.Space(8);
+            EditorGUI.BeginChangeCheck();
+            line.HideSpeakerName = DrawToggleBtn(line.HideSpeakerName,
+                "🎭  " + ToolLang.Get("Fake name override", "Фейк-имя для UI"),
+                ToolLang.Get("Replace speaker name in dialogue UI", "Заменить имя спикера в окне диалога"));
+            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Toggle"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
+
+            if (line.HideSpeakerName)
+            {
+                GUILayout.Space(4);
+                EditorGUI.BeginChangeCheck();
+                NovellaInspectorChrome.DrawFieldLabel(
+                    ToolLang.Get("Fake name (will replace speaker name)",
+                                 "Фейк-имя (заменит имя спикера)"));
+                line.CustomName = NovellaInspectorChrome.DrawDarkTextField(line.CustomName);
+                GUILayout.Space(2);
+                NovellaInspectorChrome.DrawFieldLabel(
+                    ToolLang.Get("Color", "Цвет имени"));
+                line.CustomNameColor = EditorGUILayout.ColorField(line.CustomNameColor);
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Custom Name"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Rich Text supported (e.g. <b>name</b>, <color=#f55>name</color>).",
+                    "Поддерживает Rich Text (например <b>имя</b>, <color=#f55>имя</color>)."));
+            }
+
+            // (Legacy «Override speaker position» удалена — теперь все
+            // позиции и анимации настраиваются через секцию «Расстановка»
+            // выше + drag-and-drop спрайтов на сцене. Старые поля
+            // CustomizeSpeakerLayout/SpeakerPosX/Y остаются в данных для
+            // совместимости со старыми сейвами, но в UI не редактируются.)
+
+            // ════════════════════════════════════════════════════════════
+            // БЛОК 2: 🖼 СЦЕНА ДЛЯ ЭТОЙ РЕПЛИКИ (collapse)
+            // ────────────────────────────────────────────────────────────
+            // Кастомная рамка диалога + UI bindings + сдвиг рамки —
+            // ВСЕ настройки касающиеся «как выглядит сцена и окно диалога»
+            // на этой конкретной реплике. По умолчанию свёрнуто.
+            // ════════════════════════════════════════════════════════════
+            GUILayout.Space(14);
+            bool hasCustomFrame = line.OverrideDialogueFrame != null
+                || !string.IsNullOrEmpty(line.UITextTargetId)
+                || !string.IsNullOrEmpty(line.UISpeakerTargetId)
+                || line.CustomizeFrameLayout;
+            bool frameOpen = DrawSavedCollapseSection(PREF_FRAME_OPEN,
+                "🖼  " + ToolLang.Get("Scene for this line", "Сцена для этой реплики"),
+                hasCustomFrame);
+
+            if (frameOpen)
+            {
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Replaces the dialogue UI only for THIS line. Useful for special moments: dark frame for scary scenes, SMS style for phone, thought bubble, etc. By default the line uses the project-wide dialogue UI.",
+                    "Заменяет окно диалога ТОЛЬКО на этой реплике. Нужно для особых моментов: тёмная рамка для страшной сцены, SMS-стиль для телефона, пузырь мыслей и т.п. По умолчанию реплика использует глобальное окно диалога проекта."));
+
+                EditorGUI.BeginChangeCheck();
+
+                // ─── Префаб рамки ───
+                GUILayout.Space(4);
+                NovellaInspectorChrome.DrawFieldLabel(ToolLang.Get(
+                    "Frame prefab override", "Свой префаб рамки"));
+
+                GUILayout.BeginHorizontal();
+                string uiName = line.OverrideDialogueFrame != null
+                    ? line.OverrideDialogueFrame.name
+                    : ToolLang.Get("(use project default)", "(глобальный по умолчанию)");
+                bool hasFrame = line.OverrideDialogueFrame != null;
+                // Picker (slim, accent если задан).
+                if (NovellaInspectorChrome.DrawSlimBtn(
+                    (hasFrame ? "📁  " : "📁  ") + uiName,
+                    GUILayout.Height(22), GUILayout.ExpandWidth(true)))
+                {
+                    NovellaGalleryWindow.ShowWindow(obj => {
+                        Undo.RecordObject(_tree, "Override Frame");
+                        line.OverrideDialogueFrame = obj as GameObject;
+                        EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+                    }, NovellaGalleryWindow.EGalleryFilter.CustomUI);
+                }
+                if (hasFrame)
+                {
+                    if (NovellaInspectorChrome.DrawSlimBtn("✏",
+                        GUILayout.Width(28), GUILayout.Height(22)))
+                        NovellaUIForge.OpenWithCustomPrefab(line.OverrideDialogueFrame);
+                    if (NovellaInspectorChrome.DrawDangerBtn("✕",
+                        GUILayout.Width(28), GUILayout.Height(22)))
+                    {
+                        Undo.RecordObject(_tree, "Clear Frame");
+                        line.OverrideDialogueFrame = null;
+                        EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+                    }
+                }
+                GUILayout.EndHorizontal();
+
+                // ─── Привязки UI (для случая когда юзер хочет писать в
+                //     уже существующие UI-элементы сцены — главное меню,
+                //     инвентарь, попап и т.п.) ───
+                GUILayout.Space(6);
+                NovellaInspectorChrome.DrawFieldLabel(ToolLang.Get(
+                    "UI text targets (drag UI from scene)",
+                    "UI-цели в сцене (перетащи UI из иерархии)"));
+                NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
+                    ToolLang.Get("Body  →  ", "Текст реплики  →  "), line.UITextTargetId,
+                    NovellaEngine.Runtime.UI.UIBindingKind.Text,
+                    id => { line.UITextTargetId = id; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
+                NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
+                    ToolLang.Get("Name  →  ", "Имя спикера  →  "), line.UISpeakerTargetId,
+                    NovellaEngine.Runtime.UI.UIBindingKind.Text,
+                    id => { line.UISpeakerTargetId = id; EditorUtility.SetDirty(_tree); TriggerLiveSync(true); });
+
+                // ─── Сдвиг позиции рамки ───
+                GUILayout.Space(8);
+                line.CustomizeFrameLayout = DrawSectionToggle(line.CustomizeFrameLayout,
+                    ToolLang.Get("Override frame position on screen",
+                                 "Сдвинуть рамку по экрану"),
+                    ToolLang.Get("Move/scale the dialogue window for this line only",
+                                 "Сдвинуть/масштабировать окно диалога только на этой реплике"));
+                if (line.CustomizeFrameLayout)
+                {
+                    GUILayout.Space(4);
+                    GUILayout.BeginHorizontal();
+                    DrawInlineLabel("X", 16); line.FramePosX = EditorGUILayout.FloatField(line.FramePosX, GUILayout.Width(60));
+                    GUILayout.Space(8);
+                    DrawInlineLabel("Y", 16); line.FramePosY = EditorGUILayout.FloatField(line.FramePosY, GUILayout.Width(60));
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(2);
+                    GUILayout.BeginHorizontal();
+                    DrawInlineLabel(ToolLang.Get("Scale", "Масшт"), 50);
+                    if (line.FrameScale <= 0) line.FrameScale = 1f;
+                    line.FrameScale = EditorGUILayout.FloatField(line.FrameScale, GUILayout.Width(60));
+                    line.FrameScale = Mathf.Max(0.1f, line.FrameScale);
+                    GUILayout.EndHorizontal();
+                }
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Frame"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // БЛОК 3: ⚙ НАСТРОЙКИ ЭТОЙ РЕПЛИКИ (collapse, внизу)
+            // ────────────────────────────────────────────────────────────
+            // Тайминги, шрифт, эффект печатной машинки, кривая скорости —
+            // настройки воспроизведения текста именно ЭТОЙ реплики.
+            // ════════════════════════════════════════════════════════════
+            int defaultFs = _nodeData.FontSize > 0 ? _nodeData.FontSize : 32;
+            bool timingHasActive = line.DelayBefore > 0
+                || (line.FontSize > 0 && line.FontSize != defaultFs)
+                || !line.UseTypewriter
+                || (line.UseTypewriter && Mathf.Abs(line.BaseSpeed - 40f) > 0.5f)
+                || line.UseCustomPacing;
+            GUILayout.Space(14);
+            bool timingOpen = DrawSavedCollapseSection(PREF_TIMING_OPEN,
+                "⚙  " + ToolLang.Get("Line settings", "Настройки реплики"),
+                timingHasActive);
+            if (timingOpen)
+            {
+                EditorGUI.BeginChangeCheck();
+                var unitSt = new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = Text3 } };
+
+                GUILayout.BeginHorizontal();
+                DrawInlineLabel("⏳ " + ToolLang.Get("Wait before", "Пауза"), 110);
+                line.DelayBefore = EditorGUILayout.FloatField(line.DelayBefore, GUILayout.Width(60));
+                GUILayout.Label(ToolLang.Get("sec", "сек"), unitSt);
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(2);
+                GUILayout.BeginHorizontal();
+                if (line.FontSize <= 0) line.FontSize = defaultFs;
+                DrawInlineLabel("🔠 " + ToolLang.Get("Font size", "Шрифт"), 110);
+                line.FontSize = EditorGUILayout.IntField(line.FontSize, GUILayout.Width(60));
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(6);
+                line.UseTypewriter = DrawSectionToggle(line.UseTypewriter,
+                    "⌨  " + ToolLang.Get("Typewriter", "Печатная машинка"), "Печатать текст по буквам.");
+                if (line.UseTypewriter)
+                {
+                    GUILayout.BeginHorizontal();
+                    DrawInlineLabel("⚡ " + ToolLang.Get("Speed", "Скорость"), 110);
+                    line.BaseSpeed = EditorGUILayout.FloatField(line.BaseSpeed, GUILayout.Width(60));
+                    GUILayout.Label(ToolLang.Get("c/s", "с/c"), unitSt, GUILayout.MinWidth(30));
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.Space(4);
+                    _showAdvancedTiming = DrawCollapseSection(_showAdvancedTiming,
+                        "📈  " + ToolLang.Get("Pacing curve", "Кривая скорости"));
+                    if (_showAdvancedTiming)
+                    {
+                        line.UseCustomPacing = DrawSectionToggle(line.UseCustomPacing,
+                            ToolLang.Get("Use custom curve", "Использовать кривую"), "");
+                        if (line.UseCustomPacing)
+                            line.PacingCurve = EditorGUILayout.CurveField(line.PacingCurve, Accent, new Rect(0, 0, 1, 2), GUILayout.Height(28));
+                    }
+                }
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Timing"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
+            }
+
+            GUILayout.Space(20);
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // 5) TEXT EDITOR (нижняя панель)
+        // ════════════════════════════════════════════════════════════════════
+
+        private void DrawTextEditor(Rect r)
+        {
+            EditorGUI.DrawRect(r, BgSide);
+            EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, 1), Border);
+
+            if (!InRange(_activeLineIndex)) return;
+            var line = _nodeData.DialogueLines[_activeLineIndex];
+            if (line.LocalizedPhrase == null) return;
+
+            // ─── Toolbar (44px) ───
+            Rect toolbar = new Rect(r.x, r.y, r.width, 44);
+            DrawTextEditorToolbar(toolbar, line);
+
+            // ─── Counter / stats строка ───
+            string raw = line.LocalizedPhrase.GetText(_previewLanguage) ?? "";
+            string stripped = StripRichText(raw);
+            int chars = stripped.Length;
+            int lines = string.IsNullOrEmpty(stripped) ? 0 : (stripped.Split('\n').Length);
+            float estSec = line.UseTypewriter && line.BaseSpeed > 0
+                ? chars / line.BaseSpeed
+                : 0f;
+            string stats = string.Format(
+                ToolLang.Get("{0} chars  ·  {1} lines  ·  ~{2:F1}s @{3:F0} c/s",
+                             "{0} симв.  ·  {1} стр.  ·  ~{2:F1}с @{3:F0} с/c"),
+                chars, lines, estSec, line.UseTypewriter ? line.BaseSpeed : 0);
+            var statsSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, alignment = TextAnchor.MiddleRight,
+                normal = { textColor = Text3 }
+            };
+            GUI.Label(new Rect(r.xMax - 360, r.y + 14, 350, 18), stats, statsSt);
+
+            // ─── Field или live-preview ───
+            Rect fieldR = new Rect(r.x + 12, toolbar.yMax + 4, r.width - 24, r.height - 56);
+            EditorGUI.DrawRect(fieldR, BgPrimary);
+            NovellaInspectorChrome.DrawBorder(fieldR, Border);
+
+            if (_richPreviewMode)
+            {
+                // Live preview — рендерим RichText.
+                var prevSt = new GUIStyle(EditorStyles.label) {
+                    fontSize = Mathf.Max(11, line.FontSize > 0 ? Mathf.Min(line.FontSize, 24) : 14),
+                    wordWrap = true, richText = true,
+                    normal = { textColor = Text1 },
+                    padding = new RectOffset(10, 10, 8, 8)
+                };
+                GUI.Label(fieldR, raw, prevSt);
+            }
+            else
+            {
+                // Edit mode — большой TextArea.
+                var st = new GUIStyle(EditorStyles.textArea) {
+                    fontSize = 13, wordWrap = true, richText = false,
+                    padding = new RectOffset(10, 10, 8, 8),
+                    normal  = { background = null, textColor = Text1 },
+                    focused = { background = null, textColor = Text1 },
+                    hover   = { background = null, textColor = Text1 },
+                    active  = { background = null, textColor = Text1 },
+                };
+                EditorGUI.BeginChangeCheck();
+                Rect inner = new Rect(fieldR.x + 2, fieldR.y + 2, fieldR.width - 4, fieldR.height - 4);
+                GUI.SetNextControlName("DialogueText_" + _activeLineIndex);
+                string newText = EditorGUI.TextArea(inner, raw, st);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_tree, "Edit Phrase");
+                    line.LocalizedPhrase.SetText(_previewLanguage, newText);
+                    EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+                }
+            }
+        }
+
+        private void DrawTextEditorToolbar(Rect tb, DialogueLine line)
+        {
+            // Левая часть: метка [✏ TEXT · RU].
+            var lblSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 11, alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = Text2 }
+            };
+            GUI.Label(new Rect(tb.x + 12, tb.y, 200, tb.height),
+                "✏  " + ToolLang.Get("TEXT", "ТЕКСТ") + "  ·  " + _previewLanguage, lblSt);
+
+            // Кнопки форматирования.
+            float bx = tb.x + 200;
+            float by = tb.y + 9;
+            float bw = 30, bh = 26, gap = 2;
+
+            string[] tagBtns   = { "B", "I", "U" };
+            string[] tagStarts = { "<b>", "<i>", "<u>" };
+            string[] tagEnds   = { "</b>", "</i>", "</u>" };
+            string[] tooltips  = {
+                ToolLang.Get("Bold — wraps text in <b>",      "Жирный — оборачивает в <b>"),
+                ToolLang.Get("Italic — wraps text in <i>",    "Курсив — оборачивает в <i>"),
+                ToolLang.Get("Underline — wraps text in <u>", "Подчёркивание — оборачивает в <u>"),
+            };
+            for (int i = 0; i < tagBtns.Length; i++)
+            {
+                Rect br = new Rect(bx, by, bw, bh);
+                if (DrawToolbarBtn(br, tagBtns[i], tooltips[i], FontStyle.Bold))
+                    InsertTagAroundSelection(line, tagStarts[i], tagEnds[i]);
+                bx += bw + gap;
+            }
+
+            // Color picker.
+            string colorLbl = "🎨  " + ToolLang.Get("Color", "Цвет");
+            float  colorW   = 78;
+            Rect   colR     = new Rect(bx, by, colorW, bh);
+            if (DrawToolbarBtn(colR, colorLbl,
+                ToolLang.Get("Wrap in <color=#…> tag", "Обернуть в тег <color=#…>")))
+                ShowColorMenu(line);
+            bx += colorW + gap;
+
+            // Size меню.
+            string sizeLbl = "Aa  " + ToolLang.Get("Size", "Размер");
+            float  sizeW   = 78;
+            Rect   sizeR   = new Rect(bx, by, sizeW, bh);
+            if (DrawToolbarBtn(sizeR, sizeLbl,
+                ToolLang.Get("Wrap in <size=N> tag", "Обернуть в тег <size=N>")))
+                ShowSizeMenu(line);
+            bx += sizeW + gap;
+
+            // Pause-tag.
+            string pauseLbl = "⏸  " + ToolLang.Get("Pause", "Пауза");
+            float  pauseW   = 78;
+            Rect   pauseR   = new Rect(bx, by, pauseW, bh);
+            if (DrawToolbarBtn(pauseR, pauseLbl,
+                ToolLang.Get("Insert <pause=0.5> at the end of the text",
+                             "Вставить <pause=0.5> в конец текста")))
+                InsertAtCaret(line, "<pause=0.5>");
+            bx += pauseW + gap;
+
+            // Speed tag.
+            string speedLbl = "⚡  " + ToolLang.Get("Speed", "Скорость");
+            float  speedW   = 90;
+            Rect   speedR   = new Rect(bx, by, speedW, bh);
+            if (DrawToolbarBtn(speedR, speedLbl,
+                ToolLang.Get("Wrap text in <speed=2>…</speed>",
+                             "Обернуть текст в <speed=2>…</speed>")))
+                InsertTagAroundSelection(line, "<speed=2>", "</speed>");
+            bx += speedW + gap;
+
+            // Separator.
+            EditorGUI.DrawRect(new Rect(bx + 4, by + 4, 1, bh - 8), Border);
+            bx += 8;
+
+            // Clear formatting.
+            string clearLbl = "⌫  " + ToolLang.Get("Clear tags", "Снять теги");
+            float  clearW   = 100;
+            Rect   clearR   = new Rect(bx, by, clearW, bh);
+            if (DrawToolbarBtn(clearR, clearLbl,
+                ToolLang.Get("Remove all rich-text tags from the line",
+                             "Удалить все rich-text теги из реплики")))
+            {
+                Undo.RecordObject(_tree, "Strip Tags");
+                line.LocalizedPhrase.SetText(_previewLanguage,
+                    StripRichText(line.LocalizedPhrase.GetText(_previewLanguage)));
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+            bx += clearW + gap;
+
+            // Full editor — выделена accent-стилем (active=true) чтобы юзер
+            // понимал: «для серьёзной правки текста идти сюда», а не путал
+            // с обычными toolbar-кнопками.
+            string fullLbl = "📝  " + ToolLang.Get("Full Editor", "Полный редактор");
+            float fullW = 150;
+            Rect fullR = new Rect(bx, by, fullW, bh);
+            if (DrawToolbarBtn(fullR, fullLbl,
+                ToolLang.Get("Open full text editor (advanced formatting)",
+                             "Открыть полный редактор текста (расширенное форматирование)"),
+                FontStyle.Bold,
+                active: true))
+            {
+                SerializedObject treeObj = new SerializedObject(_tree);
+                int nodeIndex = _tree.Nodes.IndexOf(_nodeData);
+                SerializedProperty fontSizeProp = nodeIndex != -1
+                    ? treeObj.FindProperty("Nodes").GetArrayElementAtIndex(nodeIndex).FindPropertyRelative("FontSize")
+                    : null;
+                NovellaTextEditorWindow.OpenWindow(line, fontSizeProp, _tree,
+                    () => { _onMarkUnsaved?.Invoke(); _onRepaintRequest?.Invoke(); });
+            }
+            bx += fullW + gap;
+
+            // Preview toggle — тоже подписан.
+            Rect prevR = new Rect(bx, by, 100, bh);
+            if (DrawToolbarBtn(prevR, _richPreviewMode
+                ? "✏  " + ToolLang.Get("Edit", "Правка")
+                : "👁  " + ToolLang.Get("Preview", "Превью"),
+                ToolLang.Get("Toggle rich-text preview", "Переключить превью rich-text"),
+                FontStyle.Bold,
+                active: _richPreviewMode))
+                _richPreviewMode = !_richPreviewMode;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // Helpers
+        // ════════════════════════════════════════════════════════════════════
+
+        private List<NovellaCharacter> GetAvailableSpeakers()
+        {
+            // Дедупликация по InstanceID — надёжнее чем .Distinct() который
+            // полагается на reference-equality (в Unity edge-case'ах могут
+            // быть две reference на «один» asset, но разные обертки).
+            var seen = new HashSet<int>();
+            var result = new List<NovellaCharacter>();
+            if (_nodeData.ActiveCharacters == null) return result;
+            foreach (var ac in _nodeData.ActiveCharacters)
+            {
+                if (ac?.CharacterAsset == null) continue;
+                if (seen.Add(ac.CharacterAsset.GetInstanceID()))
+                    result.Add(ac.CharacterAsset);
+            }
+            return result;
+        }
+
+        private static string StripRichText(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? "";
+            var sb = new StringBuilder(s.Length);
+            bool inTag = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '<') { inTag = true; continue; }
+                if (c == '>' && inTag) { inTag = false; continue; }
+                if (!inTag) sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private void InsertTagAroundSelection(DialogueLine line, string startTag, string endTag)
+        {
+            // Поскольку в IMGUI отслеживать selection крайне сложно (TextEditor
+            // state живёт в Unity только пока поле в фокусе), мы делаем
+            // простое решение: оборачиваем ВЕСЬ текст реплики тегом.
+            // Если юзер хочет частичное — проще набрать вручную.
+            string old = line.LocalizedPhrase.GetText(_previewLanguage) ?? "";
+            Undo.RecordObject(_tree, "Insert Tag");
+            line.LocalizedPhrase.SetText(_previewLanguage, startTag + old + endTag);
+            EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+        }
+
+        private void InsertAtCaret(DialogueLine line, string tag)
+        {
+            // То же — добавляем в конец текста.
+            string old = line.LocalizedPhrase.GetText(_previewLanguage) ?? "";
+            Undo.RecordObject(_tree, "Insert Tag");
+            line.LocalizedPhrase.SetText(_previewLanguage, old + tag);
+            EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+        }
+
+        private void ShowColorMenu(DialogueLine line)
+        {
+            var menu = new GenericMenu();
+            (string, string)[] presets = {
+                ("Red",    "#FF5555"),
+                ("Yellow", "#FFCC55"),
+                ("Green",  "#66DD66"),
+                ("Cyan",   "#55D6E0"),
+                ("Pink",   "#FF7AB5"),
+                ("White",  "#FFFFFF"),
+            };
+            foreach (var p in presets)
+            {
+                string capName = p.Item1; string capHex = p.Item2;
+                menu.AddItem(new GUIContent("●  " + capName + "  " + capHex), false,
+                    () => InsertTagAroundSelection(line, "<color=" + capHex + ">", "</color>"));
+            }
+            menu.ShowAsContext();
+        }
+
+        private void ShowSizeMenu(DialogueLine line)
+        {
+            var menu = new GenericMenu();
+            int[] sizes = { 18, 24, 32, 42, 56, 72 };
+            foreach (var sz in sizes)
+            {
+                int capSz = sz;
+                menu.AddItem(new GUIContent(sz + "pt"), false,
+                    () => InsertTagAroundSelection(line, "<size=" + capSz + ">", "</size>"));
+            }
+            menu.ShowAsContext();
+        }
+
+        // (DrawSpeakerChips и DrawSpeakerChip удалены — выбор спикера теперь
+        // через 🎤-кнопку на карточке персонажа в секции «Расстановка».
+        // Replace/Add используют красивое NovellaCharacterSelectorWindow.)
+
+        // ─── Mood chip-grid (3×N) ───
+        // Фиксированная сетка 3 колонки. Inner ScrollView убран по той же
+        // причине что и у Speaker — scrollbar сжимал имена.
+        private int DrawMoodChips(string current, List<string> options)
+        {
+            const int   COLS    = 3;
+            const float CHIP_H  = 28f;
+            const float GAP     = 4f;
+            const float ROW_H   = CHIP_H + 4;
+
+            int total = options.Count;
+            int rows  = Mathf.CeilToInt(total / (float)COLS);
+
+            // -16 = ширина scrollbar внешнего ScrollView settings-panel'а.
+            float panelW = SETTINGS_PANEL_W - 24 - 16;
+            float chipW  = (panelW - GAP * (COLS - 1)) / COLS;
+
+            int picked = -1;
+
+            for (int row = 0; row < rows; row++)
+            {
+                Rect rowR = GUILayoutUtility.GetRect(0, ROW_H, GUILayout.ExpandWidth(true));
+                for (int col = 0; col < COLS; col++)
+                {
+                    int idx = row * COLS + col;
+                    if (idx >= total) break;
+                    Rect cell = new Rect(rowR.x + col * (chipW + GAP), rowR.y, chipW, CHIP_H);
+
+                    string raw = options[idx];
+                    string lbl = raw == "Default" ? ToolLang.Get("Default", "По умолч.") : raw;
+                    if (DrawMoodChip(cell, lbl, current == raw))
+                        picked = idx;
+                }
+            }
+
+            return picked;
+        }
+
+        private bool DrawMoodChip(Rect r, string label, bool isActive)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            Color bg, rim, txt;
+            if (isActive)
+            {
+                bg = new Color(Accent.r, Accent.g, Accent.b, 0.22f);
+                rim = Accent; txt = Accent;
+            }
+            else if (hover)
+            {
+                bg = new Color(Mathf.Lerp(BgRaised.r, Accent.r, 0.14f),
+                    Mathf.Lerp(BgRaised.g, Accent.g, 0.14f),
+                    Mathf.Lerp(BgRaised.b, Accent.b, 0.14f), 0.55f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.55f);
+                txt = Text1;
+            }
+            else
+            {
+                bg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f);
+                rim = Border; txt = Text2;
+            }
+            EditorGUI.DrawRect(r, bg);
+            NovellaInspectorChrome.DrawBorder(r, rim);
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 11, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = txt }
+            };
+            GUI.Label(r, label, st);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            { Event.current.Use(); return true; }
+            return false;
+        }
+
+        private static Rect FitInto(Rect bounds, Vector2 contentSize, float fillFactor = 1f)
+        {
+            float bw = bounds.width * fillFactor;
+            float bh = bounds.height * fillFactor;
+            float aspect = contentSize.x / Mathf.Max(0.001f, contentSize.y);
+            float w, h;
+            if (bw / bh > aspect) { h = bh; w = h * aspect; }
+            else                   { w = bw; h = w / aspect; }
+            return new Rect(bounds.x + (bounds.width - w) * 0.5f,
+                            bounds.y + (bounds.height - h) * 0.5f, w, h);
+        }
+
+        // ─── UI primitives ───
+
+        // ════════════════════════════════════════════════════════════════════
+        //  HELP OVERLAY — большая панель с подсказками для рядового юзера
+        // ════════════════════════════════════════════════════════════════════
+        // Открывается кнопкой «?» в TopBar. Полупрозрачная подложка по всему
+        // окну (блокирует клики по контенту) + центральная карточка ~640×560
+        // со скроллируемым контентом.
+        private void DrawHelpOverlay()
+        {
+            // Полупрозрачная подложка.
+            Rect full = new Rect(0, 0, position.width, position.height);
+            EditorGUI.DrawRect(full, new Color(0, 0, 0, 0.65f));
+
+            // Перехватываем все события под overlay'ем кроме клика по самой карточке.
+            // Главная проверка — Click outside карточки = закрыть.
+            float panelW = Mathf.Min(640, position.width - 80);
+            float panelH = Mathf.Min(580, position.height - 80);
+            Rect panel = new Rect(
+                (position.width  - panelW) * 0.5f,
+                (position.height - panelH) * 0.5f,
+                panelW, panelH);
+
+            EditorGUI.DrawRect(panel, BgPrimary);
+            NovellaInspectorChrome.DrawBorder(panel, Accent);
+            // Двойная рамка для CTA-feel.
+            Rect inner = new Rect(panel.x + 2, panel.y + 2, panel.width - 4, panel.height - 4);
+            NovellaInspectorChrome.DrawBorder(inner,
+                new Color(Accent.r, Accent.g, Accent.b, 0.45f));
+
+            // Header с иконкой + заголовок + кнопка ✕ закрыть.
+            const float HEAD_H = 44;
+            Rect header = new Rect(panel.x, panel.y, panel.width, HEAD_H);
+            EditorGUI.DrawRect(header, BgSide);
+            EditorGUI.DrawRect(new Rect(header.x, header.yMax - 1, header.width, 1), Border);
+
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 14, normal = { textColor = Accent }
+            };
+            GUI.Label(new Rect(header.x + 16, header.y + 12, header.width - 80, 22),
+                "❓  " + ToolLang.Get(
+                    "Storyboard help — quick guide",
+                    "Помощь по раскадровке — быстрое руководство"),
+                titleSt);
+
+            // ✕ закрыть.
+            Rect closeR = new Rect(header.xMax - 36, header.y + 10, 24, 24);
+            bool closeHover = closeR.Contains(Event.current.mousePosition);
+            EditorGUI.DrawRect(closeR, closeHover
+                ? new Color(Danger.r, Danger.g, Danger.b, 0.32f)
+                : Color.clear);
+            NovellaInspectorChrome.DrawBorder(closeR,
+                closeHover ? Danger : new Color(Border.r, Border.g, Border.b, 0.7f));
+            var closeSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 13, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = closeHover ? Danger : Text2 }
+            };
+            GUI.Label(closeR, "✕", closeSt);
+            EditorGUIUtility.AddCursorRect(closeR, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && Event.current.button == 0
+                && closeHover)
+            {
+                _showHelpOverlay = false;
+                Event.current.Use();
+                Repaint();
+                return;
+            }
+
+            // Контент — scrollable.
+            Rect content = new Rect(panel.x + 14, panel.y + HEAD_H + 8,
+                panel.width - 28, panel.height - HEAD_H - 16);
+            GUILayout.BeginArea(content);
+            _helpScroll = GUILayout.BeginScrollView(_helpScroll);
+
+            DrawHelpEntry("🎬",
+                ToolLang.Get("What is this window?", "Что это за окно?"),
+                ToolLang.Get(
+                    "Storyboard is the per-line editor for a Dialogue node. Left rail shows all lines, the center is the scene preview, the right panel is settings, and the bottom is the text editor. Switch lines with ← → keys.",
+                    "Раскадровка — это редактор реплик внутри Dialogue ноды. Слева список реплик, в центре превью сцены, справа настройки, снизу редактор текста. Переключай реплики стрелками ← →."));
+
+            DrawHelpEntry("👥",
+                ToolLang.Get("Cast & Speaker (right panel)", "Массовка и спикер (правая панель)"),
+                ToolLang.Get(
+                    "All characters who appear in this dialogue live in the cast. Click 🎤 on a character card to make them the speaker for the current line. Click 👁/👻 to hide/show on this line. ⇄ swaps a character for another. ✕ removes from the cast entirely.",
+                    "Все персонажи которые есть в этом диалоге — это «массовка». Кликни 🎤 на карточке чтобы сделать персонажа спикером этой реплики. 👁/👻 — скрыть/показать. ⇄ — заменить другим персонажем. ✕ — убрать из массовки совсем."));
+
+            DrawHelpEntry("🖱",
+                ToolLang.Get("Position characters by dragging them", "Двигай персонажей мышкой по сцене"),
+                ToolLang.Get(
+                    "Just grab a sprite on the scene preview and drag it where you want. Position is saved per-line. Use 🎞 toggle to make the move ANIMATED (smooth slide) instead of instant teleport.",
+                    "Просто схвати спрайт на сцене мышкой и перетащи куда хочешь. Позиция запоминается ДЛЯ ЭТОЙ РЕПЛИКИ. Кнопка 🎞 включает плавное движение вместо телепорта."));
+
+            DrawHelpEntry("✏",
+                ToolLang.Get("Editing the line text", "Редактирование текста реплики"),
+                ToolLang.Get(
+                    "The bottom panel is the text editor. Toolbar buttons wrap the whole line in tags (bold/italic/color/size/pause/speed). For longer or more delicate editing — open the FULL EDITOR (highlighted accent button) — there you get a big window, font preview and richer controls.",
+                    "Снизу — редактор текста. Кнопки тулбара оборачивают весь текст в теги (жирный/курсив/цвет/размер/пауза/скорость). Для серьёзной правки — нажми ВЫДЕЛЕННУЮ кнопку «📝 Полный редактор», там полноценное окно с превью шрифта."));
+
+            DrawHelpEntry("🖼",
+                ToolLang.Get("Scene for this line", "Сцена для этой реплики"),
+                ToolLang.Get(
+                    "Optional. Lets you swap the dialogue UI prefab (e.g. dark frame for a scary scene), bind text to a specific UI element in the scene (custom menus), or shift the dialogue window position. Collapsed by default.",
+                    "Опционально. Позволяет подменить префаб окна диалога (например тёмная рамка для страшной сцены), привязать текст к UI-элементу из сцены (кастомные меню), или сдвинуть окно диалога. По умолчанию свёрнуто."));
+
+            DrawHelpEntry("⚙",
+                ToolLang.Get("Line settings (timing)", "Настройки реплики (тайминги)"),
+                ToolLang.Get(
+                    "Pause before the line starts, override font size, typewriter speed, custom pacing curve. Active settings are marked with a ● ACTIVE badge in the section header — so you see which lines have non-default behavior.",
+                    "Пауза перед стартом реплики, переопределение шрифта, скорость печатной машинки, кривая динамической скорости. Если что-то не дефолт — рядом с заголовком появится ● ВКЛ, чтобы было видно где есть кастомные значения."));
+
+            DrawHelpEntry("👻",
+                ToolLang.Get("Hidden characters strip (left of stage)", "Скрытые персонажи (слева от сцены)"),
+                ToolLang.Get(
+                    "When you hide a character via 👻 toggle — they completely disappear from the stage and appear as a small avatar in the strip on the left. Click that avatar to bring them back.",
+                    "Когда ты скрываешь персонажа кнопкой 👻 — он полностью убирается со сцены и появляется маленьким аватаром в полоске слева. Кликни по нему чтобы вернуть на сцену."));
+
+            DrawHelpEntry("⌨",
+                ToolLang.Get("Hotkeys", "Горячие клавиши"),
+                ToolLang.Get(
+                    "← → navigate between lines · Ctrl+C / Ctrl+V copy/paste a line · Ctrl+D duplicate a line · click any line in the left rail to jump to it.",
+                    "← → переключение между репликами · Ctrl+C / Ctrl+V копировать/вставить реплику · Ctrl+D дублировать реплику · клик по реплике слева — перейти к ней."));
+
+            DrawHelpEntry("💾",
+                ToolLang.Get("Saving", "Сохранение"),
+                ToolLang.Get(
+                    "All changes are saved automatically into the Dialogue node. Use Ctrl+Z / Ctrl+Y to undo and redo. Don't forget to save the project (Ctrl+S) to flush to disk.",
+                    "Все изменения автоматически сохраняются в Dialogue ноду. Используй Ctrl+Z / Ctrl+Y для отмены/возврата. Не забудь сохранить проект (Ctrl+S) чтобы записать на диск."));
+
+            GUILayout.Space(20);
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+
+            // Клик ВНЕ панели — закрыть overlay.
+            if (Event.current.type == EventType.MouseDown
+                && Event.current.button == 0
+                && !panel.Contains(Event.current.mousePosition))
+            {
+                _showHelpOverlay = false;
+                Event.current.Use();
+                Repaint();
+            }
+
+            // Перехватываем колесо мыши и движения над панелью чтобы не
+            // утекали в нижестоящие контролы.
+            if (Event.current.type == EventType.ScrollWheel
+                && panel.Contains(Event.current.mousePosition))
+            {
+                _helpScroll.y += Event.current.delta.y * 12f;
+                Event.current.Use();
+                Repaint();
+            }
+
+            // Esc — закрыть.
+            if (Event.current.type == EventType.KeyDown
+                && Event.current.keyCode == KeyCode.Escape)
+            {
+                _showHelpOverlay = false;
+                Event.current.Use();
+                Repaint();
+            }
+        }
+
+        private void DrawHelpEntry(string icon, string title, string body)
+        {
+            // Заголовок секции.
+            var iconSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 14, normal = { textColor = Accent }
+            };
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(icon, iconSt, GUILayout.Width(24));
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12, normal = { textColor = Text1 }
+            };
+            GUILayout.Label(title, titleSt);
             GUILayout.EndHorizontal();
+
+            // Тело — wordwrapped paragraph.
+            var bodySt = new GUIStyle(EditorStyles.label) {
+                fontSize = 11, wordWrap = true,
+                normal = { textColor = Text2 },
+                padding = new RectOffset(28, 8, 2, 2)
+            };
+            GUILayout.Label(body, bodySt);
+            GUILayout.Space(8);
+            // Тонкий разделитель.
+            Rect sep = GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(sep, new Color(Border.r, Border.g, Border.b, 0.4f));
+            GUILayout.Space(8);
+        }
+
+        // ─── Правая панель: настройки ВЫБРАННОГО персонажа ───
+        // Управление одним персонажем за раз: avatar + 5 actions (🎤
+        // speaker / 👁 visibility / 🎞 anim / ⇄ replace / ✕ remove) +
+        // 📏 Scale slider + позиция X/Y + эмоция (если он спикер).
+        private void DrawSelectedCharacterPanel(DialogueLine line, NovellaCharacter ch)
+        {
+            var ov = FindPlacement(line, ch);
+            bool isSpeaker = line.Speaker != null
+                && line.Speaker.GetInstanceID() == ch.GetInstanceID();
+            bool visible = ov?.Visible ?? true;
+            bool animate = ov?.Animate ?? false;
+            float scale  = ov?.Scale   ?? DEFAULT_SCALE;
+            int   idxInCast = GetUniqueCast().FindIndex(c => c != null
+                && c.GetInstanceID() == ch.GetInstanceID());
+
+            // ─── Большой preview-аватар ───
+            Rect avRow = GUILayoutUtility.GetRect(0, 84, GUILayout.ExpandWidth(true));
+            float avSize = 76;
+            Rect avR = new Rect(avRow.x + 4, avRow.y + 4, avSize, avSize);
+            Color themeCol = ch.ThemeColor;
+            EditorGUI.DrawRect(avR,
+                new Color(themeCol.r * 0.30f, themeCol.g * 0.30f, themeCol.b * 0.30f, 1f));
+            NovellaInspectorChrome.DrawBorder(avR,
+                new Color(themeCol.r, themeCol.g, themeCol.b, 0.85f));
+            Sprite sp = ResolveSpriteFor(ch, isSpeaker ? line : null);
+            if (sp != null && sp.texture != null)
+            {
+                var tex = AssetPreview.GetAssetPreview(sp);
+                if (tex == null) tex = sp.texture;
+                Color old = GUI.color;
+                if (!visible) GUI.color = new Color(1, 1, 1, 0.45f);
+                Rect fit = FitInto(avR, new Vector2(tex.width, tex.height), 0.92f);
+                GUI.DrawTexture(fit, tex, ScaleMode.ScaleToFit, true);
+                GUI.color = old;
+            }
+            else
+            {
+                string ini = !string.IsNullOrEmpty(ch.name)
+                    ? ch.name.Substring(0, 1).ToUpperInvariant() : "?";
+                var iniSt = new GUIStyle(EditorStyles.boldLabel) {
+                    fontSize = 36, alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = new Color(1, 1, 1, visible ? 0.85f : 0.45f) }
+                };
+                GUI.Label(avR, ini, iniSt);
+            }
+
+            // Status info справа от аватара.
+            float infoX = avR.xMax + 10;
+            float infoW = avRow.width - avSize - 18;
+            var statusSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, normal = { textColor = Text2 }
+            };
+            string statusLine = "";
+            if (isSpeaker) statusLine += "🎤 " + ToolLang.Get("Speaker", "Спикер") + "  ";
+            statusLine += visible
+                ? "👁 " + ToolLang.Get("Visible", "Виден")
+                : "👻 " + ToolLang.Get("Hidden", "Скрыт");
+            GUI.Label(new Rect(infoX, avRow.y + 6, infoW, 16), statusLine, statusSt);
+
+            var posSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Italic,
+                normal = { textColor = Text3 }
+            };
+            string posLine = ov != null
+                ? string.Format("X {0:F2} · Y {1:F2}", ov.NormalizedPos.x, ov.NormalizedPos.y)
+                : ToolLang.Get("default position", "позиция по умолчанию");
+            GUI.Label(new Rect(infoX, avRow.y + 24, infoW, 14), posLine, posSt);
+
+            if (animate)
+            {
+                var animSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Bold,
+                    normal = { textColor = Accent }
+                };
+                GUI.Label(new Rect(infoX, avRow.y + 40, infoW, 14),
+                    "🎞 " + ToolLang.Get("Animated transition", "Плавный переход"), animSt);
+            }
+
+            GUILayout.Space(6);
+
+            // ─── Action toggles в один ряд ───
+            EditorGUI.BeginChangeCheck();
+
+            // 🎤 Speaker.
+            bool newSpeaker = DrawToggleBtn(isSpeaker,
+                "🎤  " + ToolLang.Get("Speaker", "Спикер"),
+                ToolLang.Get("Make this character the speaker for this line",
+                             "Сделать спикером этой реплики"));
+            if (newSpeaker != isSpeaker)
+            {
+                Undo.RecordObject(_tree, "Change Speaker");
+                line.Speaker = newSpeaker ? ch : null;
+                line.Mood = "Default";
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+            }
+
+            GUILayout.BeginHorizontal();
+            bool newVisible = DrawToggleBtn(visible,
+                visible ? "👁  " + ToolLang.Get("On stage", "На сцене")
+                        : "👻  " + ToolLang.Get("Off stage", "Скрыт"),
+                visible
+                    ? ToolLang.Get("Visible — click to hide on this line", "Виден — кликни чтобы скрыть на этой реплике")
+                    : ToolLang.Get("Hidden — click to show", "Скрыт — кликни чтобы вернуть"));
+            if (newVisible != visible)
+            {
+                Undo.RecordObject(_tree, "Toggle Visible");
+                var pl = EnsurePlacement(line, ch, idxInCast);
+                pl.Visible = newVisible;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+            bool newAnimate = DrawToggleBtn(animate,
+                "🎞  " + ToolLang.Get("Animate", "Анимация"),
+                animate
+                    ? ToolLang.Get("Animated — click to make instant", "Плавно — кликни чтобы телепорт")
+                    : ToolLang.Get("Instant — click to animate", "Телепорт — кликни чтобы анимировать"));
+            if (newAnimate != animate)
+            {
+                Undo.RecordObject(_tree, "Toggle Animate");
+                var pl = EnsurePlacement(line, ch, idxInCast);
+                pl.Animate = newAnimate;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+            GUILayout.EndHorizontal();
+
+            // ─── In-front-of-UI toggle ───
+            // По умолчанию персонаж РИСУЕТСЯ ПОЗАДИ диалогового окна.
+            // Этот toggle переключает на «над UI» — для редких сцен где
+            // нужно показать персонажа поверх рамки (например крупный
+            // план, появление в фокусе и т.п.).
+            GUILayout.Space(4);
+            bool inFront = ov?.InFrontOfUI ?? false;
+            bool newInFront = DrawToggleBtn(inFront,
+                inFront
+                    ? "⬆  " + ToolLang.Get("In front of UI", "Поверх UI")
+                    : "⬇  " + ToolLang.Get("Behind UI (default)", "Позади UI (по умолч.)"),
+                inFront
+                    ? ToolLang.Get("Drawn ABOVE the dialogue window — click to put behind",
+                                   "Рисуется ПОВЕРХ окна диалога — кликни чтобы убрать назад")
+                    : ToolLang.Get("Drawn behind the dialogue window — click to bring forward",
+                                   "Рисуется позади окна диалога — кликни чтобы вынести вперёд"));
+            if (newInFront != inFront)
+            {
+                Undo.RecordObject(_tree, "Toggle InFrontOfUI");
+                var pl = EnsurePlacement(line, ch, idxInCast);
+                pl.InFrontOfUI = newInFront;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+
+            // ─── Scale slider ───
+            // То что просил пользователь — менять размер персонажа на сцене.
+            GUILayout.Space(8);
+            NovellaInspectorChrome.DrawFieldLabel(
+                "📏  " + ToolLang.Get("Size on stage", "Размер на сцене"));
+            EditorGUI.BeginChangeCheck();
+            Rect scaleRow = GUILayoutUtility.GetRect(0, 22, GUILayout.ExpandWidth(true));
+            float newScale = GUI.HorizontalSlider(
+                new Rect(scaleRow.x, scaleRow.y + 4, scaleRow.width - 64, 14),
+                scale, 0.10f, 3.00f);
+            // Вывод текущего значения.
+            var valSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, alignment = TextAnchor.MiddleRight,
+                fontStyle = FontStyle.Bold,
+                normal = { textColor = Text2 }
+            };
+            GUI.Label(new Rect(scaleRow.xMax - 60, scaleRow.y + 2, 56, 18),
+                string.Format("× {0:F2}", newScale), valSt);
+            if (EditorGUI.EndChangeCheck() && Mathf.Abs(newScale - scale) > 0.001f)
+            {
+                Undo.RecordObject(_tree, "Scale Character");
+                var pl = EnsurePlacement(line, ch, idxInCast);
+                pl.Scale = newScale;
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+
+            // ─── Animation duration slider (только если animate=true) ───
+            if (animate && ov != null)
+            {
+                GUILayout.Space(4);
+                NovellaInspectorChrome.DrawFieldLabel(
+                    "⏱  " + ToolLang.Get("Animation duration", "Длительность анимации"));
+                EditorGUI.BeginChangeCheck();
+                Rect durRow = GUILayoutUtility.GetRect(0, 22, GUILayout.ExpandWidth(true));
+                float newDur = GUI.HorizontalSlider(
+                    new Rect(durRow.x, durRow.y + 4, durRow.width - 64, 14),
+                    ov.AnimDuration, 0.05f, 1.5f);
+                GUI.Label(new Rect(durRow.xMax - 60, durRow.y + 2, 56, 18),
+                    string.Format("{0:F2} {1}", newDur, ToolLang.Get("sec", "сек")), valSt);
+                if (EditorGUI.EndChangeCheck() && Mathf.Abs(newDur - ov.AnimDuration) > 0.001f)
+                {
+                    Undo.RecordObject(_tree, "Anim Duration");
+                    ov.AnimDuration = newDur;
+                    EditorUtility.SetDirty(_tree);
+                }
+            }
+
+            // ─── Position fields X/Y (для точной настройки + reset) ───
+            GUILayout.Space(8);
+            NovellaInspectorChrome.DrawFieldLabel(
+                "📍  " + ToolLang.Get("Position on stage (drag the sprite)",
+                                     "Позиция (или тащи спрайт мышкой)"));
+            EditorGUI.BeginChangeCheck();
+            Vector2 pos = ov != null ? ov.NormalizedPos
+                : DEFAULT_POSITIONS[Mathf.Clamp(idxInCast, 0, DEFAULT_POSITIONS.Length - 1)];
+            GUILayout.BeginHorizontal();
+            DrawInlineLabel("X", 16);
+            float nx = EditorGUILayout.Slider(pos.x, -STAGE_BLEED, 1f + STAGE_BLEED);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            DrawInlineLabel("Y", 16);
+            float ny = EditorGUILayout.Slider(pos.y, -STAGE_BLEED, 1f + STAGE_BLEED);
+            GUILayout.EndHorizontal();
+            if (EditorGUI.EndChangeCheck() && (Mathf.Abs(nx - pos.x) > 0.001f || Mathf.Abs(ny - pos.y) > 0.001f))
+            {
+                Undo.RecordObject(_tree, "Move Character");
+                var pl = EnsurePlacement(line, ch, idxInCast);
+                pl.NormalizedPos = new Vector2(nx, ny);
+                EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+            }
+
+            // ─── Эмоция (chip-grid) — только для спикера ───
+            if (isSpeaker)
+            {
+                GUILayout.Space(8);
+                NovellaInspectorChrome.DrawFieldLabel(
+                    "😃  " + ToolLang.Get("Emotion", "Эмоция"));
+                var moodList = new List<string> { "Default" };
+                if (ch.Emotions != null)
+                    moodList.AddRange(ch.Emotions.Select(e => e.EmotionName));
+                int picked = DrawMoodChips(line.Mood, moodList);
+                if (picked >= 0 && moodList[picked] != line.Mood)
+                {
+                    Undo.RecordObject(_tree, "Change Mood");
+                    line.Mood = moodList[picked];
+                    EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+                }
+                if (ch.Emotions == null || ch.Emotions.Count == 0)
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                        "Add emotions in Character Editor.",
+                        "Эмоции добавляются в редакторе персонажа."));
+            }
+
+            // ─── Flip-toggles (применяются только к спикеру в runtime) ───
+            if (isSpeaker)
+            {
+                GUILayout.Space(8);
+                NovellaInspectorChrome.DrawFieldLabel(
+                    ToolLang.Get("Mirror sprite (speaker only)", "Зеркало (только для спикера)"));
+                EditorGUI.BeginChangeCheck();
+                GUILayout.BeginHorizontal();
+                line.FlipX = DrawToggleBtn(line.FlipX,
+                    "↔  " + ToolLang.Get("Flip X", "Зеркало X"),
+                    ToolLang.Get("Mirror sprite horizontally", "Отзеркалить спрайт по горизонтали"));
+                line.FlipY = DrawToggleBtn(line.FlipY,
+                    "↕  " + ToolLang.Get("Flip Y", "Зеркало Y"),
+                    ToolLang.Get("Mirror sprite vertically", "Отзеркалить спрайт по вертикали"));
+                GUILayout.EndHorizontal();
+                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_tree, "Flip"); EditorUtility.SetDirty(_tree); TriggerLiveSync(false); }
+            }
+
+            // ─── Кнопки внизу: Replace / Edit character / Remove ───
+            GUILayout.Space(10);
+            GUILayout.BeginHorizontal();
+            if (NovellaInspectorChrome.DrawSlimBtn(
+                "⇄  " + ToolLang.Get("Replace", "Заменить"),
+                GUILayout.Height(24)))
+                ShowReplaceCharacterMenu(ch);
+            if (NovellaInspectorChrome.DrawSlimBtn(
+                "🛠  " + ToolLang.Get("Edit", "Редактор"),
+                GUILayout.Height(24)))
+                NovellaCharacterEditorModule.OpenWithCharacter(ch);
+            if (NovellaInspectorChrome.DrawDangerBtn(
+                "✕  " + ToolLang.Get("Remove", "Убрать"),
+                GUILayout.Width(80), GUILayout.Height(24)))
+            {
+                if (EditorUtility.DisplayDialog(
+                    ToolLang.Get("Remove character?", "Убрать персонажа?"),
+                    string.Format(ToolLang.Get(
+                        "Remove «{0}» from this dialogue's cast? Their placements and speaker references on all lines will be cleared.",
+                        "Убрать «{0}» из массовки этого диалога? Расстановка и роль спикера во всех репликах будут очищены."), ch.name),
+                    ToolLang.Get("Remove", "Убрать"),
+                    ToolLang.Get("Cancel", "Отмена")))
+                {
+                    Undo.RegisterCompleteObjectUndo(_tree, "Remove Character from Cast");
+                    int chId = ch.GetInstanceID();
+                    _nodeData.ActiveCharacters.RemoveAll(a => a?.CharacterAsset != null
+                        && a.CharacterAsset.GetInstanceID() == chId);
+                    foreach (var l in _nodeData.DialogueLines)
+                    {
+                        l.StagePlacements?.RemoveAll(p => p?.Character != null
+                            && p.Character.GetInstanceID() == chId);
+                        if (l.Speaker != null && l.Speaker.GetInstanceID() == chId)
+                            l.Speaker = null;
+                    }
+                    _editingCharacter = null;
+                    EditorUtility.SetDirty(_tree); TriggerLiveSync(true);
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            // Reset position btn (только если есть override).
+            if (ov != null)
+            {
+                GUILayout.Space(4);
+                if (NovellaInspectorChrome.DrawSlimBtn(
+                    "↺  " + ToolLang.Get("Reset position & scale", "Сбросить позицию и размер"),
+                    GUILayout.Height(22)))
+                {
+                    Undo.RecordObject(_tree, "Reset Placement");
+                    line.StagePlacements.Remove(ov);
+                    EditorUtility.SetDirty(_tree); TriggerLiveSync(false);
+                }
+            }
+        }
+
+        // ─── Большой заголовок логического блока ───
+        // Используется для главных смысловых разделов settings-panel
+        // («Массовка и спикер», «Сцена для этой реплики»…). Визуально
+        // крупнее обычного DrawColumnSubHeader: 13pt, accent + 2px-полоса
+        // под заголовком + accent-точка слева для анкеровки взгляда.
+        private void DrawBigBlockHeader(string icon, string title)
+        {
+            GUILayout.Space(4);
+            Rect headR = GUILayoutUtility.GetRect(0, 24, GUILayout.ExpandWidth(true));
+
+            // Маленький accent-квадрат слева как «булитик».
+            EditorGUI.DrawRect(new Rect(headR.x, headR.y + 5, 4, 14), Accent);
+
+            var st = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12, fontStyle = FontStyle.Bold,
+                normal = { textColor = Text1 }
+            };
+            GUI.Label(new Rect(headR.x + 10, headR.y + 2, headR.width - 12, 22),
+                (string.IsNullOrEmpty(icon) ? "" : icon + "  ") + title.ToUpperInvariant(),
+                st);
+
+            // 2px-полоса accent под заголовком.
+            Rect underline = GUILayoutUtility.GetRect(0, 2, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(underline,
+                new Color(Accent.r, Accent.g, Accent.b, 0.55f));
+            GUILayout.Space(6);
+        }
+
+        private void DrawColumnSubHeader(string icon, string title)
+        {
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, fontStyle = FontStyle.Bold,
+                normal = { textColor = Accent }
+            };
+            GUILayout.Label((string.IsNullOrEmpty(icon) ? "" : icon + "  ") + title.ToUpperInvariant(), st);
+            Rect r = GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(r, Border);
+            GUILayout.Space(4);
+        }
+
+        private void DrawInlineLabel(string text, float width)
+        {
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 11, normal = { textColor = Text2 }
+            };
+            GUILayout.Label(text, st, GUILayout.Width(width));
+        }
+
+        private bool DrawToggleBtn(bool value, string label, string tooltip)
+        {
+            Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUI.skin.button,
+                GUILayout.ExpandWidth(true), GUILayout.Height(22));
+            return DrawToggleAtRect(r, value, label, tooltip);
+        }
+
+        private bool DrawToggleAtRect(Rect r, bool value, string label, string tooltip)
+        {
+            bool hovered = r.Contains(Event.current.mousePosition);
+            Color bg, rim, txt;
+            if (value)
+            {
+                bg = new Color(Accent.r, Accent.g, Accent.b, hovered ? 0.32f : 0.22f);
+                rim = Accent; txt = Accent;
+            }
+            else if (hovered)
+            {
+                bg = new Color(Mathf.Lerp(BgRaised.r, Accent.r, 0.14f),
+                    Mathf.Lerp(BgRaised.g, Accent.g, 0.14f),
+                    Mathf.Lerp(BgRaised.b, Accent.b, 0.14f), 0.55f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.55f);
+                txt = Text1;
+            }
+            else { bg = Color.clear; rim = Border; txt = Text2; }
+            if (bg.a > 0) EditorGUI.DrawRect(r, bg);
+            NovellaInspectorChrome.DrawBorder(r, rim);
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = txt }
+            };
+            GUI.Label(r, new GUIContent(label, tooltip), st);
+            if (Event.current.type == EventType.MouseDown && hovered && Event.current.button == 0)
+            { value = !value; Event.current.Use(); }
+            return value;
+        }
+
+        private bool DrawSectionToggle(bool value, string label, string tooltip)
+        {
+            Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none,
+                GUILayout.ExpandWidth(true), GUILayout.Height(22));
+            bool hovered = r.Contains(Event.current.mousePosition);
+
+            Rect boxR = new Rect(r.x + 2, r.y + 3, 16, 16);
+            EditorGUI.DrawRect(boxR, value
+                ? new Color(Accent.r, Accent.g, Accent.b, 0.85f) : BgPrimary);
+            NovellaInspectorChrome.DrawBorder(boxR,
+                value ? Accent : (hovered ? new Color(Accent.r, Accent.g, Accent.b, 0.55f) : Border));
+            if (value)
+            {
+                var ck = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 11, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleCenter,
+                    normal = { textColor = Color.white }
+                };
+                GUI.Label(boxR, "✓", ck);
+            }
+            var lbl = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 11, normal = { textColor = value ? Text1 : Text2 }
+            };
+            GUI.Label(new Rect(boxR.xMax + 8, r.y + 2, r.width - 26, r.height),
+                new GUIContent(label, tooltip), lbl);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hovered && Event.current.button == 0)
+            { value = !value; Event.current.Use(); }
+            return value;
+        }
+
+        private bool DrawCollapseSection(bool expanded, string label)
+        {
+            Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none,
+                GUILayout.ExpandWidth(true), GUILayout.Height(20));
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            string arrow = expanded ? "▼" : "▶";
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 10, fontStyle = FontStyle.Bold,
+                normal = { textColor = hover ? Accent : Text2 }
+            };
+            GUI.Label(r, "  " + arrow + "  " + label, st);
+
+            if (hover) EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            { expanded = !expanded; Event.current.Use(); }
+            return expanded;
+        }
+
+        // Collapse-секция чьё состояние сохраняется в EditorPrefs.
+        // hasActiveSettings = true → рядом с заголовком рисуется accent-точка
+        // и подпись «(вкл)», чтобы юзер видел: «эта секция свёрнута, но
+        // там есть активные настройки».
+        private bool DrawSavedCollapseSection(string prefKey, string label, bool hasActiveSettings)
+        {
+            bool expanded = EditorPrefs.GetBool(prefKey, false);
+
+            Rect r = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none,
+                GUILayout.ExpandWidth(true), GUILayout.Height(22));
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            string arrow = expanded ? "▼" : "▶";
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 11, fontStyle = FontStyle.Bold,
+                normal = { textColor = hover
+                    ? Accent
+                    : (hasActiveSettings ? Text1 : Text2) }
+            };
+            GUI.Label(new Rect(r.x, r.y, r.width - 70, r.height),
+                "  " + arrow + "  " + label, st);
+
+            // Активный индикатор справа — accent-точка + «вкл».
+            if (hasActiveSettings)
+            {
+                Rect dotR = new Rect(r.xMax - 56, r.y + 7, 8, 8);
+                EditorGUI.DrawRect(dotR, Accent);
+                NovellaInspectorChrome.DrawBorder(dotR, Accent);
+                var onSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleLeft,
+                    normal = { textColor = Accent }
+                };
+                GUI.Label(new Rect(dotR.xMax + 4, r.y + 1, 50, r.height),
+                    ToolLang.Get("ACTIVE", "ВКЛ"), onSt);
+            }
+
+            if (hover) EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hover && Event.current.button == 0)
+            {
+                expanded = !expanded;
+                EditorPrefs.SetBool(prefKey, expanded);
+                Event.current.Use();
+            }
+            return expanded;
+        }
+
+        private bool DrawCardIconBtn(Rect r, string icon, bool enabled, bool danger, string tooltip = "")
+        {
+            bool hovered = enabled && r.Contains(Event.current.mousePosition);
+            Color fill = Color.clear;
+            Color rim, txt;
+            if (!enabled) { rim = new Color(Border.r, Border.g, Border.b, 0.35f); txt = Text4; }
+            else if (danger)
+            {
+                if (hovered) fill = new Color(Danger.r, Danger.g, Danger.b, 0.18f);
+                rim = new Color(Danger.r, Danger.g, Danger.b, hovered ? 0.85f : 0.55f);
+                txt = new Color(Danger.r, Danger.g, Danger.b, hovered ? 1f : 0.85f);
+            }
+            else
+            {
+                if (hovered)
+                {
+                    fill = new Color(Mathf.Lerp(BgRaised.r, Accent.r, 0.14f),
+                        Mathf.Lerp(BgRaised.g, Accent.g, 0.14f),
+                        Mathf.Lerp(BgRaised.b, Accent.b, 0.14f), 0.7f);
+                    rim = new Color(Accent.r, Accent.g, Accent.b, 0.85f);
+                    txt = Text1;
+                }
+                else
+                {
+                    fill = new Color(0, 0, 0, 0.45f);
+                    rim = Border;
+                    txt = Text2;
+                }
+            }
+            if (fill.a > 0) EditorGUI.DrawRect(r, fill);
+            NovellaInspectorChrome.DrawBorder(r, rim);
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 12, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = txt }
+            };
+            GUI.Label(r, new GUIContent(icon, tooltip), st);
+            if (enabled) EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && enabled && hovered && Event.current.button == 0)
+            { Event.current.Use(); return true; }
+            return false;
+        }
+
+        private bool DrawSlimRectBtn(Rect r, string label, bool danger)
+        {
+            bool hovered = r.Contains(Event.current.mousePosition);
+            Color bg, rim, txt;
+            if (danger)
+            {
+                bg = hovered ? new Color(Danger.r, Danger.g, Danger.b, 0.18f) : Color.clear;
+                rim = new Color(Danger.r, Danger.g, Danger.b, hovered ? 0.85f : 0.55f);
+                txt = new Color(Danger.r, Danger.g, Danger.b, hovered ? 1f : 0.85f);
+            }
+            else if (hovered)
+            {
+                bg = new Color(Mathf.Lerp(BgRaised.r, Accent.r, 0.14f),
+                    Mathf.Lerp(BgRaised.g, Accent.g, 0.14f),
+                    Mathf.Lerp(BgRaised.b, Accent.b, 0.14f), 0.55f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.55f);
+                txt = Text1;
+            }
+            else { bg = Color.clear; rim = Border; txt = Text2; }
+            if (bg.a > 0) EditorGUI.DrawRect(r, bg);
+            NovellaInspectorChrome.DrawBorder(r, rim);
+            var st = new GUIStyle(EditorStyles.label) {
+                fontSize = 11, fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = txt }
+            };
+            GUI.Label(r, label, st);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hovered && Event.current.button == 0)
+            { Event.current.Use(); return true; }
+            return false;
+        }
+
+        private bool DrawAccentRectBtn(Rect r, string label)
+        {
+            bool hovered = r.Contains(Event.current.mousePosition);
+            Color bg = new Color(Accent.r, Accent.g, Accent.b, hovered ? 0.32f : 0.18f);
+            EditorGUI.DrawRect(r, bg);
+            NovellaInspectorChrome.DrawBorder(r, Accent);
+            var st = new GUIStyle(EditorStyles.boldLabel) {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = Accent }
+            };
+            GUI.Label(r, label, st);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hovered && Event.current.button == 0)
+            { Event.current.Use(); return true; }
+            return false;
+        }
+
+        private bool DrawToolbarBtn(Rect r, string label, string tooltip,
+            FontStyle fs = FontStyle.Normal, bool active = false)
+        {
+            bool hovered = r.Contains(Event.current.mousePosition);
+            Color bg, rim, txt;
+            if (active)
+            {
+                bg = new Color(Accent.r, Accent.g, Accent.b, hovered ? 0.32f : 0.22f);
+                rim = Accent; txt = Accent;
+            }
+            else if (hovered)
+            {
+                bg = new Color(Mathf.Lerp(BgRaised.r, Accent.r, 0.14f),
+                    Mathf.Lerp(BgRaised.g, Accent.g, 0.14f),
+                    Mathf.Lerp(BgRaised.b, Accent.b, 0.14f), 0.55f);
+                rim = new Color(Accent.r, Accent.g, Accent.b, 0.55f);
+                txt = Text1;
+            }
+            else { bg = new Color(BgRaised.r, BgRaised.g, BgRaised.b, 0.55f); rim = Border; txt = Text2; }
+            EditorGUI.DrawRect(r, bg);
+            NovellaInspectorChrome.DrawBorder(r, rim);
+            var st = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 11, fontStyle = fs,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = txt }
+            };
+            GUI.Label(r, new GUIContent(label, tooltip), st);
+            EditorGUIUtility.AddCursorRect(r, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && hovered && Event.current.button == 0)
+            { Event.current.Use(); return true; }
+            return false;
         }
     }
 }

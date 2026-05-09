@@ -3,6 +3,7 @@ using UnityEditor.Callbacks;
 using UnityEngine;
 using UnityEngine.UIElements;
 using NovellaEngine.Data;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace NovellaEngine.Editor
@@ -26,6 +27,11 @@ namespace NovellaEngine.Editor
         private bool _isLeftPanelOpen = true;
         private Button _toggleLeftPanelBtn;
         private float _sidebarWidth = 260f;
+
+        // Block 3A: bottom node-palette (drag&drop источник создания нод).
+        private NovellaNodePalette _nodePalette;
+        private bool _isPaletteOpen = true;
+        private Button _palToggleBtn;
 
         private bool _isInspectorOpen = true;
         private NovellaNodeView _selectedNodeView;
@@ -82,6 +88,7 @@ namespace NovellaEngine.Editor
         {
             _autoSave = EditorPrefs.GetBool("NovellaGraph_AutoSave", true);
             _isLeftPanelOpen = EditorPrefs.GetBool("NovellaGraph_SidebarOpen", true);
+            _isPaletteOpen = EditorPrefs.GetBool("NovellaGraph_PaletteOpen", true);
             _locSettings = NovellaLocalizationSettings.GetOrCreateSettings();
 
             string savedLang = EditorPrefs.GetString("NovellaGraph_PreviewLang", "");
@@ -165,131 +172,25 @@ namespace NovellaEngine.Editor
             var mainContainer = new VisualElement { style = { flexDirection = FlexDirection.Row, flexGrow = 1 } };
             rootVisualElement.Add(mainContainer);
 
-            var graphContainer = new VisualElement { style = { flexGrow = 1 } };
-            graphContainer.Add(_graphView);
+            // graphContainer теперь column-flex чтобы под graph-area можно было
+            // положить bottom node-palette (Block 3A). graphArea — внутренний
+            // контейнер с flexGrow=1, ему graphView растягивается на всю
+            // площадь. Палитра сидит фиксированной высотой 132px ниже.
+            var graphContainer = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Column } };
+            var graphArea = new VisualElement { style = { flexGrow = 1, position = Position.Relative } };
+            graphArea.Add(_graphView);
+            graphContainer.Add(graphArea);
+
+            // Bottom node-palette — добавляем во всех модах (включая туториал;
+            // в read-only туторе drag не сработает, но визуальное знакомство
+            // с интерфейсом юзеру даём).
+            _nodePalette = new NovellaNodePalette(_graphView);
+            _nodePalette.SetCollapsed(!_isPaletteOpen);
+            graphContainer.Add(_nodePalette);
 
             if (!_isTutorialMode)
             {
-                _leftPanel = new VisualElement
-                {
-                    style = {
-                        width = _isLeftPanelOpen ? _sidebarWidth : 0,
-                        flexShrink = 0,
-                        backgroundColor = new StyleColor(new Color(0.15f, 0.15f, 0.15f)),
-                        borderRightColor = new StyleColor(Color.black),
-                        borderRightWidth = 1,
-                        overflow = Overflow.Hidden,
-                        flexDirection = FlexDirection.Column
-                    }
-                };
-
-                var scrollContainer = new ScrollView(ScrollViewMode.Vertical);
-                scrollContainer.style.flexGrow = 1;
-                _leftPanel.Add(scrollContainer);
-
-                var toolsLabel = new Label("🛠 " + ToolLang.Get("Workspace Tools", "Инструменты"))
-                {
-                    style = { color = new Color(0.6f, 0.8f, 1f), unityFontStyleAndWeight = FontStyle.Bold, fontSize = 16, marginTop = 15, marginBottom = 10, alignSelf = Align.Center }
-                };
-                scrollContainer.Add(toolsLabel);
-
-                AddSidebarButton("🎓", ToolLang.Get("Tutorial", "Обучение"), ToolLang.Get("Open interactive tutorials.", "Открыть интерактивные уроки."), () => NovellaWelcomeWindow.ShowWindow(), scrollContainer);
-
-                var separator = new VisualElement { style = { height = 1, backgroundColor = new Color(0.25f, 0.25f, 0.25f), marginTop = 15, marginBottom = 10, marginLeft = 15, marginRight = 15 } };
-                scrollContainer.Add(separator);
-
-                AddSidebarButton("🎨", ToolLang.Get("Node Colors", "Цвета Нод"), ToolLang.Get("Change reserved node colors.", "Настроить системные цвета нод."), () => NovellaColorSettingsWindow.ShowWindow(), scrollContainer);
-
-                AddSidebarButton("📋", ToolLang.Get("Global Variables", "База Переменных"), ToolLang.Get("Manage global string variables.", "Настройка всех переменных проекта."), () => NovellaVariableEditorModule.ShowWindow(), scrollContainer);
-
-                AddSidebarButton("👨‍💻", ToolLang.Get("C# API (Coders)", "C# API (Кодерам)"), ToolLang.Get("Open C# API cheat sheet with examples.", "Открыть шпаргалку с примерами C# кода."), () => NovellaAPIWindow.ShowWindow(), scrollContainer);
-
-                AddSidebarButton("🧩", ToolLang.Get("DLC Modules", "Модули DLC"), ToolLang.Get("Manage installed DLCs.", "Управление установленными модулями DLC."), () => NovellaDLCManagerModule.ShowWindow(), scrollContainer);
-
-                var ioLabel = new Label(ToolLang.Get("CSV Localization (Text Data):", "CSV Локализация (Весь текст):"))
-                {
-                    style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
-                };
-                scrollContainer.Add(ioLabel);
-
-                var ioRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
-
-                var btnExport = new Button(() => NovellaCSVUtility.ExportCSV(_currentTree, _locSettings.Languages))
-                { text = "📤 " + ToolLang.Get("Export", "Экспорт"), tooltip = ToolLang.Get("Export all texts to CSV.", "Выгрузить все тексты графа в таблицу Excel/CSV.") };
-                btnExport.style.flexGrow = 1; btnExport.style.height = 35; btnExport.style.marginRight = 2;
-
-                var btnImport = new Button(() => { NovellaCSVUtility.ImportCSV(_currentTree, _locSettings.Languages); _inspectorContainer.MarkDirtyRepaint(); _graphView.LoadGraph(); })
-                { text = "📥 " + ToolLang.Get("Import", "Импорт"), tooltip = ToolLang.Get("Import translated texts from CSV.", "Загрузить переводы из таблицы обратно в граф.") };
-                btnImport.style.flexGrow = 1; btnImport.style.height = 35; btnImport.style.marginLeft = 2;
-
-                ioRow.Add(btnExport);
-                ioRow.Add(btnImport);
-                scrollContainer.Add(ioRow);
-
-                var jsonLabel = new Label(ToolLang.Get("JSON Backup (Graph Data):", "Бэкап JSON (Весь Граф):"))
-                {
-                    style = { color = new Color(0.7f, 0.7f, 0.7f), fontSize = 11, marginLeft = 12, marginTop = 15, marginBottom = 5, unityFontStyleAndWeight = FontStyle.Bold }
-                };
-                scrollContainer.Add(jsonLabel);
-
-                var jsonRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 10, marginRight = 10, justifyContent = Justify.SpaceBetween } };
-
-                var btnExportJson = new Button(() => ExportGraphToJSON())
-                { text = "📤 " + ToolLang.Get("Export", "Экспорт") + " JSON", tooltip = ToolLang.Get("Export entire graph to JSON backup.", "Сохранить весь граф в JSON.") };
-                btnExportJson.style.flexGrow = 1; btnExportJson.style.height = 35; btnExportJson.style.marginRight = 2;
-
-                var btnImportJson = new Button(() => ImportGraphFromJSON())
-                { text = "📥 " + ToolLang.Get("Import", "Импорт") + " JSON", tooltip = ToolLang.Get("Restore graph from JSON backup.", "Восстановить граф из JSON.") };
-                btnImportJson.style.flexGrow = 1; btnImportJson.style.height = 35; btnImportJson.style.marginLeft = 2;
-
-                jsonRow.Add(btnExportJson);
-                jsonRow.Add(btnImportJson);
-                scrollContainer.Add(jsonRow);
-
-                var supportContainer = new VisualElement { style = { backgroundColor = new Color(0.12f, 0.12f, 0.12f), paddingBottom = 10, paddingTop = 10, borderTopWidth = 1, borderTopColor = Color.black } };
-
-                var suppTitle = new Label("💬 " + ToolLang.Get("Support & Community", "Поддержка и Комьюнити")) { style = { color = Color.white, unityFontStyleAndWeight = FontStyle.Bold, alignSelf = Align.Center, marginBottom = 5 } };
-                supportContainer.Add(suppTitle);
-
-                var linksRow = new VisualElement { style = { flexDirection = FlexDirection.Row, justifyContent = Justify.Center } };
-
-                var btnDiscord = new Button(() => Application.OpenURL(DISCORD_LINK)) { text = "Discord" };
-                btnDiscord.style.backgroundColor = new StyleColor(new Color(0.34f, 0.4f, 0.95f)); btnDiscord.style.color = Color.white; btnDiscord.style.unityFontStyleAndWeight = FontStyle.Bold; btnDiscord.style.height = 25; btnDiscord.style.width = 100;
-
-                var btnTg = new Button(() => Application.OpenURL(TELEGRAM_LINK)) { text = "Telegram" };
-                btnTg.style.backgroundColor = new StyleColor(new Color(0.13f, 0.62f, 0.85f)); btnTg.style.color = Color.white; btnTg.style.unityFontStyleAndWeight = FontStyle.Bold; btnTg.style.height = 25; btnTg.style.width = 100;
-
-                linksRow.Add(btnDiscord); linksRow.Add(btnTg);
-                supportContainer.Add(linksRow);
-
-                var btnStore = new Button(() => Application.OpenURL(ASSET_STORE_LINK)) { text = "🛒 " + ToolLang.Get("More Assets", "Больше Ассетов") };
-                btnStore.style.backgroundColor = new StyleColor(new Color(0.2f, 0.6f, 0.3f)); btnStore.style.color = Color.white; btnStore.style.unityFontStyleAndWeight = FontStyle.Bold; btnStore.style.height = 30; btnStore.style.marginLeft = 15; btnStore.style.marginRight = 15; btnStore.style.marginTop = 10;
-                supportContainer.Add(btnStore);
-
-                _leftPanel.Add(supportContainer);
-
-                mainContainer.Add(_leftPanel);
-
-                _toggleLeftPanelBtn = new Button(() => {
-                    _isLeftPanelOpen = !_isLeftPanelOpen;
-                    _leftPanel.style.width = _isLeftPanelOpen ? _sidebarWidth : 0;
-                    _toggleLeftPanelBtn.text = _isLeftPanelOpen ? "◀" : "▶";
-                    EditorPrefs.SetBool("NovellaGraph_SidebarOpen", _isLeftPanelOpen);
-                })
-                { text = _isLeftPanelOpen ? "◀" : "▶" };
-
-                _toggleLeftPanelBtn.style.position = Position.Absolute;
-                _toggleLeftPanelBtn.style.top = Length.Percent(45);
-                _toggleLeftPanelBtn.style.left = -1f;
-                _toggleLeftPanelBtn.style.width = 24;
-                _toggleLeftPanelBtn.style.height = 100;
-                _toggleLeftPanelBtn.style.borderTopRightRadius = 10;
-                _toggleLeftPanelBtn.style.borderBottomRightRadius = 10;
-                _toggleLeftPanelBtn.style.borderTopLeftRadius = 0;
-                _toggleLeftPanelBtn.style.borderBottomLeftRadius = 0;
-                _toggleLeftPanelBtn.style.backgroundColor = new StyleColor(new Color(0.25f, 0.25f, 0.25f, 0.95f));
-
-                graphContainer.Add(_toggleLeftPanelBtn);
+                BuildLeftPanel(mainContainer, graphContainer);
             }
 
             _rightPanel = new VisualElement
@@ -297,11 +198,22 @@ namespace NovellaEngine.Editor
                 style = {
                     width = _isInspectorOpen ? 550 : 0,
                     flexShrink = 0,
-                    backgroundColor = new StyleColor(new Color(0.18f, 0.18f, 0.18f)),
-                    borderLeftColor = new StyleColor(Color.black),
-                    borderLeftWidth = 1
+                    backgroundColor = NovellaGraphTheme.BgPrimary,
+                    borderLeftColor = NovellaGraphTheme.Border,
+                    borderLeftWidth = 1,
+                    overflow = Overflow.Hidden,
                 }
             };
+            // Анимация ширины: 0.20s ease-out-cubic — smooth toggle inspector'а.
+            _rightPanel.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
+                new StylePropertyName("width"),
+            });
+            _rightPanel.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
+                new TimeValue(0.20f, TimeUnit.Second),
+            });
+            _rightPanel.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
+                new EasingFunction(EasingMode.EaseOutCubic),
+            });
 
             _inspectorContainer = new IMGUIContainer(DrawInspectorPanel);
             _inspectorContainer.StretchToParentSize();
@@ -370,56 +282,286 @@ namespace NovellaEngine.Editor
             }
         }
 
-        private void AddSidebarButton(string icon, string text, string tooltip, System.Action onClick, VisualElement container)
+        // ─── Левая панель: инструменты графа в стиле Hub-сайдбара ───
+        // Группы: Tools / Localization / Backup / Community. Каждая группа имеет
+        // section-header «UPPERCASE 9pt» и slim-кнопки (no border idle, hover-fill).
+        // Discord/Telegram/AssetStore-плашки заменены одной строкой Community с
+        // три маленькими icon-only кнопками — больше не выпадают из общего стиля.
+        private void BuildLeftPanel(VisualElement mainContainer, VisualElement graphContainer)
+        {
+            _sidebarWidth = 240f;
+            _leftPanel = new VisualElement
+            {
+                style = {
+                    width = _isLeftPanelOpen ? _sidebarWidth : 0,
+                    flexShrink = 0,
+                    backgroundColor = NovellaGraphTheme.BgSide,
+                    borderRightColor = NovellaGraphTheme.Border,
+                    borderRightWidth = 1,
+                    overflow = Overflow.Hidden,
+                    flexDirection = FlexDirection.Column,
+                }
+            };
+            // Анимация ширины — smooth toggle левой панели.
+            _leftPanel.style.transitionProperty = new StyleList<StylePropertyName>(new List<StylePropertyName> {
+                new StylePropertyName("width"),
+            });
+            _leftPanel.style.transitionDuration = new StyleList<TimeValue>(new List<TimeValue> {
+                new TimeValue(0.20f, TimeUnit.Second),
+            });
+            _leftPanel.style.transitionTimingFunction = new StyleList<EasingFunction>(new List<EasingFunction> {
+                new EasingFunction(EasingMode.EaseOutCubic),
+            });
+
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1;
+            _leftPanel.Add(scroll);
+
+            // Заголовок «Workspace tools».
+            var brand = new Label("🛠  " + ToolLang.Get("Tools", "Инструменты"))
+            {
+                style = {
+                    color = NovellaGraphTheme.Text1,
+                    unityFontStyleAndWeight = FontStyle.Bold,
+                    fontSize = 14,
+                    marginTop = 14, marginBottom = 8,
+                    marginLeft = 14, marginRight = 14,
+                }
+            };
+            scroll.Add(brand);
+
+            // ─── TOOLS ───
+            scroll.Add(NovellaGraphTheme.CreateSectionHeader(
+                ToolLang.Get("Workspace", "Рабочее место")));
+            scroll.Add(BuildSidebarBtn("🎓", ToolLang.Get("Tutorial", "Обучение"),
+                ToolLang.Get("Open interactive tutorials.", "Открыть интерактивные уроки."),
+                () => NovellaWelcomeWindow.ShowWindow()));
+            scroll.Add(BuildSidebarBtn("🎨", ToolLang.Get("Node colors", "Цвета нод"),
+                ToolLang.Get("Customize per-type node colors.", "Настроить цвета нод по типам."),
+                () => NovellaColorSettingsWindow.ShowWindow()));
+            scroll.Add(BuildSidebarBtn("📊", ToolLang.Get("Variables", "Переменные"),
+                ToolLang.Get("Manage all project variables.", "Все переменные проекта."),
+                () => NovellaVariableEditorModule.ShowWindow()));
+            scroll.Add(BuildSidebarBtn("👨‍💻", ToolLang.Get("C# API", "C# API"),
+                ToolLang.Get("Cheat sheet with code samples.", "Шпаргалка с примерами кода."),
+                () => NovellaAPIWindow.ShowWindow()));
+            scroll.Add(BuildSidebarBtn("🧩", ToolLang.Get("DLC modules", "DLC модули"),
+                ToolLang.Get("Manage installed DLCs.", "Управление установленными модулями DLC."),
+                () => NovellaDLCManagerModule.ShowWindow()));
+
+            // ─── LOCALIZATION ───
+            scroll.Add(NovellaGraphTheme.CreateSectionHeader(
+                ToolLang.Get("Localization (CSV)", "Локализация (CSV)")));
+
+            var ioRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 8, marginRight = 8, marginTop = 2 } };
+            var btnExport = new Button(() => NovellaCSVUtility.ExportCSV(_currentTree, _locSettings.Languages))
+            { text = "📤 " + ToolLang.Get("Export", "Экспорт"),
+              tooltip = ToolLang.Get("Export all graph texts to CSV.", "Выгрузить все тексты графа в CSV.") };
+            NovellaGraphTheme.ApplySlimButton(btnExport, height: 28, paddingX: 8);
+            btnExport.style.flexGrow = 1; btnExport.style.marginLeft = 0; btnExport.style.marginRight = 4;
+
+            var btnImport = new Button(() => {
+                NovellaCSVUtility.ImportCSV(_currentTree, _locSettings.Languages);
+                _inspectorContainer.MarkDirtyRepaint();
+                _graphView.LoadGraph();
+            })
+            { text = "📥 " + ToolLang.Get("Import", "Импорт"),
+              tooltip = ToolLang.Get("Import translated texts from CSV.", "Загрузить переводы из CSV.") };
+            NovellaGraphTheme.ApplySlimButton(btnImport, height: 28, paddingX: 8);
+            btnImport.style.flexGrow = 1; btnImport.style.marginLeft = 0;
+
+            ioRow.Add(btnExport);
+            ioRow.Add(btnImport);
+            scroll.Add(ioRow);
+
+            // ─── BACKUP ───
+            scroll.Add(NovellaGraphTheme.CreateSectionHeader(
+                ToolLang.Get("Backup (JSON)", "Бэкап (JSON)")));
+
+            var jsonRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 8, marginRight = 8, marginTop = 2 } };
+            var btnExportJson = new Button(() => ExportGraphToJSON())
+            { text = "📤 JSON",
+              tooltip = ToolLang.Get("Save entire graph to JSON file.", "Сохранить весь граф в JSON-файл.") };
+            NovellaGraphTheme.ApplySlimButton(btnExportJson, height: 28, paddingX: 8);
+            btnExportJson.style.flexGrow = 1; btnExportJson.style.marginLeft = 0; btnExportJson.style.marginRight = 4;
+
+            var btnImportJson = new Button(() => ImportGraphFromJSON())
+            { text = "📥 JSON",
+              tooltip = ToolLang.Get("Restore graph from JSON file.", "Восстановить граф из JSON.") };
+            NovellaGraphTheme.ApplySlimButton(btnImportJson, height: 28, paddingX: 8);
+            btnImportJson.style.flexGrow = 1; btnImportJson.style.marginLeft = 0;
+
+            jsonRow.Add(btnExportJson);
+            jsonRow.Add(btnImportJson);
+            scroll.Add(jsonRow);
+
+            // ─── COMMUNITY (одна компактная строка вместо разноцветных плашек) ───
+            scroll.Add(NovellaGraphTheme.CreateSectionHeader(
+                ToolLang.Get("Community", "Сообщество")));
+
+            var commRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginLeft = 8, marginRight = 8, marginTop = 2, marginBottom = 16 } };
+
+            var btnDiscord = new Button(() => Application.OpenURL(DISCORD_LINK))
+            { text = "💬 Discord", tooltip = "Discord" };
+            NovellaGraphTheme.ApplySlimButton(btnDiscord, height: 28, paddingX: 6);
+            btnDiscord.style.flexGrow = 1; btnDiscord.style.marginLeft = 0; btnDiscord.style.marginRight = 4;
+            btnDiscord.style.fontSize = 10;
+
+            var btnTg = new Button(() => Application.OpenURL(TELEGRAM_LINK))
+            { text = "✈ Telegram", tooltip = "Telegram" };
+            NovellaGraphTheme.ApplySlimButton(btnTg, height: 28, paddingX: 6);
+            btnTg.style.flexGrow = 1; btnTg.style.marginLeft = 0; btnTg.style.marginRight = 4;
+            btnTg.style.fontSize = 10;
+
+            var btnStore = new Button(() => Application.OpenURL(ASSET_STORE_LINK))
+            { text = "🛒 Store", tooltip = ToolLang.Get("More assets in the Store", "Больше ассетов в Store") };
+            NovellaGraphTheme.ApplySlimButton(btnStore, height: 28, paddingX: 6);
+            btnStore.style.flexGrow = 1; btnStore.style.marginLeft = 0;
+            btnStore.style.fontSize = 10;
+
+            commRow.Add(btnDiscord);
+            commRow.Add(btnTg);
+            commRow.Add(btnStore);
+            scroll.Add(commRow);
+
+            mainContainer.Add(_leftPanel);
+
+            // ─── Toggle-кнопка свёртывания (узкий язычок справа от панели) ───
+            _toggleLeftPanelBtn = new Button(() => {
+                _isLeftPanelOpen = !_isLeftPanelOpen;
+                _leftPanel.style.width = _isLeftPanelOpen ? _sidebarWidth : 0;
+                _toggleLeftPanelBtn.text = _isLeftPanelOpen ? "◀" : "▶";
+                EditorPrefs.SetBool("NovellaGraph_SidebarOpen", _isLeftPanelOpen);
+            })
+            { text = _isLeftPanelOpen ? "◀" : "▶",
+              tooltip = ToolLang.Get("Toggle tools panel", "Свернуть/развернуть панель инструментов") };
+
+            _toggleLeftPanelBtn.style.position = Position.Absolute;
+            _toggleLeftPanelBtn.style.top = Length.Percent(45);
+            _toggleLeftPanelBtn.style.left = -1f;
+            _toggleLeftPanelBtn.style.width = 18;
+            _toggleLeftPanelBtn.style.height = 64;
+            _toggleLeftPanelBtn.style.paddingLeft = 0;
+            _toggleLeftPanelBtn.style.paddingRight = 0;
+            _toggleLeftPanelBtn.style.marginLeft = 0;
+            _toggleLeftPanelBtn.style.borderTopLeftRadius = 0;
+            _toggleLeftPanelBtn.style.borderBottomLeftRadius = 0;
+            _toggleLeftPanelBtn.style.borderTopRightRadius = 8;
+            _toggleLeftPanelBtn.style.borderBottomRightRadius = 8;
+            _toggleLeftPanelBtn.style.borderTopWidth = 1;
+            _toggleLeftPanelBtn.style.borderBottomWidth = 1;
+            _toggleLeftPanelBtn.style.borderRightWidth = 1;
+            _toggleLeftPanelBtn.style.borderLeftWidth = 0;
+            _toggleLeftPanelBtn.style.borderTopColor = NovellaGraphTheme.Border;
+            _toggleLeftPanelBtn.style.borderBottomColor = NovellaGraphTheme.Border;
+            _toggleLeftPanelBtn.style.borderRightColor = NovellaGraphTheme.Border;
+            _toggleLeftPanelBtn.style.backgroundColor = NovellaGraphTheme.BgSide;
+            _toggleLeftPanelBtn.style.color = NovellaGraphTheme.Text3;
+            _toggleLeftPanelBtn.style.fontSize = 10;
+
+            graphContainer.Add(_toggleLeftPanelBtn);
+        }
+
+        // Sidebar-кнопка в стиле Hub: иконка слева + название, hover-fill.
+        // Используется для пунктов меню «Tools / Workspace».
+        private VisualElement BuildSidebarBtn(string icon, string text, string tooltip, System.Action onClick)
         {
             var btn = new Button(onClick) { tooltip = tooltip };
-            btn.style.flexDirection = FlexDirection.Row;
-            btn.style.alignItems = Align.Center;
-            btn.style.justifyContent = Justify.FlexStart;
-            btn.style.height = 45;
-            btn.style.marginTop = 5;
-            btn.style.marginLeft = 10;
-            btn.style.marginRight = 10;
-            btn.style.paddingLeft = 10;
-            btn.style.backgroundColor = new StyleColor(new Color(0.2f, 0.2f, 0.2f));
-            btn.style.borderTopLeftRadius = 6; btn.style.borderBottomLeftRadius = 6;
-            btn.style.borderTopRightRadius = 6; btn.style.borderBottomRightRadius = 6;
+            NovellaGraphTheme.ApplySidebarButton(btn);
 
-            var iconLabel = new Label(icon) { style = { fontSize = 20, width = 35 } };
-            var textLabel = new Label(text) { style = { fontSize = 14, unityFontStyleAndWeight = FontStyle.Bold, color = new Color(0.9f, 0.9f, 0.9f) } };
+            var iconLbl = new Label(icon)
+            {
+                style = {
+                    fontSize = 14,
+                    width = 22,
+                    marginRight = 8,
+                    color = NovellaGraphTheme.Text2,
+                    unityTextAlign = TextAnchor.MiddleCenter,
+                }
+            };
+            iconLbl.pickingMode = PickingMode.Ignore;
 
-            btn.Add(iconLabel);
-            btn.Add(textLabel);
-            container.Add(btn);
+            var textLbl = new Label(text)
+            {
+                style = {
+                    fontSize = 12,
+                    unityFontStyleAndWeight = FontStyle.Normal,
+                    color = NovellaGraphTheme.Text2,
+                    flexGrow = 1,
+                }
+            };
+            textLbl.pickingMode = PickingMode.Ignore;
+
+            btn.Add(iconLbl);
+            btn.Add(textLbl);
+            return btn;
         }
 
         private void GenerateToolbar(VisualElement container)
         {
-            var toolbarContainer = new VisualElement { style = { flexDirection = FlexDirection.Row, backgroundColor = new Color(0.22f, 0.22f, 0.22f), paddingBottom = 4, paddingTop = 4, alignItems = Align.Center } };
+            // Toolbar в стиле Hub: BgSide-фон, тонкая нижняя обводка, slim-кнопки
+            // одной высоты, группы разделены вертикальными разделителями.
+            var toolbarContainer = new VisualElement
+            {
+                style = {
+                    flexDirection = FlexDirection.Row,
+                    backgroundColor = NovellaGraphTheme.BgSide,
+                    paddingTop = 5, paddingBottom = 5,
+                    paddingLeft = 8, paddingRight = 8,
+                    alignItems = Align.Center,
+                    borderBottomWidth = 1,
+                    borderBottomColor = NovellaGraphTheme.Border,
+                    height = 40,
+                    flexShrink = 0,
+                }
+            };
 
             if (_isTutorialMode)
             {
-                var tutLabel = new Label("🎓 " + ToolLang.Get("TUTORIAL MODE (READ-ONLY)", "РЕЖИМ ОБУЧЕНИЯ (ТОЛЬКО ЧТЕНИЕ)"))
+                var tutBadge = new Label("🎓 " + ToolLang.Get("TUTORIAL MODE — READ-ONLY", "РЕЖИМ ОБУЧЕНИЯ — ТОЛЬКО ЧТЕНИЕ"))
                 {
-                    style = { color = new Color(1f, 0.8f, 0.2f), unityFontStyleAndWeight = FontStyle.Bold, marginLeft = 15, marginRight = 15, alignSelf = Align.Center }
+                    style = {
+                        color = NovellaGraphTheme.Warning,
+                        unityFontStyleAndWeight = FontStyle.Bold,
+                        marginLeft = 12, marginRight = 12,
+                        fontSize = 11,
+                        alignSelf = Align.Center
+                    }
                 };
-                toolbarContainer.Add(tutLabel);
+                toolbarContainer.Add(tutBadge);
             }
             else
             {
-                _saveButton = new Button(() => SaveGraph()) { text = ToolLang.Get("💾 SAVE", "💾 СОХРАНИТЬ") };
-                _saveButton.style.unityFontStyleAndWeight = FontStyle.Bold;
+                // ─── Save (accent-CTA, активна только при dirty) ───
+                _saveButton = new Button(() => SaveGraph())
+                { text = "💾  " + ToolLang.Get("Save", "Сохранить") };
+                NovellaGraphTheme.ApplySaveButton(_saveButton);
                 toolbarContainer.Add(_saveButton);
 
-                var autoSaveToggle = new Toggle(ToolLang.Get("Auto-Save", "Автосохр.")) { value = _autoSave };
-                autoSaveToggle.style.marginLeft = 15;
-                autoSaveToggle.RegisterValueChangedCallback(evt => { _autoSave = evt.newValue; EditorPrefs.SetBool("NovellaGraph_AutoSave", _autoSave); });
-                var toggleLabel = autoSaveToggle.Q<Label>();
-                if (toggleLabel != null) { toggleLabel.style.minWidth = StyleKeyword.Auto; toggleLabel.style.paddingRight = 5; }
-                toolbarContainer.Add(autoSaveToggle);
+                // ─── Auto-Save toggle-button (вместо Unity Toggle) ───
+                bool autoSaveOn = _autoSave;
+                Button autoSaveBtn = null;
+                System.Action<bool> setAutoSave = null;
+                autoSaveBtn = new Button(() => {
+                    autoSaveOn = !autoSaveOn;
+                    _autoSave = autoSaveOn;
+                    EditorPrefs.SetBool("NovellaGraph_AutoSave", _autoSave);
+                    autoSaveBtn.text = autoSaveOn
+                        ? "✓  " + ToolLang.Get("Auto-save", "Автосохранение")
+                        : "○  " + ToolLang.Get("Auto-save", "Автосохранение");
+                    setAutoSave?.Invoke(autoSaveOn);
+                })
+                { text = (autoSaveOn ? "✓  " : "○  ") + ToolLang.Get("Auto-save", "Автосохранение"),
+                  tooltip = ToolLang.Get(
+                      "When ON — graph saves automatically 0.5s after the last change.",
+                      "Когда ВКЛ — граф сохраняется автоматически через 0.5с после правки.") };
+                setAutoSave = NovellaGraphTheme.ApplyToggleButton(autoSaveBtn, autoSaveOn);
+                toolbarContainer.Add(autoSaveBtn);
 
-                var autoLayoutBtn = new Button(() =>
-                {
+                toolbarContainer.Add(NovellaGraphTheme.CreateVerticalSeparator());
+
+                // ─── Auto-Layout (slim, не accent — это не CTA) ───
+                var autoLayoutBtn = new Button(() => {
                     if (_graphView != null)
                     {
                         _graphView.AutoLayout();
@@ -427,54 +569,57 @@ namespace NovellaEngine.Editor
                         _graphView.FrameSelection();
                     }
                 })
-                { text = "✨ " + ToolLang.Get("Auto-Layout", "Выровнять Граф") };
-                autoLayoutBtn.style.marginLeft = 15;
-                autoLayoutBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
-                autoLayoutBtn.style.backgroundColor = new StyleColor(new Color(0.2f, 0.4f, 0.6f));
-                autoLayoutBtn.style.color = Color.white;
+                { text = "✨  " + ToolLang.Get("Auto-layout", "Выровнять") };
+                NovellaGraphTheme.ApplySlimButton(autoLayoutBtn);
                 toolbarContainer.Add(autoLayoutBtn);
             }
 
-            var miniMapToggle = new Toggle("🗺️ " + ToolLang.Get("Map", "Карта")) { value = true };
-            miniMapToggle.style.marginLeft = 15;
-            miniMapToggle.style.alignSelf = Align.Center;
-            var mapToggleLabel = miniMapToggle.Q<Label>();
-            if (mapToggleLabel != null) { mapToggleLabel.style.minWidth = StyleKeyword.Auto; mapToggleLabel.style.paddingRight = 5; }
-            miniMapToggle.RegisterValueChangedCallback(evt => {
-                if (_graphView != null && _graphView.MiniMapInstance != null)
+            // ─── Palette toggle-button — показать/скрыть нижнюю палитру нод ───
+            toolbarContainer.Add(NovellaGraphTheme.CreateVerticalSeparator());
+            bool palOn = _isPaletteOpen;
+            System.Action<bool> setPal = null;
+            _palToggleBtn = new Button(() => {
+                palOn = !palOn;
+                _isPaletteOpen = palOn;
+                EditorPrefs.SetBool("NovellaGraph_PaletteOpen", palOn);
+                if (_nodePalette != null)
                 {
-                    _graphView.MiniMapInstance.style.display = evt.newValue ? DisplayStyle.Flex : DisplayStyle.None;
-                    _graphView.MiniMapInstance.visible = evt.newValue;
+                    // Анимируем height вместо display:None — display не
+                    // транзишит, а height даёт плавное «сворачивание».
+                    _nodePalette.SetCollapsed(!palOn);
                 }
-            });
-            toolbarContainer.Add(miniMapToggle);
+                setPal?.Invoke(palOn);
+            })
+            { text = "🧰  " + ToolLang.Get("Nodes", "Ноды"),
+              tooltip = ToolLang.Get(
+                  "Show / hide the bottom node palette",
+                  "Показать / скрыть нижнюю панель нод") };
+            setPal = NovellaGraphTheme.ApplyToggleButton(_palToggleBtn, palOn);
+            toolbarContainer.Add(_palToggleBtn);
 
-            var langButton = new Button(() => { ToolLang.Toggle(); ConstructGraph(); }) { text = ToolLang.IsRU ? "UI: RU" : "UI: EN" };
-            langButton.style.marginLeft = 15;
+            // ─── Map toggle-button (вместо Unity Toggle) ───
+            bool mapOn = true;
+            Button mapBtn = null;
+            System.Action<bool> setMap = null;
+            mapBtn = new Button(() => {
+                mapOn = !mapOn;
+                // Toggle нашей кастомной мини-карты (Block 2D).
+                if (_graphView != null && _graphView.CustomMiniMap != null)
+                {
+                    _graphView.CustomMiniMap.style.display = mapOn ? DisplayStyle.Flex : DisplayStyle.None;
+                }
+                setMap?.Invoke(mapOn);
+            })
+            { text = "🗺  " + ToolLang.Get("Map", "Карта"),
+              tooltip = ToolLang.Get("Show / hide minimap", "Показать / спрятать миникарту") };
+            setMap = NovellaGraphTheme.ApplyToggleButton(mapBtn, mapOn);
+            toolbarContainer.Add(mapBtn);
 
-            var langLabel = new Label(ToolLang.Get("Preview Lang:", "Язык превью:")) { style = { marginLeft = 20, marginRight = 5, color = new Color(0.7f, 0.7f, 0.7f) } };
-            var langDropdown = new DropdownField(_locSettings.Languages, _locSettings.Languages.IndexOf(PreviewLanguage));
-            langDropdown.style.width = 60;
-
-            langDropdown.RegisterValueChangedCallback(evt => {
-                PreviewLanguage = evt.newValue;
-                EditorPrefs.SetString("NovellaGraph_PreviewLang", PreviewLanguage);
-                _inspectorContainer.MarkDirtyRepaint();
-                if (_graphView != null) _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
-            });
-
-            toolbarContainer.Add(langButton);
-            toolbarContainer.Add(langLabel);
-            toolbarContainer.Add(langDropdown);
-
+            // ─── Spacer ───
             var spacer = new VisualElement { style = { flexGrow = 1 } };
             toolbarContainer.Add(spacer);
 
-            // Счётчик слов и время чтения главы. Показывается справа перед
-            // Inspector. Считаем максимум среди языков (один и тот же
-            // диалог в RU/EN может отличаться в 2 раза по словам).
-            // Явный тип — иначе тернарка сводится к (int, double) без имён
-            // и .words/.readingMinutes не находятся.
+            // ─── Word count (метаданные, компактно справа) ───
             (int words, double readingMinutes) stats = _currentTree != null
                 ? _currentTree.GetWordStats()
                 : (0, 0.0);
@@ -490,38 +635,97 @@ namespace NovellaEngine.Editor
                     "Word count and approximate reading time across this chapter (max across languages, ~200 wpm).",
                     "Слова и примерное время чтения по главе (берётся максимум среди языков, ~200 слов/мин)."),
                 style = {
-                    color = new Color(0.85f, 0.85f, 0.9f),
-                    marginRight = 12, marginLeft = 6,
+                    color = NovellaGraphTheme.Text3,
+                    marginRight = 8, marginLeft = 6,
                     alignSelf = Align.Center,
-                    fontSize = 12,
+                    fontSize = 11,
                 }
             };
             toolbarContainer.Add(statsLbl);
 
-            var toggleInspectorBtn = new Button(() => { _isInspectorOpen = !_isInspectorOpen; _rightPanel.style.width = _isInspectorOpen ? 550 : 0; }) { text = ToolLang.Get("Inspector", "Инспектор") };
+            toolbarContainer.Add(NovellaGraphTheme.CreateVerticalSeparator());
+
+            // ─── Preview language popup-button (вместо DropdownField) ───
+            var previewLangLbl = new Label(ToolLang.Get("Preview:", "Превью:"))
+            {
+                style = {
+                    marginLeft = 4, marginRight = 4,
+                    color = NovellaGraphTheme.Text3,
+                    fontSize = 11,
+                    alignSelf = Align.Center,
+                }
+            };
+            toolbarContainer.Add(previewLangLbl);
+
+            Button previewLangBtn = null;
+            previewLangBtn = new Button(() => {
+                // GenericMenu в screen-coords под кнопкой.
+                var menu = new GenericMenu();
+                foreach (var lang in _locSettings.Languages)
+                {
+                    var capLang = lang;
+                    menu.AddItem(new GUIContent(lang), lang == PreviewLanguage, () => {
+                        PreviewLanguage = capLang;
+                        EditorPrefs.SetString("NovellaGraph_PreviewLang", PreviewLanguage);
+                        previewLangBtn.text = "🌐  " + capLang + "  ▾";
+                        _inspectorContainer.MarkDirtyRepaint();
+                        if (_graphView != null) _graphView.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals());
+                    });
+                }
+                // worldBound даёт screen-coords относительно окна; DropDown(rect)
+                // позиционирует меню под кнопкой.
+                menu.DropDown(previewLangBtn.worldBound);
+            })
+            { text = "🌐  " + PreviewLanguage + "  ▾",
+              tooltip = ToolLang.Get(
+                  "Pick the language to preview dialogues in.",
+                  "Выбрать язык для предпросмотра диалогов.") };
+            NovellaGraphTheme.ApplyPopupButton(previewLangBtn, height: 26, paddingX: 10);
+            previewLangBtn.style.minWidth = 70;
+            toolbarContainer.Add(previewLangBtn);
+
+            // ─── UI lang toggle (RU ↔ EN, без меню — он бинарный) ───
+            // Эмодзи флагов 🇷🇺/🇬🇧 = composite regional indicator символы,
+            // дефолтный Unity-шрифт их не рендерит и юзер видит «ru RU».
+            // Поэтому идём чистым bold-текстом с увеличенным шрифтом.
+            var langButton = new Button(() => { ToolLang.Toggle(); ConstructGraph(); })
+            { text = ToolLang.IsRU ? "RU" : "EN",
+              tooltip = ToolLang.Get(
+                  "Toggle Studio interface language (Ctrl+L).",
+                  "Переключить язык интерфейса Студии (Ctrl+L).") };
+            NovellaGraphTheme.ApplySlimButton(langButton, height: 26, paddingX: 14);
+            langButton.style.minWidth = 52;
+            langButton.style.fontSize = 13;            // крупнее остальных slim-кнопок
+            langButton.style.unityFontStyleAndWeight = FontStyle.Bold;
+            // Active-стиль: акцентная рамка чуть ярче, чтобы кнопка читалась
+            // как «индикатор текущего языка», а не просто кнопка.
+            langButton.style.borderTopColor = NovellaGraphTheme.Accent;
+            langButton.style.borderBottomColor = NovellaGraphTheme.Accent;
+            langButton.style.borderLeftColor = NovellaGraphTheme.Accent;
+            langButton.style.borderRightColor = NovellaGraphTheme.Accent;
+            langButton.style.color = NovellaGraphTheme.Accent;
+            toolbarContainer.Add(langButton);
+
+            toolbarContainer.Add(NovellaGraphTheme.CreateVerticalSeparator());
+
+            // ─── Inspector toggle ───
+            var toggleInspectorBtn = new Button(() => {
+                _isInspectorOpen = !_isInspectorOpen;
+                _rightPanel.style.width = _isInspectorOpen ? 550 : 0;
+            })
+            { text = "📋  " + ToolLang.Get("Inspector", "Инспектор") };
+            NovellaGraphTheme.ApplySlimButton(toggleInspectorBtn);
             toolbarContainer.Add(toggleInspectorBtn);
 
-            var minimize = new VisualElement();
-            minimize.style.width = 32;
-            minimize.style.height = 22;
+            // ─── Minimize button (icon-only 26x26 in slim style) ───
+            var minimize = new Button(() => MinimizeToLauncher());
+            minimize.text = "─"; // не emoji, чтобы выглядел в стиле Hub'овского
+            NovellaGraphTheme.ApplyIconButton(minimize);
             minimize.style.marginLeft = 6;
-            minimize.style.marginRight = 4;
-            minimize.style.alignItems = Align.Center;
-            minimize.style.justifyContent = Justify.Center;
-            minimize.style.borderTopLeftRadius = 4;
-            minimize.style.borderTopRightRadius = 4;
-            minimize.style.borderBottomLeftRadius = 4;
-            minimize.style.borderBottomRightRadius = 4;
-            minimize.tooltip = ToolLang.Get("Minimize", "Свернуть");
-            minimize.RegisterCallback<MouseEnterEvent>(_ => minimize.style.backgroundColor = new Color(1f, 1f, 1f, 0.10f));
-            minimize.RegisterCallback<MouseLeaveEvent>(_ => minimize.style.backgroundColor = new StyleColor(StyleKeyword.Initial));
-            minimize.RegisterCallback<ClickEvent>(_ => MinimizeToLauncher());
-            var dash = new VisualElement();
-            dash.style.width = 12;
-            dash.style.height = 2;
-            dash.style.backgroundColor = new Color(0.85f, 0.87f, 0.93f);
-            dash.style.marginTop = 1;
-            minimize.Add(dash);
+            minimize.style.color = NovellaGraphTheme.Text2;
+            minimize.style.fontSize = 13;
+            minimize.style.unityFontStyleAndWeight = FontStyle.Bold;
+            minimize.tooltip = ToolLang.Get("Minimize window", "Свернуть окно");
             toolbarContainer.Add(minimize);
 
             container.Add(toolbarContainer);
@@ -580,8 +784,9 @@ namespace NovellaEngine.Editor
         private void UpdateButtonState()
         {
             if (_saveButton == null) return;
-            _saveButton.SetEnabled(_hasUnsavedChanges);
-            _saveButton.style.backgroundColor = _hasUnsavedChanges ? new StyleColor(new Color(0.2f, 0.6f, 0.2f)) : new StyleColor(new Color(0.3f, 0.3f, 0.3f));
+            // Save: зелёная при dirty, серая-неактивная когда чисто.
+            // Логика — в NovellaGraphTheme.SetSaveButtonState (единый источник).
+            NovellaGraphTheme.SetSaveButtonState(_saveButton, _hasUnsavedChanges);
         }
 
         public void FocusAndHighlightNode(string nodeID)

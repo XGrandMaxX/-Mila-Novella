@@ -517,6 +517,27 @@
             "PrefabType": "",
             "Path": "Assets/NovellaEngine/Gallery/Prefabs/Пенис.prefab",
             "Timestamp": "2026-05-05 04:06:21"
+        },
+        {
+            "Action": "save",
+            "PrefabName": "NewCustomFrame",
+            "PrefabType": "",
+            "Path": "Assets/NovellaEngine/Runtime/Prefabs/CustomUI/NewCustomFrame.prefab",
+            "Timestamp": "2026-05-09 15:02:49"
+        },
+        {
+            "Action": "save",
+            "PrefabName": "NewCustomFrame",
+            "PrefabType": "",
+            "Path": "Assets/NovellaEngine/Runtime/Prefabs/CustomUI/NewCustomFrame.prefab",
+            "Timestamp": "2026-05-09 15:06:21"
+        },
+        {
+            "Action": "save",
+            "PrefabName": "NewCustomFrame",
+            "PrefabType": "",
+            "Path": "Assets/NovellaEngine/Runtime/Prefabs/CustomUI/NewCustomFrame.prefab",
+            "Timestamp": "2026-05-09 15:23:00"
         }
     ]
 }

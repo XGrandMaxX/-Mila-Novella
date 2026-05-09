@@ -27,6 +27,13 @@ namespace NovellaEngine.Editor
         private NovellaNodeBase _lastSyncedNode;
         private int _activePreviewLineIndex = 0;
         private SerializedProperty _cachedNodeProp;
+        // Скролл для списка активных персонажей. Когда > SCROLL_THRESHOLD
+        // персонажей, список оборачивается в ScrollView фиксированной высоты,
+        // чтобы инспектор не превращался в бесконечно растущую простыню.
+        private Vector2 _activeCharsScroll;
+        private const int  ACTIVE_CHARS_SCROLL_THRESHOLD = 7;
+        // Высота карточки персонажа (примерно): 28px контент + 4px gap.
+        private const float ACTIVE_CHAR_CARD_HEIGHT = 36f;
 
         public NovellaNodeInspectorUI(NovellaTree tree, NovellaGraphView graphView, Action onMarkUnsaved, NovellaGraphWindow window)
         {
@@ -565,12 +572,16 @@ namespace NovellaEngine.Editor
                 DrawStartNodeHelp(); EndLayout(); return;
             }
 
-            DrawSectionHeader("📝", ToolLang.Get("NODE INSPECTOR", "ИНСПЕКТОР НОДЫ"));
+            DrawSectionHeader("📝", ToolLang.Get("Node Inspector", "Инспектор ноды"));
 
             if (selectedNodeView == null || selectedNodeView.Data == null || !_currentTree.Nodes.Contains(selectedNodeView.Data))
             {
                 if (_lastSyncedNode != null) { _lastSyncedNode = null; ClearScenePreview(); }
-                EditorGUILayout.HelpBox(ToolLang.Get("Select a Node.", "Выберите Ноду."), MessageType.Info); EndLayout(); return;
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Select a node in the graph to edit its properties here.",
+                    "Выбери ноду в графе чтобы редактировать её свойства тут."));
+                EndLayout();
+                return;
             }
 
             NovellaNodeBase nodeData = selectedNodeView.Data;
@@ -598,24 +609,124 @@ namespace NovellaEngine.Editor
 
             float originalLabelWidth = EditorGUIUtility.labelWidth;
 
-            GUILayout.Label(ToolLang.Get("General Data", "Основные данные"), EditorStyles.boldLabel);
-            EditorGUIUtility.labelWidth = 120;
-            EditorGUI.BeginDisabledGroup(true); EditorGUILayout.TextField(ToolLang.Get("Internal ID", "Внутренний ID"), nodeData.NodeID); EditorGUI.EndDisabledGroup();
+            DrawSectionHeader("🏷", ToolLang.Get("General", "Общие"));
 
+            // ─── Node Name (главное поле) — DarkTextField в Hub-стиле ───
+            NovellaInspectorChrome.DrawFieldLabel(ToolLang.Get("Name", "Имя"));
             EditorGUI.BeginChangeCheck();
-            string newNodeTitle = EditorGUILayout.TextField(ToolLang.Get("Node Name", "Имя Ноды"), nodeData.NodeTitle);
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Change Node Name"); nodeData.NodeTitle = newNodeTitle; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
+            string newNodeTitle = NovellaInspectorChrome.DrawDarkTextField(nodeData.NodeTitle);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(_currentTree, "Change Node Name");
+                nodeData.NodeTitle = newNodeTitle;
+                selectedNodeView.RefreshVisuals();
+                _onMarkUnsaved?.Invoke();
+            }
 
+            GUILayout.Space(8);
+
+            // ─── Pin / Color / ID — компактный row ───
             GUILayout.BeginHorizontal();
+
+            // Pin button — наша toggle-style кнопка.
+            bool wasPinned = nodeData.IsPinned;
+            string pinLabel = wasPinned
+                ? "📌  " + ToolLang.Get("Pinned", "Закреплена")
+                : "📌  " + ToolLang.Get("Pin node", "Закрепить");
+            // Используем accent-fill для активной (прижата), slim для неактивной.
+            bool pinClicked = wasPinned
+                ? NovellaInspectorChrome.DrawAccentBtn(pinLabel,
+                    GUILayout.Height(28), GUILayout.MinWidth(140))
+                : NovellaInspectorChrome.DrawSlimBtn(pinLabel,
+                    GUILayout.Height(28), GUILayout.MinWidth(140));
+            if (pinClicked)
+            {
+                Undo.RecordObject(_currentTree, "Pin");
+                bool wantPin = !wasPinned;
+                foreach (var n in _currentTree.Nodes)
+                    if (n != null) n.IsPinned = false;
+                nodeData.IsPinned = wantPin;
+                EditorApplication.delayCall += () => _graphView?.Query<NovellaNodeView>()
+                    .ForEach(nv => nv.RefreshVisuals());
+                _onMarkUnsaved?.Invoke();
+            }
+
+            GUILayout.Space(6);
+
+            // Color picker — только для Dialogue/Event/Note (остальные используют
+            // глобальные настройки). Слева label «Цвет», справа — color field.
             if (nodeData.NodeType == ENodeType.Dialogue || nodeData.NodeType == ENodeType.Event || nodeData.NodeType == ENodeType.Note)
             {
-                EditorGUI.BeginChangeCheck(); Color newColor = EditorGUILayout.ColorField(GUIContent.none, nodeData.NodeCustomColor, false, true, false, GUILayout.Width(60));
-                if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Color"); nodeData.NodeCustomColor = newColor; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
+                var colLblSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = NovellaGraphTheme.Text3 }
+                };
+                GUILayout.Label(ToolLang.Get("Color", "Цвет"), colLblSt,
+                    GUILayout.Width(40), GUILayout.Height(28));
+                EditorGUI.BeginChangeCheck();
+                Color newColor = EditorGUILayout.ColorField(GUIContent.none, nodeData.NodeCustomColor,
+                    false, true, false, GUILayout.Width(60), GUILayout.Height(22));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_currentTree, "Color");
+                    nodeData.NodeCustomColor = newColor;
+                    selectedNodeView.RefreshVisuals();
+                    _onMarkUnsaved?.Invoke();
+                }
             }
-            else GUILayout.Label(ToolLang.Get("🎨 Color is locked (Global Settings)", "🎨 Цвет зарезервирован (Общие настройки)"), EditorStyles.centeredGreyMiniLabel);
+            else
+            {
+                var lockSt = new GUIStyle(EditorStyles.miniLabel) {
+                    fontSize = 9, fontStyle = FontStyle.Italic,
+                    alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = NovellaGraphTheme.Text4 }
+                };
+                GUILayout.Label("🎨 " + ToolLang.Get("Type-locked color", "Цвет от типа"), lockSt,
+                    GUILayout.Height(28));
+            }
+            GUILayout.EndHorizontal();
 
-            EditorGUI.BeginChangeCheck(); bool isPinnedRequest = GUILayout.Toggle(nodeData.IsPinned, $"📌 {ToolLang.Get("Pin Node", "Закрепить")}", EditorStyles.miniButton, GUILayout.Height(20));
-            if (EditorGUI.EndChangeCheck()) { Undo.RecordObject(_currentTree, "Pin"); foreach (var n in _currentTree.Nodes) if (n != null) n.IsPinned = false; nodeData.IsPinned = isPinnedRequest; EditorApplication.delayCall += () => _graphView?.Query<NovellaNodeView>().ForEach(nv => nv.RefreshVisuals()); _onMarkUnsaved?.Invoke(); }
+            // ─── Internal ID (мелкий read-only collapsed под GENERAL) ───
+            // Раньше был полноразмерный disabled TextField — занимал много места.
+            // Теперь — мелкая строка «ID: dialogue_a3f2b» + копировать-кнопка.
+            // Кнопка стоит ВПЛОТНУЮ к значению (не на правом краю), иконка 📋
+            // (узнаваемее чем абстрактный ⎘) + toast «ID скопирован».
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            var idLblSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9,
+                normal = { textColor = NovellaGraphTheme.Text4 }
+            };
+            GUILayout.Label(ToolLang.Get("Internal ID:", "Внутренний ID:"), idLblSt,
+                GUILayout.Width(ToolLang.IsRU ? 90 : 80), GUILayout.Height(20));
+
+            var idValueSt = new GUIStyle(EditorStyles.miniLabel) {
+                fontSize = 9, fontStyle = FontStyle.Italic,
+                normal = { textColor = NovellaGraphTheme.Text3 }
+            };
+            // Width = ровно по ширине текста — кнопка прижмётся вплотную.
+            string idVal = nodeData.NodeID ?? "";
+            float idValW = idValueSt.CalcSize(new GUIContent(idVal)).x + 4;
+            GUILayout.Label(idVal, idValueSt, GUILayout.Width(idValW), GUILayout.Height(20));
+
+            // Маленький отступ + кнопка-копия. Иконка 📋 — клипборд, понятнее.
+            GUILayout.Space(4);
+            if (NovellaInspectorChrome.DrawIconBtn("📋",
+                ToolLang.Get("Copy ID to clipboard", "Скопировать ID в буфер обмена"),
+                danger: false, size: 20))
+            {
+                EditorGUIUtility.systemCopyBuffer = idVal;
+                // Уведомление: фирменный тост + Unity-нотификация (на случай
+                // если где-то DrawOverlay'а нет — нотификация это built-in
+                // оверлей самого EditorWindow).
+                NovellaToast.Success(string.Format(
+                    ToolLang.Get("ID copied: {0}", "ID скопирован: {0}"), idVal));
+                if (_window != null)
+                    _window.ShowNotification(new GUIContent(
+                        ToolLang.Get("✔  ID copied", "✔  ID скопирован")), 1.2);
+            }
+            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
             // ==========================================
@@ -1942,103 +2053,142 @@ namespace NovellaEngine.Editor
             // ==========================================
             if (nodeData is DialogueNodeData dialData)
             {
-                DrawSectionHeader("👥", ToolLang.Get("Scene Layout", "Массовка (Scene Layout)"));
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "Info: Characters added here will appear in the scene. You MUST add characters here to use them as speakers in Dialogue.",
-                    "Инфо: Добавленные сюда персонажи появятся на сцене. Спикеров для реплик можно выбирать ТОЛЬКО из добавленной массовки."
-                ), MessageType.Info);
+                DrawSectionHeader("👥", ToolLang.Get("Scene Layout", "Массовка"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Characters added here will appear in the scene. Speakers in dialogue lines can only be picked from this list.",
+                    "Персонажи добавленные сюда появятся в сцене. Спикеров для реплик можно выбирать ТОЛЬКО из этого списка."));
 
-                if (GUILayout.Button($"🛠 {ToolLang.Get("Character Editor", "Редактор Персонажей")}", EditorStyles.miniButton, GUILayout.Height(25))) NovellaCharacterEditorModule.OpenWindow();
-                GUILayout.Space(15);
+                if (NovellaInspectorChrome.DrawSlimBtn(
+                    "🛠  " + ToolLang.Get("Character Editor", "Редактор персонажей")))
+                {
+                    NovellaCharacterEditorModule.OpenWindow();
+                }
+                GUILayout.Space(10);
+
+                // ─── ScrollView для большого списка ───
+                // Когда персонажей > ACTIVE_CHARS_SCROLL_THRESHOLD (7),
+                // ограничиваем высоту списка и включаем вертикальный скролл.
+                // Высота = THRESHOLD * card-height. Так инспектор остаётся
+                // компактным при массовых сценах (например 12+ персонажей).
+                bool useScrollForActive = dialData.ActiveCharacters.Count > ACTIVE_CHARS_SCROLL_THRESHOLD;
+                if (useScrollForActive)
+                {
+                    float scrollH = ACTIVE_CHARS_SCROLL_THRESHOLD * ACTIVE_CHAR_CARD_HEIGHT + 4;
+                    _activeCharsScroll = GUILayout.BeginScrollView(_activeCharsScroll,
+                        GUILayout.Height(scrollH));
+                }
 
                 for (int i = 0; i < dialData.ActiveCharacters.Count; i++)
                 {
-                    GUILayout.BeginVertical(EditorStyles.helpBox);
                     var activeChar = dialData.ActiveCharacters[i];
-                    GUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-                    activeChar.IsExpanded = GUILayout.Toggle(activeChar.IsExpanded, activeChar.IsExpanded ? "▼" : "▶", EditorStyles.toolbarButton, GUILayout.Width(25));
+                    // ─── Card-обёртка персонажа ───
+                    // Тёмная плашка BgRaised + 1px border. Простая структура:
+                    // dot + имя + remove. Все persistence-настройки (Plane,
+                    // Emotion, Scale, Flip, Position) теперь редактируются
+                    // в Dialogue Editor — там для этого есть scene preview.
+                    Rect cardRect = EditorGUILayout.BeginVertical();
+                    GUILayout.Space(2);
 
-                    string charName = activeChar.CharacterAsset != null ? activeChar.CharacterAsset.name : ToolLang.Get("Select...", "Выбрать...");
-                    if (GUILayout.Button($"👤 {charName}", EditorStyles.toolbarDropDown, GUILayout.ExpandWidth(true)))
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(10);
+
+                    // Color-dot 12×12 = ThemeColor персонажа.
+                    Rect dotR = GUILayoutUtility.GetRect(12, 12,
+                        GUILayout.Width(12), GUILayout.Height(28));
+                    Rect dotInner = new Rect(dotR.x, dotR.y + 8, 12, 12);
+                    bool hasChar = activeChar.CharacterAsset != null;
+                    Color dotCol = hasChar
+                        ? activeChar.CharacterAsset.ThemeColor
+                        : new Color(NovellaGraphTheme.Text3.r, NovellaGraphTheme.Text3.g, NovellaGraphTheme.Text3.b, 0.5f);
+                    EditorGUI.DrawRect(dotInner, dotCol);
+                    NovellaInspectorChrome.DrawBorder(dotInner,
+                        new Color(dotCol.r, dotCol.g, dotCol.b, 0.85f));
+
+                    GUILayout.Space(10);
+
+                    // Имя — кликабельное, открывает CharacterSelector.
+                    string charName = hasChar
+                        ? activeChar.CharacterAsset.name
+                        : ToolLang.Get("Pick a character…", "Выбрать персонажа…");
+                    var nameSt = new GUIStyle(EditorStyles.label) {
+                        fontSize = 12,
+                        fontStyle = FontStyle.Bold,
+                        // «Не выбран» показываем Text2 (читаемо), не Text4 (мерт)
+                        // + italic — стандартное «placeholder» обозначение.
+                        normal = { textColor = hasChar
+                            ? NovellaGraphTheme.Text1
+                            : NovellaGraphTheme.Text2 }
+                    };
+                    if (!hasChar) nameSt.fontStyle = FontStyle.Italic;
+                    if (GUILayout.Button(charName, nameSt,
+                        GUILayout.Height(28), GUILayout.ExpandWidth(true)))
                     {
                         NovellaCharacterSelectorWindow.ShowWindow((selectedChar) => {
                             Undo.RecordObject(_currentTree, "Change Character Asset");
                             activeChar.CharacterAsset = selectedChar;
                             GUI.changed = true;
-
                             SyncScenePreview(dialData);
                             _window.Repaint();
                             _onMarkUnsaved?.Invoke();
                         });
                     }
 
-                    GUI.backgroundColor = new Color(0.9f, 0.4f, 0.4f);
-                    if (GUILayout.Button("X", EditorStyles.toolbarButton, GUILayout.Width(30)))
+                    // ✕ — удалить из сцены.
+                    if (NovellaInspectorChrome.DrawIconBtn("✕",
+                        ToolLang.Get("Remove character from scene", "Убрать персонажа со сцены"),
+                        danger: true, size: 22))
                     {
                         Undo.RecordObject(_currentTree, "Remove Character");
                         dialData.ActiveCharacters.RemoveAt(i);
                         GUI.changed = true;
-                        GUI.backgroundColor = Color.white;
+                        GUILayout.EndHorizontal();
+                        GUILayout.EndVertical();
                         break;
                     }
-                    GUI.backgroundColor = Color.white; GUILayout.EndHorizontal();
+                    GUILayout.Space(10);
+                    GUILayout.EndHorizontal();
 
-                    if (activeChar.IsExpanded && activeChar.CharacterAsset != null)
+                    GUILayout.Space(2);
+                    EditorGUILayout.EndVertical();
+
+                    // Рисуем фон + border плашки ПОСЛЕ контента (Repaint).
+                    if (Event.current.type == EventType.Repaint)
                     {
-                        GUILayout.Space(5); EditorGUI.BeginChangeCheck();
-
-                        float oldLw = EditorGUIUtility.labelWidth;
-                        EditorGUIUtility.labelWidth = ToolLang.IsRU ? 65 : 75;
-
-                        GUILayout.BeginHorizontal();
-                        string[] planeNames = { "BackSlot1", "BackSlot2", "BackSlot3" };
-                        int[] planeValues = { 0, 1, 2 };
-                        activeChar.Plane = (ECharacterPlane)EditorGUILayout.IntPopup(ToolLang.Get("Plane:", "План:"), (int)activeChar.Plane, planeNames, planeValues);
-
-                        GUILayout.Space(10);
-                        List<string> emotions = new List<string> { "Default" }; if (activeChar.CharacterAsset.Emotions != null) emotions.AddRange(activeChar.CharacterAsset.Emotions.Select(e => e.EmotionName));
-                        int emIndex = emotions.IndexOf(activeChar.Emotion); if (emIndex == -1) emIndex = 0;
-                        emIndex = EditorGUILayout.Popup(ToolLang.Get("Emotion:", "Эмоция:"), emIndex, emotions.ToArray()); activeChar.Emotion = emotions[emIndex];
-                        GUILayout.EndHorizontal(); GUILayout.Space(2);
-
-
-                        if (activeChar.Scale <= 0f) activeChar.Scale = 1f;
-                        activeChar.Scale = EditorGUILayout.Slider(ToolLang.Get("Scale:", "Масштаб:"), activeChar.Scale, 0.1f, 5f); GUILayout.Space(2);
-
-                        GUILayout.BeginHorizontal();
-                        activeChar.FlipX = EditorGUILayout.ToggleLeft("Flip X", activeChar.FlipX, GUILayout.Width(60));
-                        activeChar.FlipY = EditorGUILayout.ToggleLeft("Flip Y", activeChar.FlipY, GUILayout.Width(60));
-                        GUILayout.EndHorizontal(); GUILayout.Space(2);
-
-                        GUILayout.BeginHorizontal();
-
-                        string[] posNames = { ToolLang.Get("Center", "По центру"), ToolLang.Get("Left", "Слева"), ToolLang.Get("Right", "Справа"), ToolLang.Get("Far Left", "Крайний левый"), ToolLang.Get("Far Right", "Крайний правый"), ToolLang.Get("Custom (X,Y)", "Кастомный (X,Y)") };
-                        int[] posValues = { (int)ECharacterPosition.Center, (int)ECharacterPosition.Left, (int)ECharacterPosition.Right, (int)ECharacterPosition.FarLeft, (int)ECharacterPosition.FarRight, (int)ECharacterPosition.Custom };
-
-                        activeChar.PositionPreset = (ECharacterPosition)EditorGUILayout.IntPopup(ToolLang.Get("Pos Preset:", "Позиция:"), (int)activeChar.PositionPreset, posNames, posValues);
-
-                        if (activeChar.PositionPreset == ECharacterPosition.Custom)
-                        {
-                            float tempLw = EditorGUIUtility.labelWidth; EditorGUIUtility.labelWidth = 15;
-                            GUILayout.Space(10);
-                            activeChar.PosX = EditorGUILayout.FloatField("X", activeChar.PosX, GUILayout.Width(45));
-                            GUILayout.Space(5);
-                            activeChar.PosY = EditorGUILayout.FloatField("Y", activeChar.PosY, GUILayout.Width(45));
-                            EditorGUIUtility.labelWidth = tempLw;
-                        }
-                        GUILayout.EndHorizontal();
-
-                        if (EditorGUI.EndChangeCheck())
-                        {
-                            Undo.RecordObject(_currentTree, "Change Data");
-                            GUI.changed = true;
-                        }
+                        EditorGUI.DrawRect(cardRect, new Color(
+                            NovellaGraphTheme.BgRaised.r, NovellaGraphTheme.BgRaised.g,
+                            NovellaGraphTheme.BgRaised.b, 0.6f));
+                        NovellaInspectorChrome.DrawBorder(cardRect, NovellaGraphTheme.Border);
                     }
-                    EditorGUIUtility.labelWidth = originalLabelWidth; GUILayout.EndVertical(); GUILayout.Space(5);
+
+                    EditorGUIUtility.labelWidth = originalLabelWidth;
+                    GUILayout.Space(4);
                 }
 
-                if (GUILayout.Button($"+ {ToolLang.Get("Add Character to Scene", "Добавить персонажа на сцену")}", EditorStyles.miniButton, GUILayout.Height(30))) { Undo.RecordObject(_currentTree, "Add Character"); dialData.ActiveCharacters.Add(new CharacterInDialogue()); GUI.changed = true; }
+                if (useScrollForActive)
+                {
+                    GUILayout.EndScrollView();
+                    // Подсказка-счётчик что список свёрнут в скролл.
+                    var miniSt = new GUIStyle(EditorStyles.miniLabel) {
+                        fontSize = 10, fontStyle = FontStyle.Italic,
+                        alignment = TextAnchor.MiddleRight,
+                        normal = { textColor = NovellaGraphTheme.Text3 }
+                    };
+                    GUILayout.Label(string.Format(
+                        ToolLang.Get("{0} characters in scene · scroll to see all",
+                                     "{0} персонажей в сцене · скролль чтобы увидеть всех"),
+                        dialData.ActiveCharacters.Count), miniSt);
+                }
+
+                GUILayout.Space(2);
+                if (NovellaInspectorChrome.DrawSlimBtn(
+                    "+  " + ToolLang.Get("Add Character to Scene", "Добавить персонажа на сцену"),
+                    GUILayout.Height(28)))
+                {
+                    Undo.RecordObject(_currentTree, "Add Character");
+                    dialData.ActiveCharacters.Add(new CharacterInDialogue());
+                    GUI.changed = true;
+                }
 
                 if (GUI.changed)
                 {
@@ -2063,17 +2213,220 @@ namespace NovellaEngine.Editor
                     _window.Repaint();
                 }
 
-                DrawSectionHeader("💬", $"{ToolLang.Get("Dialogue Lines", "Реплики (Диалоги)")} ({_window.PreviewLanguage})");
+                DrawSectionHeader("💬", $"{ToolLang.Get("Dialogue Lines", "Реплики")} · {_window.PreviewLanguage}");
 
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    $"This node contains {dialData.DialogueLines.Count} dialogue lines. Open the dedicated Dialogue Editor window to manage speakers, text, timing, and custom UI frames.",
-                    $"В этой ноде содержится реплик: {dialData.DialogueLines.Count}. Откройте специализированное окно редактора диалогов для работы с текстом и спикерами."
-                ), MessageType.None);
+                // Подсказка-объяснение что делать.
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Click any line to open it in the Dialogue Editor. Use ✕ to remove. New lines are added inside the editor.",
+                    "Кликни по реплике чтобы открыть её в редакторе диалогов. ✕ — удалить. Новые реплики добавляются внутри редактора."));
 
-                GUILayout.Space(10);
+                GUILayout.Space(6);
 
-                GUI.backgroundColor = new Color(0.2f, 0.6f, 1f);
-                if (GUILayout.Button(new GUIContent("💬 " + ToolLang.Get("OPEN DIALOGUE EDITOR", "ОТКРЫТЬ РЕДАКТОР ДИАЛОГОВ")), new GUIStyle(GUI.skin.button) { fontSize = 13, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(45)))
+                // ─── Компактный список реплик ───
+                // Каждая строка: color-dot спикера + имя · превью-текст + ✕.
+                // Hover — cyan-tint фон. Click row — открывает редактор на этой строке.
+                // При большом количестве реплик показываем только первые
+                // MAX_PREVIEW_LINES — остальные доступны через редактор диалогов
+                // (полный список в инспекторе раздувает панель и всё равно
+                // редактируется только в Dialogue Editor).
+                const int MAX_PREVIEW_LINES = 5;
+                int totalLines  = dialData.DialogueLines.Count;
+                int previewLimit = System.Math.Min(totalLines, MAX_PREVIEW_LINES);
+                int lineToRemove = -1;
+                for (int li = 0; li < previewLimit; li++)
+                {
+                    var line = dialData.DialogueLines[li];
+                    Rect rowR = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
+                    bool rowHover = rowR.Contains(Event.current.mousePosition);
+
+                    // Background hover.
+                    if (rowHover)
+                    {
+                        EditorGUI.DrawRect(rowR, new Color(NovellaGraphTheme.Accent.r,
+                            NovellaGraphTheme.Accent.g, NovellaGraphTheme.Accent.b, 0.06f));
+                    }
+                    // Цветная полоска слева 2px = ThemeColor спикера (или Border если нет).
+                    Color spkColor = line.Speaker != null
+                        ? line.Speaker.ThemeColor
+                        : new Color(NovellaGraphTheme.Border.r, NovellaGraphTheme.Border.g, NovellaGraphTheme.Border.b, 0.6f);
+                    EditorGUI.DrawRect(new Rect(rowR.x, rowR.y, 2, rowR.height), spkColor);
+
+                    // Number pill убран по просьбе пользователя — нумерация реплик
+                    // в инспекторе мешает (видно в редакторе диалогов и так).
+                    // Левый отступ съёжился до 10px чтобы не пустовало.
+
+                    // Speaker color-dot.
+                    Rect dotR = new Rect(rowR.x + 10, rowR.y + 10, 8, 8);
+                    EditorGUI.DrawRect(dotR, spkColor);
+                    NovellaInspectorChrome.DrawBorder(dotR,
+                        new Color(spkColor.r, spkColor.g, spkColor.b, 0.85f));
+
+                    // Speaker name + text preview.
+                    string spkName = line.Speaker != null ? line.Speaker.name
+                        : ToolLang.Get("(no speaker)", "(без спикера)");
+                    string previewText = line.LocalizedPhrase != null
+                        ? line.LocalizedPhrase.GetText(_window.PreviewLanguage) : "";
+                    string trimmed;
+                    if (string.IsNullOrEmpty(previewText))
+                        trimmed = ToolLang.Get("(empty line)", "(пустая реплика)");
+                    else if (previewText.Length > 60)
+                        trimmed = "«" + previewText.Substring(0, 58).TrimEnd() + "…»";
+                    else
+                        trimmed = "«" + previewText + "»";
+
+                    var spkSt = new GUIStyle(EditorStyles.label) {
+                        fontSize = 11, fontStyle = FontStyle.Bold,
+                        normal = { textColor = line.Speaker != null
+                            ? NovellaGraphTheme.Text1 : NovellaGraphTheme.Text4 }
+                    };
+                    var textSt = new GUIStyle(EditorStyles.label) {
+                        fontSize = 11,
+                        fontStyle = string.IsNullOrEmpty(previewText) ? FontStyle.Italic : FontStyle.Normal,
+                        normal = { textColor = string.IsNullOrEmpty(previewText)
+                            ? NovellaGraphTheme.Text4 : NovellaGraphTheme.Text2 }
+                    };
+                    float spkLabelW = spkSt.CalcSize(new GUIContent(spkName)).x;
+                    Rect spkR = new Rect(dotR.xMax + 6, rowR.y, spkLabelW, rowR.height);
+                    GUI.Label(spkR, spkName, spkSt);
+                    Rect textR = new Rect(spkR.xMax + 6, rowR.y, rowR.width - spkR.xMax - 36, rowR.height);
+                    var textSt2 = new GUIStyle(textSt) { clipping = TextClipping.Clip };
+                    GUI.Label(textR, trimmed, textSt2);
+
+                    // ✕ remove (24×20).
+                    Rect xR = new Rect(rowR.xMax - 26, rowR.y + 4, 22, 20);
+                    bool xHover = xR.Contains(Event.current.mousePosition);
+                    if (xHover)
+                    {
+                        EditorGUI.DrawRect(xR, new Color(NovellaGraphTheme.Danger.r,
+                            NovellaGraphTheme.Danger.g, NovellaGraphTheme.Danger.b, 0.18f));
+                    }
+                    var xSt = new GUIStyle(EditorStyles.miniLabel) {
+                        fontSize = 11, fontStyle = FontStyle.Bold,
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { textColor = xHover
+                            ? NovellaGraphTheme.Danger
+                            : new Color(NovellaGraphTheme.Danger.r, NovellaGraphTheme.Danger.g, NovellaGraphTheme.Danger.b, 0.55f) }
+                    };
+                    GUI.Label(xR, "✕", xSt);
+                    EditorGUIUtility.AddCursorRect(xR, MouseCursor.Link);
+
+                    // Click handler — приоритет ✕ выше чем row.
+                    if (Event.current.type == EventType.MouseDown && Event.current.button == 0)
+                    {
+                        if (xHover)
+                        {
+                            lineToRemove = li;
+                            Event.current.Use();
+                        }
+                        else if (rowHover)
+                        {
+                            // Открываем редактор диалогов; параметр-callback'ом
+                            // выставляем preview-line на эту реплику чтобы она
+                            // была сразу в фокусе.
+                            int capIdx = li;
+                            var capDial = dialData;
+                            NovellaDialogueEditorWindow.OpenWindow(_currentTree, capDial, _window.PreviewLanguage,
+                                (lineIndex) =>
+                                {
+                                    _activePreviewLineIndex = lineIndex;
+                                    SyncScenePreview(capDial);
+                                    _window.Repaint();
+                                },
+                                _onMarkUnsaved,
+                                () =>
+                                {
+                                    selectedNodeView.RefreshVisuals();
+                                    _window.Repaint();
+                                });
+                            // Подкидываем редактору индекс открытой строки.
+                            _activePreviewLineIndex = capIdx;
+                            SyncScenePreview(capDial);
+                            Event.current.Use();
+                        }
+                    }
+                    if (rowHover && Event.current.type == EventType.MouseMove) _window.Repaint();
+                    if (rowHover) EditorGUIUtility.AddCursorRect(rowR, MouseCursor.Link);
+                }
+
+                // ─── «+ ещё N · открыть в редакторе» ───
+                // Когда реплик > MAX_PREVIEW_LINES — рисуем компактную
+                // плашку-ссылку. Клик — открывает Dialogue Editor (тот же
+                // флоу что и при клике по конкретной строке выше).
+                if (totalLines > MAX_PREVIEW_LINES)
+                {
+                    int remaining = totalLines - MAX_PREVIEW_LINES;
+                    Rect moreR = GUILayoutUtility.GetRect(0, 26, GUILayout.ExpandWidth(true));
+                    bool moreHover = moreR.Contains(Event.current.mousePosition);
+
+                    // Лёгкий cyan-tint фон на hover (как на обычной строке).
+                    if (moreHover)
+                    {
+                        EditorGUI.DrawRect(moreR, new Color(NovellaGraphTheme.Accent.r,
+                            NovellaGraphTheme.Accent.g, NovellaGraphTheme.Accent.b, 0.06f));
+                    }
+                    // 1px пунктир-разделитель сверху — визуально отделяет от
+                    // последней превью-строки.
+                    EditorGUI.DrawRect(new Rect(moreR.x + 4, moreR.y, moreR.width - 8, 1),
+                        new Color(NovellaGraphTheme.Border.r, NovellaGraphTheme.Border.g,
+                                  NovellaGraphTheme.Border.b, 0.45f));
+
+                    // NovellaPlurals.Lines(N) сразу даёт «3 реплики» / «5 реплик» /
+                    // «3 lines» — без ручной плюрализации в каждом string.Format.
+                    string label = ToolLang.IsRU
+                        ? "+ ещё " + NovellaPlurals.Lines(remaining) + " · смотри в редакторе диалогов"
+                        : "+ " + NovellaPlurals.Lines(remaining) + " more · view in Dialogue Editor";
+
+                    var moreSt = new GUIStyle(EditorStyles.miniLabel) {
+                        fontSize = 11, fontStyle = FontStyle.Italic,
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { textColor = moreHover
+                            ? NovellaGraphTheme.Accent
+                            : NovellaGraphTheme.Text3 }
+                    };
+                    GUI.Label(moreR, label, moreSt);
+                    EditorGUIUtility.AddCursorRect(moreR, MouseCursor.Link);
+                    if (moreHover && Event.current.type == EventType.MouseMove) _window.Repaint();
+
+                    if (Event.current.type == EventType.MouseDown && Event.current.button == 0
+                        && moreHover)
+                    {
+                        // Открываем редактор на первой «скрытой» реплике.
+                        int capIdx = MAX_PREVIEW_LINES;
+                        var capDial = dialData;
+                        NovellaDialogueEditorWindow.OpenWindow(_currentTree, capDial, _window.PreviewLanguage,
+                            (lineIndex) =>
+                            {
+                                _activePreviewLineIndex = lineIndex;
+                                SyncScenePreview(capDial);
+                                _window.Repaint();
+                            },
+                            _onMarkUnsaved,
+                            () =>
+                            {
+                                selectedNodeView.RefreshVisuals();
+                                _window.Repaint();
+                            });
+                        _activePreviewLineIndex = capIdx;
+                        SyncScenePreview(capDial);
+                        Event.current.Use();
+                    }
+                }
+
+                // Removal — после цикла, чтобы не сдвинуть индексы.
+                if (lineToRemove >= 0 && lineToRemove < dialData.DialogueLines.Count)
+                {
+                    Undo.RecordObject(_currentTree, "Remove Dialogue Line");
+                    dialData.DialogueLines.RemoveAt(lineToRemove);
+                    selectedNodeView.RefreshVisuals();
+                    _onMarkUnsaved?.Invoke();
+                }
+
+                GUILayout.Space(8);
+
+                // ─── Accent CTA — полнофункциональный редактор для глубокой правки ───
+                if (NovellaInspectorChrome.DrawAccentBtn(
+                    "💬  " + ToolLang.Get("Open Dialogue Editor", "Открыть редактор диалогов"),
+                    GUILayout.Height(40)))
                 {
                     NovellaDialogueEditorWindow.OpenWindow(_currentTree, dialData, _window.PreviewLanguage, (lineIndex) =>
                     {
@@ -2086,22 +2439,17 @@ namespace NovellaEngine.Editor
                         _window.Repaint();
                     });
                 }
-                GUI.backgroundColor = Color.white;
 
-                if (!string.IsNullOrEmpty(dialData.AnimSyncNodeID))
-                {
-                    GUILayout.Space(10);
-                    EditorGUILayout.HelpBox(ToolLang.Get("✨ Animation Node is synced. Select the Animation Node to configure events.", "✨ Подключена нода Анимаций. Выделите её, чтобы настроить эффекты для этих реплик."), MessageType.Info);
-                }
+                // Подсказка про подключённую Animation-ноду убрана —
+                // у Audio Sync / Scene Sync такого хинта нет, выглядело
+                // непоследовательно. Edge'а между нодами достаточно как
+                // визуальной индикации «подключено».
 
-                GUILayout.Space(15);
-                GUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("🎨 " + ToolLang.Get("Open UI Editor (Base Frame)", "Открыть редактор UI (Базовая рамка)"), EditorStyles.miniButton, GUILayout.Height(25), GUILayout.Width(250)))
-                    NovellaUIForge.ShowWindow();
-
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
+                // Кнопка «Открыть Кузницу UI» убрана из инспектора Dialogue —
+                // у юзера она открывалась криво, плюс к ноде диалога UI Forge
+                // прямого отношения не имеет (диалог — это контент, рамка
+                // диалога — это уже задача оформления). Кузницу UI юзер
+                // открывает из Tools / Novella Studio когда она реально нужна.
 
                 if (GUI.changed) { _serializedObject.ApplyModifiedProperties(); if (_graphView != null) { _graphView.SyncGraphToData(); _onMarkUnsaved?.Invoke(); } }
 
@@ -2332,7 +2680,12 @@ namespace NovellaEngine.Editor
             EndLayout();
         }
 
-        private void DrawSectionHeader(string icon, string title) { GUILayout.Space(20); var headerStyle = new GUIStyle(EditorStyles.boldLabel) { fontSize = 14 }; if (EditorGUIUtility.isProSkin) headerStyle.normal.textColor = new Color(0.6f, 0.8f, 1f); else headerStyle.normal.textColor = new Color(0.2f, 0.4f, 0.6f); GUILayout.Label($"{icon} {title}", headerStyle); GUILayout.Space(5); }
+        // Block 4A: единый источник стиля section-header'а — теперь через
+        // NovellaInspectorChrome (Hub-style: cyan UPPERCASE 10pt + 1px Border
+        // снизу + spacing). Раньше был 14pt boldLabel с разноцветным текстом
+        // в зависимости от Pro/Personal-скина.
+        private void DrawSectionHeader(string icon, string title)
+            => NovellaInspectorChrome.DrawSectionHeader(icon, title);
 
         private void DrawStartNodeHelp()
         {
@@ -2342,12 +2695,9 @@ namespace NovellaEngine.Editor
             {
                 DrawSectionHeader("🚀", ToolLang.Get("SCENE READY", "СЦЕНА ГОТОВА К РАБОТЕ"));
                 EditorGUILayout.HelpBox(ToolLang.Get("NovellaPlayer detected. Scene is fully linked.", "NovellaPlayer найден. Сцена подключена."), MessageType.Info);
-
-                GUILayout.Space(15);
-                GUI.backgroundColor = new Color(0.8f, 0.4f, 0.8f);
-                if (GUILayout.Button("🎨 " + ToolLang.Get("UI Editor", "Редактор UI"), new GUIStyle(GUI.skin.button) { fontSize = 13, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } }, GUILayout.Height(35)))
-                    NovellaUIForge.ShowWindow();
-                GUI.backgroundColor = Color.white;
+                // Раньше тут была фиолетовая кнопка «Редактор UI» — убрана,
+                // т.к. Кузница UI открывалась криво из этого контекста.
+                // Юзер открывает её из Tools / Novella Studio.
             }
             else
             {

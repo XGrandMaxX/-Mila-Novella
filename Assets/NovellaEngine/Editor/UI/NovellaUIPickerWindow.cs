@@ -534,7 +534,10 @@ namespace NovellaEngine.Editor.UIBindings
 
             float cx = r.x + r.width * 0.5f;
             float cy = r.y + r.height * 0.5f;
-            GUI.Label(new Rect(cx - 220, cy - 28, 440, 22), "🪝  " + title, ts);
+            // Иконка 🔗 (link) вместо 🪝 — последняя относительно новый
+            // emoji 13.0 (2020) и не отрисовывается в Unity-шрифтах,
+            // показывался как «битый» квадратик.
+            GUI.Label(new Rect(cx - 220, cy - 28, 440, 22), "🔗  " + title, ts);
             GUI.Label(new Rect(cx - 240, cy + 0, 480, 50), body, bs);
         }
 

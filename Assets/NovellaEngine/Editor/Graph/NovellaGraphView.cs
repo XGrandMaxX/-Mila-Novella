@@ -20,61 +20,178 @@ namespace NovellaEngine.Editor
     {
         public System.Action OnSelectedAction;
 
+        // Селекшен-обводка как у обычных нод (cyan акцент 2px на 2px отступе).
+        private VisualElement _selectionOutline;
+
         public NovellaStartNodeView()
         {
             this.capabilities &= ~Capabilities.Deletable;
             this.capabilities &= ~Capabilities.Copiable;
             this.capabilities &= ~Capabilities.Groupable;
+
+            // Selection-outline в форме pill (rounded-rect).
+            _selectionOutline = new VisualElement { name = "ns-start-selection" };
+            _selectionOutline.pickingMode = PickingMode.Ignore;
+            _selectionOutline.style.position = Position.Absolute;
+            _selectionOutline.style.left = -2;
+            _selectionOutline.style.right = -2;
+            _selectionOutline.style.top = -2;
+            _selectionOutline.style.bottom = -2;
+            _selectionOutline.style.borderTopLeftRadius = 24;
+            _selectionOutline.style.borderTopRightRadius = 24;
+            _selectionOutline.style.borderBottomLeftRadius = 24;
+            _selectionOutline.style.borderBottomRightRadius = 24;
+            _selectionOutline.style.borderTopWidth = 2;
+            _selectionOutline.style.borderBottomWidth = 2;
+            _selectionOutline.style.borderLeftWidth = 2;
+            _selectionOutline.style.borderRightWidth = 2;
+            _selectionOutline.style.borderTopColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderBottomColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderLeftColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderRightColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.display = DisplayStyle.None;
+            this.Insert(0, _selectionOutline);
         }
 
         public void SetupView()
         {
-            var titleLabel = titleContainer.Q<Label>();
-            if (titleLabel != null) { titleLabel.style.unityTextAlign = TextAnchor.MiddleCenter; titleLabel.style.flexGrow = 1; }
             RefreshState();
         }
 
-        public override void OnSelected() { base.OnSelected(); OnSelectedAction?.Invoke(); }
+        public override void OnSelected()
+        {
+            base.OnSelected();
+            if (_selectionOutline != null) _selectionOutline.style.display = DisplayStyle.Flex;
+            OnSelectedAction?.Invoke();
+        }
 
+        public override void OnUnselected()
+        {
+            base.OnUnselected();
+            if (_selectionOutline != null) _selectionOutline.style.display = DisplayStyle.None;
+        }
+
+        // Block 2B (rev2): Start-нода — «брат» обычных нод (тот же template
+        // из Block 2A: title-bar BgRaised + 5px accent-strip слева, body
+        // с subtitle). Просто accent-strip толще (5px вместо 3px) и
+        // зелёный — единственное визуальное отличие от Dialogue-ноды.
+        // Это даёт визуальную консистентность всего графа.
         public void RefreshState()
         {
             inputContainer.style.display = DisplayStyle.None;
-            extensionContainer.style.display = DisplayStyle.None;
 
-            style.width = 160;
+            // Auto-fit под содержимое (title + extension со subtitle).
+            style.width = StyleKeyword.Auto;
             style.height = StyleKeyword.Auto;
+            style.minWidth = 180;
 
-            titleContainer.style.backgroundColor = new StyleColor(new Color(0.2f, 0.7f, 0.3f, 1f));
-            titleContainer.style.height = 40;
-            titleContainer.style.justifyContent = Justify.Center;
+            // ─── node-border ───
+            var nodeBorder = this.Q("node-border");
+            if (nodeBorder != null)
+            {
+                // Лёгкий зелёный tint на фоне (8% — как обычные ноды),
+                // чтобы visually различалась от Dialogue без агрессивного
+                // зелёного фона.
+                Color accentG = new Color(0.30f, 0.78f, 0.42f, 1f);
+                nodeBorder.style.backgroundColor = new Color(accentG.r, accentG.g, accentG.b, 0.08f);
+                nodeBorder.style.borderTopColor = NovellaGraphTheme.Border;
+                nodeBorder.style.borderBottomColor = NovellaGraphTheme.Border;
+                nodeBorder.style.borderLeftColor = NovellaGraphTheme.Border;
+                nodeBorder.style.borderRightColor = NovellaGraphTheme.Border;
+                nodeBorder.style.borderTopWidth = 1;
+                nodeBorder.style.borderBottomWidth = 1;
+                nodeBorder.style.borderLeftWidth = 1;
+                nodeBorder.style.borderRightWidth = 1;
+                nodeBorder.style.borderTopLeftRadius = 6;
+                nodeBorder.style.borderTopRightRadius = 6;
+                nodeBorder.style.borderBottomLeftRadius = 6;
+                nodeBorder.style.borderBottomRightRadius = 6;
+
+                // Чистим старый accent-strip / start-content от прошлых попыток.
+                var oldStrip = this.Q<VisualElement>("ns-start-strip");
+                if (oldStrip != null && oldStrip.parent != null) oldStrip.parent.Remove(oldStrip);
+                var oldContent = nodeBorder.Q<VisualElement>("ns-start-content");
+                if (oldContent != null) nodeBorder.Remove(oldContent);
+            }
+
+            // ─── Accent-strip — 5px зелёная полоса слева ───
+            // Кладём ВНУТРЬ node-border ПОВЕРХ всех остальных детей (title и т.п.),
+            // иначе title-bar с BgRaised-фоном её перекрывает.
+            var strip = new VisualElement { name = "ns-start-strip" };
+            strip.pickingMode = PickingMode.Ignore;
+            strip.style.position = Position.Absolute;
+            strip.style.left = 0;
+            strip.style.top = 0;
+            strip.style.bottom = 0;
+            strip.style.width = 5;
+            strip.style.backgroundColor = new Color(0.30f, 0.78f, 0.42f);
+            strip.style.borderTopLeftRadius = 6;
+            strip.style.borderBottomLeftRadius = 6;
+            if (nodeBorder != null) nodeBorder.Add(strip);
+            else this.Add(strip);
+
+            // ─── Title-bar — «▶ START» в стиле обычных нод ───
+            titleContainer.style.display = DisplayStyle.Flex;
+            titleContainer.style.flexDirection = FlexDirection.Row;
+            titleContainer.style.alignItems = Align.Center;
+            titleContainer.style.justifyContent = Justify.FlexStart;
+            titleContainer.style.backgroundColor = NovellaGraphTheme.BgRaised;
+            titleContainer.style.borderBottomWidth = 1;
+            titleContainer.style.borderBottomColor = NovellaGraphTheme.Border;
+            titleContainer.style.borderTopWidth = 0;
+            titleContainer.style.borderLeftWidth = 0;
+            titleContainer.style.borderRightWidth = 0;
+            titleContainer.style.paddingTop = 6;
+            titleContainer.style.paddingBottom = 6;
+            titleContainer.style.height = StyleKeyword.Auto;
 
             var titleLabel = titleContainer.Q<Label>();
             if (titleLabel != null)
             {
-                titleLabel.style.fontSize = 18;
+                titleLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+                titleLabel.style.flexGrow = 1;
+                titleLabel.style.fontSize = 12;
                 titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-                titleLabel.style.color = Color.white;
-                titleLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
+                // Заголовок зелёного цвета — тоже визуальный маркер «это start».
+                titleLabel.style.color = new Color(0.55f, 0.92f, 0.68f);
+                titleLabel.style.marginLeft = 14; // отступ от accent-strip
+                titleLabel.style.marginRight = 8;
                 titleLabel.style.marginTop = 0;
                 titleLabel.style.marginBottom = 0;
+                titleLabel.style.letterSpacing = new StyleLength(new Length(0));
             }
+            title = "▶  " + ToolLang.Get("Story start", "Старт истории");
 
-            title = ToolLang.Get("▶ START", "▶ СТАРТ");
+            // ─── Body / extension с подписью «Story begins here» ───
+            extensionContainer.style.display = DisplayStyle.Flex;
+            extensionContainer.style.backgroundColor = new StyleColor(new Color(
+                NovellaGraphTheme.BgPrimary.r, NovellaGraphTheme.BgPrimary.g,
+                NovellaGraphTheme.BgPrimary.b, 0.6f));
+            extensionContainer.style.paddingTop = 6;
+            extensionContainer.style.paddingBottom = 6;
+            extensionContainer.style.paddingLeft = 14;
+            extensionContainer.style.paddingRight = 8;
+            extensionContainer.Clear();
 
-            var nodeBorder = this.Q("node-border");
-            if (nodeBorder != null)
+            var subtitle = new Label(ToolLang.Get(
+                "First node played by the engine.",
+                "Первая нода которую играет движок."));
+            subtitle.pickingMode = PickingMode.Ignore;
+            subtitle.style.fontSize = 10;
+            subtitle.style.color = NovellaGraphTheme.Text3;
+            subtitle.style.whiteSpace = WhiteSpace.Normal;
+            extensionContainer.Add(subtitle);
+
+            // Selection outline: радиус 8 чтобы повторял rect-форму ноды.
+            if (_selectionOutline != null)
             {
-                nodeBorder.style.backgroundColor = new StyleColor(new Color(0.15f, 0.25f, 0.15f, 1f));
-                Color borderColor = new Color(0.4f, 1f, 0.5f);
-                nodeBorder.style.borderTopColor = new StyleColor(borderColor);
-                nodeBorder.style.borderBottomColor = new StyleColor(borderColor);
-                nodeBorder.style.borderLeftColor = new StyleColor(borderColor);
-                nodeBorder.style.borderRightColor = new StyleColor(borderColor);
-                nodeBorder.style.borderTopWidth = 2; nodeBorder.style.borderBottomWidth = 2;
-                nodeBorder.style.borderLeftWidth = 2; nodeBorder.style.borderRightWidth = 2;
-                nodeBorder.style.borderTopLeftRadius = 15; nodeBorder.style.borderTopRightRadius = 15;
-                nodeBorder.style.borderBottomLeftRadius = 15; nodeBorder.style.borderBottomRightRadius = 15;
+                _selectionOutline.style.borderTopLeftRadius = 8;
+                _selectionOutline.style.borderTopRightRadius = 8;
+                _selectionOutline.style.borderBottomLeftRadius = 8;
+                _selectionOutline.style.borderBottomRightRadius = 8;
             }
+
+            RefreshExpandedState();
         }
     }
 
@@ -164,7 +281,13 @@ namespace NovellaEngine.Editor
 
         public NovellaStartNodeView StartNodeView { get; private set; }
         private NovellaEdgeConnectorListener _edgeListener;
+        // Стоковый GraphView MiniMap — больше не используем, оставлено для
+        // обратной совместимости со старым кодом.
         public MiniMap MiniMapInstance { get; private set; }
+        // Block 2D: кастомная мини-карта в Hub-стиле.
+        public NovellaGraphMiniMap CustomMiniMap { get; private set; }
+        // Block 3C: onboarding-баннер «Перетащи ноду сюда» когда граф пуст.
+        private VisualElement _emptyStateBanner;
 
         public NovellaGraphView(NovellaGraphWindow window, NovellaTree tree)
         {
@@ -183,14 +306,23 @@ namespace NovellaEngine.Editor
 
             AddElement(GenerateEntryPointNode());
 
-            MiniMapInstance = new MiniMap { anchored = true };
-            MiniMapInstance.style.position = Position.Absolute;
-            MiniMapInstance.style.bottom = 20;
-            MiniMapInstance.style.right = 20;
-            MiniMapInstance.style.width = 250;
-            MiniMapInstance.style.height = 150;
-            MiniMapInstance.style.backgroundColor = new StyleColor(new Color(0.15f, 0.15f, 0.15f, 0.9f));
-            Add(MiniMapInstance);
+            // Custom NovellaGraphMiniMap (Block 2D) — заменяет стоковую
+            // UnityEditor.Experimental.GraphView.MiniMap, которая не
+            // стилизуется и выглядит как Unity 2019 default.
+            //
+            // Стоковая MiniMap'а — в `_legacyMiniMap` для backcompat (поле
+            // public MiniMapInstance из toolbar используется для toggle'а;
+            // мы переадресуем toggle на новую через wrapper-VisualElement).
+            CustomMiniMap = new NovellaGraphMiniMap(this);
+            Add(CustomMiniMap);
+
+            // Public-поле MiniMapInstance остаётся для обратной совместимости
+            // с тулбар-кнопкой Map (она дёргает .style.display). Указываем
+            // на наш кастомный — типы совпадают, оба VisualElement-наследники.
+            MiniMapInstance = null; // стоковую больше не используем
+
+            // Block 3C: onboarding-баннер для пустого графа.
+            BuildEmptyStateBanner();
 
             graphViewChanged += OnGraphViewChanged;
 
@@ -296,7 +428,11 @@ namespace NovellaEngine.Editor
 
         private void OnDragUpdated(DragUpdatedEvent evt)
         {
-            if (DragAndDrop.objectReferences.Length > 0)
+            // Принимаем drag из:
+            // 1. Project window (Character/Audio/Sprite — старый flow)
+            // 2. Bottom node-palette (Block 3B — payload в GenericData)
+            bool fromPalette = DragAndDrop.GetGenericData(NovellaNodePalette.DRAG_DATA_KEY) != null;
+            if (DragAndDrop.objectReferences.Length > 0 || fromPalette)
             {
                 DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
                 evt.StopPropagation();
@@ -305,6 +441,18 @@ namespace NovellaEngine.Editor
 
         private void OnDragPerform(DragPerformEvent evt)
         {
+            // ─── Block 3B: Drop из bottom node-palette ───
+            // Palette кладёт payload в DragAndDrop.GenericData.
+            var palettePayload = DragAndDrop.GetGenericData(NovellaNodePalette.DRAG_DATA_KEY)
+                as NovellaNodePalette.PaletteDragPayload;
+            if (palettePayload != null)
+            {
+                HandlePaletteDrop(palettePayload, evt.mousePosition);
+                DragAndDrop.AcceptDrag();
+                evt.StopPropagation();
+                return;
+            }
+
             if (DragAndDrop.objectReferences.Length == 0) return;
 
             Vector2 localPos = contentViewContainer.WorldToLocal(evt.mousePosition);
@@ -370,6 +518,224 @@ namespace NovellaEngine.Editor
                 Window.MarkUnsaved();
                 evt.StopPropagation();
             }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // Block 3B: Drop из bottom node-palette
+        // ════════════════════════════════════════════════════════════════════
+        // Три ветки логики в зависимости от того что под курсором:
+        //   1) Drop на ноду — создаём справа + автоконнект на её свободный
+        //      output (если несколько — popup-picker).
+        //   2) Drop на edge — split: разрываем связь, новая нода вставляется
+        //      между source и target.
+        //   3) Drop в пустоту — просто создаём ноду в позиции курсора.
+        // ════════════════════════════════════════════════════════════════════
+
+        private void HandlePaletteDrop(NovellaNodePalette.PaletteDragPayload p, Vector2 mouseScreenPos)
+        {
+            // Конвертим окно-координаты в graph-world.
+            Vector2 graphPos = contentViewContainer.WorldToLocal(mouseScreenPos);
+
+            // ─── Hit test: что под курсором? ───
+            // Используем panel.Pick — возвращает самый верхний VisualElement
+            // под точкой (в window-coord). Затем поднимаемся к ancestor'у
+            // нужного типа.
+            VisualElement hit = panel?.Pick(mouseScreenPos);
+
+            // 1. Hit на ноду? (Node-base ловит и обычные NovellaNodeView,
+            // и стартовую NovellaStartNodeView — раньше дроп на Start не
+            // автоконнектил потому что искали только NovellaNodeView.)
+            var hitNode = FindAncestor<Node>(hit);
+            if (hitNode != null)
+            {
+                DropOnNode(p, hitNode);
+                return;
+            }
+
+            // 2. Hit на edge?
+            var hitEdge = FindAncestor<Edge>(hit);
+            if (hitEdge != null)
+            {
+                DropOnEdge(p, hitEdge, graphPos);
+                return;
+            }
+
+            // 3. Empty canvas — просто создаём.
+            DropOnEmpty(p, graphPos);
+        }
+
+        private static T FindAncestor<T>(VisualElement el) where T : VisualElement
+        {
+            while (el != null)
+            {
+                if (el is T t) return t;
+                el = el.parent;
+            }
+            return null;
+        }
+
+        // ─── 1. Drop в пустоту ───
+        private void DropOnEmpty(NovellaNodePalette.PaletteDragPayload p, Vector2 graphPos)
+        {
+            if (p.NodeType == ENodeType.CustomDLC && p.DlcType != null)
+            {
+                var attr = DLCCache.GetNodeAttribute(p.DlcType);
+                if (attr != null) CreateDLCNode(graphPos, p.DlcType, attr);
+            }
+            else
+            {
+                CreateNode(graphPos, p.NodeType, autoConnectPort: null, dlcType: p.DlcType);
+            }
+            Window.MarkUnsaved();
+        }
+
+        // ─── 2. Drop на ноду ───
+        // Если у целевой ноды один совместимый output — автоконнектимся.
+        // Если несколько — показываем GenericMenu с выбором.
+        // Если ни одного — создаём рядом без коннекта.
+        // Позиция новой ноды смещается по Y если у target уже есть исходящие
+        // связи — чтобы новая нода не наложилась на существующих детей.
+        // Параметр Node (base) — чтобы работало и со Start (NovellaStartNodeView),
+        // и с обычными нодами (NovellaNodeView).
+        private void DropOnNode(NovellaNodePalette.PaletteDragPayload p, Node targetNode)
+        {
+            Rect targetRect = targetNode.GetPosition();
+            // Бaseline-позиция: справа от target'а на 80px.
+            Vector2 newPos = new Vector2(targetRect.xMax + 80, targetRect.y);
+
+            // ─── Anti-stack: если у target уже есть исходящие связи,
+            // сдвигаем новую ноду НИЖЕ их всех (чтобы не образовался пирог).
+            float lowestY = float.MinValue;
+            foreach (var port in targetNode.outputContainer.Query<Port>().ToList())
+            {
+                foreach (var edge in port.connections)
+                {
+                    var child = edge.input?.node as NovellaNodeView;
+                    if (child == null) continue;
+                    Rect childRect = child.GetPosition();
+                    if (childRect.yMax > lowestY) lowestY = childRect.yMax;
+                }
+            }
+            if (lowestY > float.MinValue)
+            {
+                // Ставим под самым нижним ребёнком + gap 40px.
+                newPos.y = lowestY + 40;
+            }
+
+            // ─── Фильтрация: только СОВМЕСТИМЫЕ свободные порты ───
+            // Раньше попадали в popup и Audio Sync, и Anim Sync, и Scene Sync —
+            // даже если drop'аем не Audio. Теперь фильтруем по совместимости.
+            var outputPorts = targetNode.outputContainer.Query<Port>().ToList()
+                .Where(po => (po.capacity == Port.Capacity.Multi || !po.connected)
+                          && CanConnectFromPort(po, p.NodeType))
+                .ToList();
+
+            if (outputPorts.Count == 0)
+            {
+                // Нет совместимых outputs — создаём без коннекта.
+                DropOnEmpty(p, newPos);
+                return;
+            }
+
+            if (outputPorts.Count == 1)
+            {
+                // Один совместимый — автоконнектимся прозрачно.
+                CreateNodeWithConnect(p, newPos, outputPorts[0]);
+                return;
+            }
+
+            // Несколько совместимых — показываем popup picker.
+            var menu = new GenericMenu();
+            foreach (var port in outputPorts)
+            {
+                var capPort = port;
+                string portLabel = string.IsNullOrEmpty(port.portName)
+                    ? ToolLang.Get("(unnamed)", "(без имени)") : port.portName;
+                menu.AddItem(new GUIContent(portLabel), false, () =>
+                {
+                    CreateNodeWithConnect(p, newPos, capPort);
+                });
+            }
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent(ToolLang.Get("(no connection)", "(не подключать)")), false, () =>
+            {
+                DropOnEmpty(p, newPos);
+            });
+            menu.ShowAsContext();
+        }
+
+        // Проверка совместимости: может ли output-порт принять подключение
+        // ноды типа `targetType`. Sync-порты (Audio/Anim/Scene) — только
+        // соответствующий тип. Note и Start input-port'а нет — connection
+        // невозможен. Все остальные «обычные» outputs совместимы со всем
+        // что не Note/Character.
+        private bool CanConnectFromPort(Port output, ENodeType targetType)
+        {
+            // Note не имеет InputPort'а, никто не может к нему подключиться.
+            if (targetType == ENodeType.Note) return false;
+            if (targetType == ENodeType.Character) return false;
+
+            // Sync-порты Dialogue имеют locale-зависимые имена.
+            string audioSync = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
+            string animSync  = ToolLang.Get("✨ Anim Sync",  "✨ Аним Синхр.");
+            string sceneSync = ToolLang.Get("🎬 Scene Sync", "🎬 Сцена Синхр.");
+
+            if (output.portName == audioSync) return targetType == ENodeType.Audio;
+            if (output.portName == animSync)  return targetType == ENodeType.Animation;
+            if (output.portName == sceneSync) return targetType == ENodeType.SceneSettings;
+
+            // Все остальные outputs (Next, Choice N, Chance N, condition True/False,
+            // DLC custom outputs) — соединяются со всеми «обычными» нодами.
+            return true;
+        }
+
+        // Создать ноду в graphPos и автоконнектить через autoConnectPort.
+        // CreateNode сама вызывает HandleAutoConnect → создаёт edge.
+        private void CreateNodeWithConnect(NovellaNodePalette.PaletteDragPayload p,
+                                            Vector2 graphPos, Port autoConnectPort)
+        {
+            CreateNode(graphPos, p.NodeType, autoConnectPort: autoConnectPort, dlcType: p.DlcType);
+            Window.MarkUnsaved();
+        }
+
+        // ─── 3. Drop на edge ───
+        // Разрываем edge, ставим новую ноду между source.output и target.input.
+        private void DropOnEdge(NovellaNodePalette.PaletteDragPayload p, Edge edge, Vector2 graphPos)
+        {
+            if (edge.output == null || edge.input == null)
+            {
+                DropOnEmpty(p, graphPos);
+                return;
+            }
+
+            Port sourceOut = edge.output;
+            Port targetIn = edge.input;
+
+            // Разрываем существующий edge.
+            DeleteElements(new[] { edge });
+
+            // Создаём ноду в позиции drop'а с автоконнектом к source.output.
+            CreateNode(graphPos, p.NodeType, autoConnectPort: sourceOut, dlcType: p.DlcType);
+
+            // У последней (только что созданной) ноды соединяем её output с
+            // target.input — чтобы цепочка восстановилась через новую ноду.
+            var newView = nodes.ToList().OfType<NovellaNodeView>().LastOrDefault();
+            if (newView != null)
+            {
+                // Для Dialogue/Audio/etc. — один OutputPort, используем его.
+                // Для Branch/Condition/Random — берём первый из outputContainer'а.
+                // Для End/Note — outputs нет, пропускаем (чейн обрывается).
+                Port newOutput = newView.OutputPort;
+                if (newOutput == null)
+                    newOutput = newView.outputContainer.Query<Port>().First();
+                if (newOutput != null)
+                {
+                    var newEdge = newOutput.ConnectTo(targetIn);
+                    AddElement(newEdge);
+                }
+            }
+
+            Window.MarkUnsaved();
         }
 
         private string OnSerializeGraphElements(IEnumerable<GraphElement> elements)
@@ -723,6 +1089,10 @@ namespace NovellaEngine.Editor
                     };
                 }
             }
+            // Block 3C: после любых изменений графа (создание/удаление нод
+            // через ПКМ-меню, Delete-key, Undo) пересчитываем видимость
+            // onboarding-баннера.
+            RefreshEmptyState();
             return change;
         }
 
@@ -731,12 +1101,16 @@ namespace NovellaEngine.Editor
             var node = new NovellaStartNodeView { name = "START_NODE" };
             node.OnSelectedAction = () => { OnStartNodeSelected?.Invoke(); };
 
-            var port = GeneratePort(node, Direction.Output); port.portName = ToolLang.Get("Start", "Старт");
+            // Output-порт без подписи: внутри круглой Start-ноды надпись «Старт»
+            // лишняя — порт там единственный, и сама нода уже подписана «START».
+            var port = GeneratePort(node, Direction.Output); port.portName = "";
             node.outputContainer.Add(port); node.SetupView();
 
             node.RegisterCallback<GeometryChangedEvent>(evt => { var collapseBtn = node.titleButtonContainer.Q("collapse-button"); if (collapseBtn != null) collapseBtn.style.display = DisplayStyle.None; });
             node.RefreshExpandedState(); node.RefreshPorts();
-            node.SetPosition(new Rect(Tree.StartPosition, new Vector2(180, 80)));
+            // Auto-fit размер: pill подгоняется под содержимое + outputContainer.
+            // Зеро-размер триггерит layout под минимальные значения из RefreshState.
+            node.SetPosition(new Rect(Tree.StartPosition, new Vector2(0, 0)));
             StartNodeView = node; return node;
         }
 
@@ -887,6 +1261,148 @@ namespace NovellaEngine.Editor
             Window.MarkUnsaved();
         }
 
+        // ─── Block 3C: Empty-state banner ───
+        // Большая плашка по центру когда в графе нет ни одной user-ноды
+        // (только Start). Помогает новичкам понять что делать.
+
+        private void BuildEmptyStateBanner()
+        {
+            _emptyStateBanner = new VisualElement { name = "ns-empty-banner" };
+            _emptyStateBanner.pickingMode = PickingMode.Ignore; // drag-drop проходит сквозь
+            _emptyStateBanner.style.position = Position.Absolute;
+            _emptyStateBanner.style.left = Length.Percent(50);
+            // top: 22% — баннер вверху графа, стрелка ↓ внизу плашки целит
+            // прямо к палитре нод снизу canvas'а через большое пустое
+            // пространство — взгляд однозначно ведётся.
+            _emptyStateBanner.style.top = Length.Percent(22);
+            _emptyStateBanner.style.translate = new StyleTranslate(new Translate(
+                Length.Percent(-50), Length.Percent(-50)));
+            _emptyStateBanner.style.width = 380;
+            _emptyStateBanner.style.flexDirection = FlexDirection.Column;
+            _emptyStateBanner.style.alignItems = Align.Center;
+            _emptyStateBanner.style.paddingTop = 24;
+            _emptyStateBanner.style.paddingBottom = 24;
+            _emptyStateBanner.style.paddingLeft = 28;
+            _emptyStateBanner.style.paddingRight = 28;
+            _emptyStateBanner.style.backgroundColor = new Color(
+                NovellaGraphTheme.BgRaised.r, NovellaGraphTheme.BgRaised.g,
+                NovellaGraphTheme.BgRaised.b, 0.95f);
+            // 1px dashed-style border-look через тонкую обводку акцентного цвета.
+            Color brd = new Color(NovellaGraphTheme.Accent.r, NovellaGraphTheme.Accent.g,
+                                   NovellaGraphTheme.Accent.b, 0.45f);
+            _emptyStateBanner.style.borderTopColor = brd;
+            _emptyStateBanner.style.borderBottomColor = brd;
+            _emptyStateBanner.style.borderLeftColor = brd;
+            _emptyStateBanner.style.borderRightColor = brd;
+            _emptyStateBanner.style.borderTopWidth = 1;
+            _emptyStateBanner.style.borderBottomWidth = 1;
+            _emptyStateBanner.style.borderLeftWidth = 1;
+            _emptyStateBanner.style.borderRightWidth = 1;
+            _emptyStateBanner.style.borderTopLeftRadius = 8;
+            _emptyStateBanner.style.borderTopRightRadius = 8;
+            _emptyStateBanner.style.borderBottomLeftRadius = 8;
+            _emptyStateBanner.style.borderBottomRightRadius = 8;
+
+            // ─── Большой заголовок (наверху) ───
+            var title = new Label(ToolLang.Get(
+                "Your story starts here",
+                "Здесь начнётся история"));
+            title.pickingMode = PickingMode.Ignore;
+            title.style.fontSize = 16;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.color = NovellaGraphTheme.Text1;
+            title.style.unityTextAlign = TextAnchor.MiddleCenter;
+            title.style.marginBottom = 8;
+            _emptyStateBanner.Add(title);
+
+            // ─── Основная подсказка ───
+            var subtitle = new Label(ToolLang.Get(
+                "Drag any node from the palette below into this canvas — that's the easiest way to start.",
+                "Перетащи любую ноду из палитры внизу прямо на этот холст — самый простой способ начать."));
+            subtitle.pickingMode = PickingMode.Ignore;
+            subtitle.style.fontSize = 11;
+            subtitle.style.color = NovellaGraphTheme.Text2;
+            subtitle.style.unityTextAlign = TextAnchor.MiddleCenter;
+            subtitle.style.whiteSpace = WhiteSpace.Normal;
+            subtitle.style.marginBottom = 14;
+            _emptyStateBanner.Add(subtitle);
+
+            // ─── Альтернативные способы (мелким текстом) ───
+            var altRow = new VisualElement();
+            altRow.style.flexDirection = FlexDirection.Column;
+            altRow.style.alignItems = Align.Center;
+            altRow.style.marginBottom = 12;
+            altRow.pickingMode = PickingMode.Ignore;
+
+            var altHint1 = new Label("• " + ToolLang.Get(
+                "Or right-click empty canvas to pick from a menu",
+                "Или правый клик по пустоте графа — выпадет меню"));
+            altHint1.pickingMode = PickingMode.Ignore;
+            altHint1.style.fontSize = 10;
+            altHint1.style.color = NovellaGraphTheme.Text3;
+            altHint1.style.marginBottom = 2;
+            altRow.Add(altHint1);
+
+            var altHint2 = new Label("• " + ToolLang.Get(
+                "Or drag a Character / Audio / Image from Project window",
+                "Или перетащи Персонажа / Аудио / Картинку из окна Project"));
+            altHint2.pickingMode = PickingMode.Ignore;
+            altHint2.style.fontSize = 10;
+            altHint2.style.color = NovellaGraphTheme.Text3;
+            altRow.Add(altHint2);
+
+            _emptyStateBanner.Add(altRow);
+
+            // ─── Большая стрелка вниз — ВНИЗУ плашки. Указывает прямо на
+            // палитру нод которая живёт под графом, поэтому смысл «стрелка
+            // ведёт твой взгляд вниз к панели» считывается мгновенно.
+            var arrow = new Label("↓");
+            arrow.pickingMode = PickingMode.Ignore;
+            arrow.style.fontSize = 40;
+            arrow.style.unityFontStyleAndWeight = FontStyle.Bold;
+            arrow.style.color = NovellaGraphTheme.Accent;
+            arrow.style.marginTop = 4;
+            arrow.style.marginBottom = 0;
+            _emptyStateBanner.Add(arrow);
+
+            Add(_emptyStateBanner);
+            RefreshEmptyState();
+        }
+
+        // Прячет/показывает баннер в зависимости от наполнения графа.
+        // Вызывается из LoadGraph и из OnGraphViewChanged (при создании/удалении нод).
+        public void RefreshEmptyState()
+        {
+            if (_emptyStateBanner == null) return;
+            bool empty = Tree == null || Tree.Nodes == null || Tree.Nodes.Count == 0;
+            _emptyStateBanner.style.display = empty ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        // Локализованное имя ноды для нового NodeTitle. Используется при
+        // CreateNode чтобы свежесозданная нода показывалась как «Диалог 2»
+        // на русском вместо «Dialogue 2». Юзер может потом переименовать.
+        private static string GetLocalizedNodeName(ENodeType type)
+        {
+            switch (type)
+            {
+                case ENodeType.Dialogue:        return ToolLang.Get("Dialogue",   "Диалог");
+                case ENodeType.Event:           return ToolLang.Get("Dialogue",   "Диалог");
+                case ENodeType.Branch:          return ToolLang.Get("Branch",     "Развилка");
+                case ENodeType.Condition:       return ToolLang.Get("Condition",  "Условие");
+                case ENodeType.Random:          return ToolLang.Get("Random",     "Случай");
+                case ENodeType.Variable:        return ToolLang.Get("Variable",   "Переменная");
+                case ENodeType.Audio:           return ToolLang.Get("Audio",      "Аудио");
+                case ENodeType.Wait:            return ToolLang.Get("Wait",       "Пауза");
+                case ENodeType.SceneSettings:   return ToolLang.Get("Scene",      "Сцена");
+                case ENodeType.Animation:       return ToolLang.Get("Animation",  "Анимация");
+                case ENodeType.EventBroadcast:  return ToolLang.Get("Event",      "Событие");
+                case ENodeType.Save:            return ToolLang.Get("Save",       "Сейв");
+                case ENodeType.Note:            return ToolLang.Get("Note",       "Заметка");
+                case ENodeType.End:             return ToolLang.Get("End",        "Конец");
+                default: return type.ToString();
+            }
+        }
+
         public void CreateNode(Vector2 position, ENodeType type, Port autoConnectPort = null, System.Type dlcType = null)
         {
             if (Tree == null || Tree.Nodes == null) return;
@@ -926,7 +1442,12 @@ namespace NovellaEngine.Editor
             if (nodeData == null) return;
 
             nodeData.NodeID = type.ToString() + "_" + System.Guid.NewGuid().ToString().Substring(0, 5);
-            nodeData.NodeTitle = type == ENodeType.CustomDLC && dlcType != null ? DLCCache.GetNodeAttribute(dlcType)?.NodeTitle : $"{type} {count}";
+            // Заголовок локализованный — если UI на русском, нода называется
+            // «Диалог 1», иначе «Dialogue 1». Раньше всегда был английский enum.
+            // DLC-ноды используют свой кастомный NodeTitle из атрибута.
+            nodeData.NodeTitle = type == ENodeType.CustomDLC && dlcType != null
+                ? DLCCache.GetNodeAttribute(dlcType)?.NodeTitle
+                : $"{GetLocalizedNodeName(type)} {count}";
             nodeData.GraphPosition = position;
 
             if (autoConnectPort != null && autoConnectPort.node is NovellaNodeView parentNode)
@@ -958,6 +1479,7 @@ namespace NovellaEngine.Editor
 
             HandleAutoConnect(view, autoConnectPort, type);
             Window.MarkUnsaved();
+            RefreshEmptyState();
         }
 
         public void CreateDLCNode(Vector2 position, System.Type dlcType, NovellaDLCNodeAttribute attr)
@@ -978,6 +1500,7 @@ namespace NovellaEngine.Editor
             AddElement(view);
 
             Window.MarkUnsaved();
+            RefreshEmptyState();
         }
 
         private void HandleAutoConnect(NovellaNodeView view, Port autoConnectPort, ENodeType type)
@@ -1133,7 +1656,7 @@ namespace NovellaEngine.Editor
 
         public void LoadGraph()
         {
-            if (Tree == null || Tree.Nodes == null) return;
+            if (Tree == null || Tree.Nodes == null) { RefreshEmptyState(); return; }
             var existingNodes = nodes.ToList().OfType<NovellaNodeView>().ToList();
             foreach (var n in existingNodes) RemoveElement(n);
             foreach (var e in edges.ToList()) RemoveElement(e);
@@ -1260,6 +1783,9 @@ namespace NovellaEngine.Editor
                     }
                 }
             }
+
+            // Block 3C: после загрузки решаем — показывать ли onboarding-баннер.
+            RefreshEmptyState();
         }
     }
 }

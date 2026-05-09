@@ -37,6 +37,14 @@ namespace NovellaEngine.Editor
             ? n + " " + RuForm(n, "запись", "записи", "записей")
             : n + " entr" + (n == 1 ? "y" : "ies");
 
+        public static string Lines(int n) => ToolLang.IsRU
+            ? n + " " + RuForm(n, "реплика", "реплики", "реплик")
+            : n + " line" + (n == 1 ? "" : "s");
+
+        public static string People(int n) => ToolLang.IsRU
+            ? n + " " + RuForm(n, "человек", "человека", "человек")
+            : n + (n == 1 ? " person" : " people");
+
         // Русское правило: 1 — one, 2/3/4 — few, иначе many.
         // Поправка на 11/12/13/14 — это many, а не one/few (например 11 ошибок,
         // не «11 ошибка»).

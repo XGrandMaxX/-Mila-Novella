@@ -121,6 +121,35 @@ namespace NovellaEngine.Data
         public bool UITextIsLocalizationKey = false;
     }
 
+    // Per-line override позиции конкретного персонажа на сцене.
+    // Используется редактором раскадровки и runtime-плеером:
+    //   • NormalizedPos — координата в долях [0..1] от viewport'а
+    //     (0,0 = верх-лево, 1,1 = низ-право). Pivot — нижний центр спрайта.
+    //   • Visible — если false, персонаж скрыт на этой реплике.
+    //   • Animate — true = плавный tween от прошлой позиции, false = телепорт.
+    //   • Scale — масштаб относительно базового (1.0 = как в массовке).
+    //
+    // Если для персонажа нет placement в DialogueLine.StagePlacements —
+    // используется его позиция из ПРЕДЫДУЩЕЙ реплики (sticky-fallback) либо
+    // дефолтная сетка для самой первой реплики.
+    [Serializable]
+    public class CharacterStagePlacement
+    {
+        public NovellaCharacter Character;
+        public Vector2 NormalizedPos = new Vector2(0.5f, 0.92f);
+        public bool   Visible = true;
+        public bool   Animate = false;
+        public float  Scale   = 1f;
+        // Длительность tween-перехода в секундах когда Animate=true.
+        // Используется и в превью редактора, и в runtime-плеере.
+        public float  AnimDuration = 0.30f;
+        // Если true — персонаж рисуется ПОВЕРХ диалогового окна
+        // (sortingOrder = 1000+). По умолчанию false — он позади UI,
+        // как и должно быть в обычной VN. Для редких случаев когда
+        // нужно «персонаж выходит на передний план перед окном».
+        public bool   InFrontOfUI = false;
+    }
+
     [Serializable]
     public class DialogueLine
     {
@@ -132,6 +161,12 @@ namespace NovellaEngine.Data
         public GameObject OverrideDialogueFrame; public float DelayBefore = 0f; public int FontSize = 32; public LocalizedString LocalizedPhrase = new LocalizedString();
         public bool UseTypewriter = true; public float BaseSpeed = 40f; public bool UseCustomPacing = false; public AnimationCurve PacingCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 1f));
         public bool CustomizeFrameLayout = false; public EFramePosition FramePositionPreset = EFramePosition.Default; public float FramePosX = 0f; public float FramePosY = 0f; public float FrameScale = 1f;
+
+        // Per-line расстановка персонажей на сцене (свободные координаты).
+        // Один элемент на каждого персонажа из массовки которому нужно
+        // переопределить позицию/видимость/анимацию ИМЕННО на этой реплике.
+        // Если список пуст — все персонажи рисуются по дефолтной сетке.
+        public List<CharacterStagePlacement> StagePlacements = new List<CharacterStagePlacement>();
 
         // Опциональные UI-цели: drag&drop UI-элемента из сцены — Player пишет
         // фразу/имя спикера в этот binding вместо дефолтной DialoguePanel.

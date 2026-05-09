@@ -24,14 +24,53 @@ namespace NovellaEngine.Editor
         [MenuItem("Tools/Novella Engine/🎨 UI Master Forge", false, 2)]
         public static void ShowWindow()
         {
+            // Кузница UI завязана на preview-сцену + hierarchy-синк +
+            // prefab-режим: standalone-окно эту инфраструктуру тянет криво
+            // (раскладка плывёт). Поэтому открываем в Hub'е, как и было —
+            // в Hub'е она проверена и работает корректно.
             NovellaHubWindow.ShowWindow();
             if (NovellaHubWindow.Instance != null) NovellaHubWindow.Instance.SwitchToModule(3);
         }
 
         public static void OpenWithCustomPrefab(GameObject targetPrefab)
         {
+            // Открываем Hub + переключаем на Forge, потом наш режим
+            // «Префабы» (additive mock-сцена), потом подгружаем prefab.
+            // НЕ используем AssetDatabase.OpenAsset — он бы открывал
+            // в стандартном Unity Prefab-Mode, что выкидывает юзера
+            // из нашего инструмента.
             ShowWindow();
-            if (targetPrefab != null) Debug.Log($"[Novella] OpenWithCustomPrefab: префаб '{targetPrefab.name}' будет поддерживаться в следующей версии.");
+            if (targetPrefab == null) return;
+            EditorApplication.delayCall += () =>
+            {
+                if (Instance != null) Instance.OpenPrefabForEditing(targetPrefab);
+            };
+        }
+
+        // Public-точка входа для внешних вызовов («открой этот префаб
+        // в Кузнице, в режиме Prefabs»). Делает три вещи:
+        //   1. Переключает _mode на Prefabs (открывает mock-сцену additive).
+        //   2. Подгружает prefab в mock-сцену.
+        //   3. Авто-выделяет корень префаба.
+        // Между шагами есть delayCall чтобы Unity успела применить
+        // переключение сцен.
+        public void OpenPrefabForEditing(GameObject prefab)
+        {
+            if (prefab == null) return;
+            if (_mode != ForgeMode.Prefabs)
+            {
+                SwitchMode(ForgeMode.Prefabs);
+                // SwitchMode внутри использует delayCall — ждём 2 ticks
+                // чтобы mock-scene успела загрузиться, потом открываем prefab.
+                EditorApplication.delayCall += () =>
+                {
+                    EditorApplication.delayCall += () => OpenPrefabInMockScene(prefab);
+                };
+            }
+            else
+            {
+                OpenPrefabInMockScene(prefab);
+            }
         }
 
         // Dynamic — из Settings
@@ -2690,14 +2729,29 @@ namespace NovellaEngine.Editor
         private void RefreshPrefabsList()
         {
             _prefabsList.Clear();
-            string folder = NovellaPrefabHistory.PREFABS_DIR;
-            if (!AssetDatabase.IsValidFolder(folder)) return;
-            var guids = AssetDatabase.FindAssets("t:Prefab", new[] { folder });
+            // Ищем в обеих папках:
+            //   1) Gallery/Prefabs — стандартное место «нажатых через
+            //      Кузницу» префабов
+            //   2) Runtime/Prefabs/CustomUI — место CustomUI префабов
+            //      (NovellaCustomUI), которые юзер выбирает из Раскадровки
+            //      через NovellaGalleryWindow filter=CustomUI.
+            // Раньше CustomUI префабы НЕ показывались в Кузнице после
+            // сохранения — потому что список искал только в Gallery/Prefabs.
+            var folders = new System.Collections.Generic.List<string>();
+            if (AssetDatabase.IsValidFolder(NovellaPrefabHistory.PREFABS_DIR))
+                folders.Add(NovellaPrefabHistory.PREFABS_DIR);
+            const string CUSTOM_UI_DIR = "Assets/NovellaEngine/Runtime/Prefabs/CustomUI";
+            if (AssetDatabase.IsValidFolder(CUSTOM_UI_DIR))
+                folders.Add(CUSTOM_UI_DIR);
+            if (folders.Count == 0) return;
+
+            var seen = new HashSet<int>();
+            var guids = AssetDatabase.FindAssets("t:Prefab", folders.ToArray());
             foreach (var g in guids)
             {
                 string p = AssetDatabase.GUIDToAssetPath(g);
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(p);
-                if (go != null) _prefabsList.Add(go);
+                if (go != null && seen.Add(go.GetInstanceID())) _prefabsList.Add(go);
             }
             _prefabsList.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.OrdinalIgnoreCase));
         }
@@ -3888,6 +3942,14 @@ namespace NovellaEngine.Editor
                 Debug.Log(msg);
                 NovellaToast.Success(string.Format(
                     ToolLang.Get("Prefab saved: {0}", "Префаб сохранён: {0}"), nm));
+
+                // Принудительно осежаем AssetDatabase + наш кэш списка
+                // префабов — иначе только что сохранённый prefab не виден
+                // в сайдбаре до 2 секунд (auto-refresh polled by interval).
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                RefreshPrefabsList();
+                _window?.Repaint();
             }
             else
             {
@@ -4294,16 +4356,23 @@ namespace NovellaEngine.Editor
                 RectTransform pickedDeepest = PickDeepestRectAt(e.mousePosition, drawRect, targetW, targetH);
                 if (pickedDeepest != null)
                 {
-                    // Одиночный клик → верхний родитель (top-level под root-
-                    // Canvas или корень prefab instance). Это то, что юзер
-                    // видит как "целый объект" — Кнопка целиком, а не только
-                    // Label внутри неё. Двойной клик → проваливается до
-                    // самого глубокого, чтобы можно было настраивать
-                    // вложенные элементы (Label, иконку и т.п.).
-                    // ✋-блокировка по-прежнему работает: повесь её на любой
-                    // объект, и клики будут проходить сквозь него на тот, что
-                    // ниже / снаружи.
-                    RectTransform target = isDoubleClick
+                    // Одиночный клик → top-level («целый объект»),
+                    // двойной клик → проваливается до deepest.
+                    //
+                    // НО: если у нас уже выделен child (т.е. предыдущий
+                    // selection НЕ top-level — значит юзер сейчас редак-
+                    // тирует «глубокий» элемент), то single click тоже
+                    // идёт в deepest. Иначе drag после dbl-click сразу
+                    // же сбрасывался обратно на parent. Чтобы выйти из
+                    // «deep-mode» — кликни на пустое место (clear).
+                    bool deepSelectMode = false;
+                    if (_selectedList.Count > 0 && _selectedList[0] != null)
+                    {
+                        var topOfSel = GetTopLevelClickTarget(_selectedList[0]);
+                        deepSelectMode = topOfSel != null && _selectedList[0] != topOfSel;
+                    }
+
+                    RectTransform target = (isDoubleClick || deepSelectMode)
                         ? pickedDeepest
                         : GetTopLevelClickTarget(pickedDeepest);
                     if (target == null) target = pickedDeepest;
@@ -6850,7 +6919,16 @@ namespace NovellaEngine.Editor
                     "Сам текст элемента. Используй это поле для статичных текстов, которые не нужно переводить на другие языки. Для диалогов или мультиязычного UI — задавай ключ локализации в секции «СВЯЗАТЬ С ИСТОРИЕЙ» ниже."));
 
                 EditorGUI.BeginChangeCheck();
-                string newText = EditorGUILayout.TextArea(firstTxt.text ?? "", GUILayout.MinHeight(48));
+                // wordWrap=true — длинный текст переносится по словам и
+                // не вылезает за правый край инспектора. Без этого стиля
+                // строка раздувала layout и инспектор «уезжал».
+                var taStyle = new GUIStyle(EditorStyles.textArea) {
+                    wordWrap = true,
+                    fontSize = 12,
+                    padding = new RectOffset(6, 6, 4, 4)
+                };
+                string newText = EditorGUILayout.TextArea(firstTxt.text ?? "", taStyle,
+                    GUILayout.MinHeight(48), GUILayout.ExpandWidth(true));
                 if (EditorGUI.EndChangeCheck())
                 {
                     foreach (var rt in _selectedList)

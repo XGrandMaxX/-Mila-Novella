@@ -59,14 +59,26 @@ namespace NovellaEngine.Editor
         private void RefreshList()
         {
             _all.Clear();
-            string dir = NovellaPrefabHistory.PREFABS_DIR;
-            if (!AssetDatabase.IsValidFolder(dir)) return;
-            var guids = AssetDatabase.FindAssets("t:Prefab", new[] { dir });
+            // Ищем в обеих папках (как в RefreshPrefabsList Кузницы):
+            //   • Gallery/Prefabs       — стандартные префабы Кузницы
+            //   • Runtime/Prefabs/CustomUI — NovellaCustomUI префабы из
+            //     Раскадровки (filter=CustomUI в NovellaGalleryWindow)
+            // Раньше CustomUI не показывались в ПКМ→Префаб попапе.
+            var folders = new System.Collections.Generic.List<string>();
+            if (AssetDatabase.IsValidFolder(NovellaPrefabHistory.PREFABS_DIR))
+                folders.Add(NovellaPrefabHistory.PREFABS_DIR);
+            const string CUSTOM_UI_DIR = "Assets/NovellaEngine/Runtime/Prefabs/CustomUI";
+            if (AssetDatabase.IsValidFolder(CUSTOM_UI_DIR))
+                folders.Add(CUSTOM_UI_DIR);
+            if (folders.Count == 0) return;
+
+            var seen = new System.Collections.Generic.HashSet<int>();
+            var guids = AssetDatabase.FindAssets("t:Prefab", folders.ToArray());
             foreach (var g in guids)
             {
                 var p = AssetDatabase.GUIDToAssetPath(g);
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(p);
-                if (go != null) _all.Add(go);
+                if (go != null && seen.Add(go.GetInstanceID())) _all.Add(go);
             }
             _all.Sort((a, b) => string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase));
         }

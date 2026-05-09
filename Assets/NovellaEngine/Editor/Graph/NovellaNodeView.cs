@@ -26,6 +26,12 @@ namespace NovellaEngine.Editor
         private readonly NovellaGraphView _graphView;
         private readonly Label _pinLabel;
 
+        // ─── Block 2A: визуальные элементы общего design-language ───
+        // Левая 3px полоса акцентного цвета (тип ноды), вешается на node-border.
+        private VisualElement _accentStrip;
+        // Selection-overlay — 2px цианиевый outline когда нода выделена.
+        private VisualElement _selectionOutline;
+
         // Кэш рефлексии для устранения лагов DLC нод при перетаскивании
         private static Dictionary<System.Type, Dictionary<string, System.Reflection.FieldInfo>> _fieldCache = new Dictionary<System.Type, Dictionary<string, System.Reflection.FieldInfo>>();
 
@@ -103,9 +109,69 @@ namespace NovellaEngine.Editor
             _pinLabel.style.scale = new StyleScale(new Vector2(-1, 1));
             this.Insert(0, _pinLabel);
 
+            // ─── Block 2A: 3px полоса акцентного цвета слева ───
+            // Узкая вертикальная плашка ВНУТРИ node-border, ПОВЕРХ всех
+            // остальных детей (title/inputContainer/extensionContainer).
+            // Иначе title-bar с фоном BgRaised её перекрывает (стрип
+            // оказывается под ним) — что и было видно в графе раньше.
+            _accentStrip = new VisualElement { name = "ns-accent-strip" };
+            _accentStrip.pickingMode = PickingMode.Ignore;
+            _accentStrip.style.position = Position.Absolute;
+            _accentStrip.style.left = 0;
+            _accentStrip.style.top = 0;
+            _accentStrip.style.bottom = 0;
+            _accentStrip.style.width = 3;
+            _accentStrip.style.borderTopLeftRadius = 6;
+            _accentStrip.style.borderBottomLeftRadius = 6;
+            var nodeBorderForStrip = this.Q("node-border");
+            if (nodeBorderForStrip != null) nodeBorderForStrip.Add(_accentStrip); // Add → на верх z-order
+            else this.Add(_accentStrip);
+
+            // ─── Block 2A: 2px cyan outline на selection ───
+            // Стоковый GraphView подсвечивает выделенную ноду белой 1px
+            // линией (через USS .node:checked). Заменяем на акцент-cyan 2px,
+            // включаемый в OnSelected/OnUnselected.
+            _selectionOutline = new VisualElement { name = "ns-selection-outline" };
+            _selectionOutline.pickingMode = PickingMode.Ignore;
+            _selectionOutline.style.position = Position.Absolute;
+            _selectionOutline.style.left = -2;
+            _selectionOutline.style.right = -2;
+            _selectionOutline.style.top = -2;
+            _selectionOutline.style.bottom = -2;
+            _selectionOutline.style.borderTopLeftRadius = 8;
+            _selectionOutline.style.borderTopRightRadius = 8;
+            _selectionOutline.style.borderBottomLeftRadius = 8;
+            _selectionOutline.style.borderBottomRightRadius = 8;
+            _selectionOutline.style.borderTopWidth = 2;
+            _selectionOutline.style.borderBottomWidth = 2;
+            _selectionOutline.style.borderLeftWidth = 2;
+            _selectionOutline.style.borderRightWidth = 2;
+            _selectionOutline.style.borderTopColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderBottomColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderLeftColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.borderRightColor = NovellaGraphTheme.Accent;
+            _selectionOutline.style.display = DisplayStyle.None;
+            this.Insert(0, _selectionOutline);
+
             var titleLabel = titleContainer.Q<Label>();
-            if (titleLabel != null) { titleLabel.style.unityTextAlign = TextAnchor.MiddleCenter; titleLabel.style.flexGrow = 1; titleLabel.style.marginLeft = titleLabel.style.marginRight = 0; }
-            titleContainer.style.justifyContent = Justify.Center;
+            if (titleLabel != null) {
+                titleLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+                titleLabel.style.flexGrow = 1;
+                // Сдвиг от accent-strip + emoji bullet → отступ 12 слева.
+                titleLabel.style.marginLeft = 12;
+                titleLabel.style.marginRight = 8;
+                titleLabel.style.fontSize = 12;
+                titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                titleLabel.style.color = NovellaGraphTheme.Text1;
+            }
+            titleContainer.style.justifyContent = Justify.FlexStart;
+            // Title-bar теперь приглушённый (BgRaised), с тонкой нижней
+            // обводкой. Per-type цвет ушёл в accent-strip слева.
+            titleContainer.style.backgroundColor = NovellaGraphTheme.BgRaised;
+            titleContainer.style.borderBottomWidth = 1;
+            titleContainer.style.borderBottomColor = NovellaGraphTheme.Border;
+            titleContainer.style.paddingTop = 6;
+            titleContainer.style.paddingBottom = 6;
 
             this.RegisterCallback<GeometryChangedEvent>(evt => { var collapseBtn = this.titleButtonContainer.Q("collapse-button"); if (collapseBtn != null) collapseBtn.style.display = DisplayStyle.None; });
 
@@ -212,70 +278,104 @@ namespace NovellaEngine.Editor
 
             _pinLabel.style.display = Data.IsPinned ? DisplayStyle.Flex : DisplayStyle.None;
 
-            titleContainer.style.borderBottomWidth = 0;
+            // Title-bar в Block 2A — всегда BgRaised (тёмный приглушённый),
+            // с тонкой нижней обводкой. Per-type цвет идёт в accent-strip.
+            titleContainer.style.backgroundColor = NovellaGraphTheme.BgRaised;
+            titleContainer.style.borderBottomWidth = 1;
+            titleContainer.style.borderBottomColor = NovellaGraphTheme.Border;
 
+            // ─── Per-type цвет — выбираем источник ───
             Color nodeColor = Color.grey;
-
-            // Настройка цветов ноды
-            if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Note || Data.NodeType == ENodeType.CustomDLC)
+            if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event ||
+                Data.NodeType == ENodeType.Note || Data.NodeType == ENodeType.CustomDLC)
             {
                 nodeColor = Data.NodeCustomColor;
-                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
-            }
-            else if (Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.SceneSettings || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Save)
-            {
-                nodeColor = NovellaColorSettingsWindow.GetNodeColor(Data.NodeType);
-                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
             }
             else
             {
                 nodeColor = NovellaColorSettingsWindow.GetNodeColor(Data.NodeType);
-                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
-                if (Data.NodeType == ENodeType.Condition)
-                {
-                    titleContainer.style.borderBottomColor = new StyleColor(new Color(1f, 0.7f, 0f));
-                    titleContainer.style.borderBottomWidth = 3;
-                }
             }
 
-            // --- ПРОКАЧКА МИНИКАРТЫ (Окрашиваем фон самой ноды, чтобы миникарта это увидела) ---
+            // Accent-strip (3px слева) получает per-type цвет на полную яркость —
+            // это и есть теперь визуальный «маркер типа». Мини-карта тоже видит
+            // фон node-border (15% alpha от того же цвета).
+            if (_accentStrip != null)
+            {
+                _accentStrip.style.backgroundColor = nodeColor;
+            }
+
+            // node-border = body ноды. Тонировка 8% (раньше 15%) — почти не
+            // мешает читать содержимое, но мини-карта по-прежнему различает
+            // типы. Border — тонкий Border-цвет, чтобы edges были чёткими.
             var border = this.Q("node-border");
             if (border != null)
             {
-                border.style.backgroundColor = new StyleColor(new Color(nodeColor.r, nodeColor.g, nodeColor.b, 0.15f));
+                border.style.backgroundColor = new Color(nodeColor.r, nodeColor.g, nodeColor.b, 0.08f);
+                border.style.borderTopColor = NovellaGraphTheme.Border;
+                border.style.borderBottomColor = NovellaGraphTheme.Border;
+                border.style.borderLeftColor = NovellaGraphTheme.Border;
+                border.style.borderRightColor = NovellaGraphTheme.Border;
+                border.style.borderTopWidth = 1;
+                border.style.borderBottomWidth = 1;
+                border.style.borderLeftWidth = 1;
+                border.style.borderRightWidth = 1;
+                border.style.borderTopLeftRadius = 6;
+                border.style.borderTopRightRadius = 6;
+                border.style.borderBottomLeftRadius = 6;
+                border.style.borderBottomRightRadius = 6;
             }
-            // -----------------------------------------------------------------------------------
+
+            // Condition раньше имел оранжевый borderBottom 3px — оставим как
+            // отдельный визуальный сигнал «if/else», но теперь как accent-strip
+            // переключение цвета на оранжевый, не двойная обводка.
+            if (Data.NodeType == ENodeType.Condition && _accentStrip != null)
+            {
+                _accentStrip.style.backgroundColor = new Color(0.96f, 0.65f, 0.22f); // тёплый янтарный
+            }
 
             if (Data.NodeType == ENodeType.CustomDLC)
             {
                 var settings = NovellaDLCSettings.Instance;
                 bool isEnabled = settings.IsDLCEnabled(Data.GetType().FullName);
 
+                // Disabled DLC: 45% opacity на всю ноду, accent-strip серый.
                 this.style.opacity = isEnabled ? 1f : 0.45f;
-
                 nodeColor = NovellaColorSettingsWindow.GetDLCNodeColor(Data.GetType().FullName);
-                titleContainer.style.backgroundColor = new StyleColor(nodeColor);
+                if (_accentStrip != null)
+                    _accentStrip.style.backgroundColor = isEnabled ? nodeColor : NovellaGraphTheme.Text4;
+                if (border != null)
+                    border.style.backgroundColor = new Color(nodeColor.r, nodeColor.g, nodeColor.b, isEnabled ? 0.08f : 0.04f);
 
-                if (border != null) border.style.backgroundColor = new StyleColor(new Color(nodeColor.r, nodeColor.g, nodeColor.b, 0.15f));
-
+                // Disabled-плашка: чище, в стиле Hub'овских warning-badge.
                 var disabledLabel = this.Q<Label>("dlc-disabled-label");
                 if (!isEnabled)
                 {
                     if (disabledLabel == null)
                     {
-                        disabledLabel = new Label("DISABLED") { name = "dlc-disabled-label" };
+                        disabledLabel = new Label("🔒  DISABLED") { name = "dlc-disabled-label" };
                         disabledLabel.style.position = Position.Absolute;
-                        disabledLabel.style.top = -18;
+                        disabledLabel.style.top = -22;
                         disabledLabel.style.left = 0;
                         disabledLabel.style.right = 0;
-                        disabledLabel.style.backgroundColor = new Color(0f, 0f, 0f, 0.8f);
-                        disabledLabel.style.color = new Color(1f, 0.3f, 0.3f);
-                        disabledLabel.style.fontSize = 11;
+                        disabledLabel.style.backgroundColor = new Color(NovellaGraphTheme.Danger.r, NovellaGraphTheme.Danger.g, NovellaGraphTheme.Danger.b, 0.18f);
+                        disabledLabel.style.color = NovellaGraphTheme.Danger;
+                        disabledLabel.style.fontSize = 10;
                         disabledLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
                         disabledLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
-                        disabledLabel.style.borderTopLeftRadius = 4;
-                        disabledLabel.style.borderTopRightRadius = 4;
-                        disabledLabel.style.paddingTop = 2; disabledLabel.style.paddingBottom = 2;
+                        disabledLabel.style.borderTopWidth = 1;
+                        disabledLabel.style.borderBottomWidth = 1;
+                        disabledLabel.style.borderLeftWidth = 1;
+                        disabledLabel.style.borderRightWidth = 1;
+                        disabledLabel.style.borderTopColor = NovellaGraphTheme.Danger;
+                        disabledLabel.style.borderBottomColor = NovellaGraphTheme.Danger;
+                        disabledLabel.style.borderLeftColor = NovellaGraphTheme.Danger;
+                        disabledLabel.style.borderRightColor = NovellaGraphTheme.Danger;
+                        disabledLabel.style.borderTopLeftRadius = 6;
+                        disabledLabel.style.borderTopRightRadius = 6;
+                        disabledLabel.style.borderBottomLeftRadius = 6;
+                        disabledLabel.style.borderBottomRightRadius = 6;
+                        disabledLabel.style.paddingTop = 3; disabledLabel.style.paddingBottom = 3;
+                        disabledLabel.pickingMode = PickingMode.Ignore;
 
                         this.Add(disabledLabel);
                     }
@@ -291,9 +391,19 @@ namespace NovellaEngine.Editor
 
             if (Data is WaitNodeData waitD)
             {
+                // Block 2C: компактная строка-info вместо центрированного label'а.
                 string secStr = ToolLang.Get("sec", "сек");
-                string waitText = waitD.WaitMode == EWaitMode.Time ? $"{waitD.WaitTime} {secStr}" : ToolLang.Get("Click to continue", "Ожидание клика");
-                var waitBlock = new Label($"⏳ {waitText}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter } };
+                string waitText = waitD.WaitMode == EWaitMode.Time
+                    ? $"⏳  {waitD.WaitTime} {secStr}"
+                    : "🖱  " + ToolLang.Get("On click", "По клику");
+                var waitBlock = new Label(waitText);
+                waitBlock.pickingMode = PickingMode.Ignore;
+                waitBlock.style.fontSize = 11;
+                waitBlock.style.color = NovellaGraphTheme.Text2;
+                waitBlock.style.paddingLeft = 6;
+                waitBlock.style.paddingRight = 6;
+                waitBlock.style.paddingTop = 2;
+                waitBlock.style.paddingBottom = 2;
                 extensionContainer.Add(waitBlock);
                 hasExtensionData = true;
             }
@@ -308,36 +418,46 @@ namespace NovellaEngine.Editor
 
                 if (!isSynced)
                 {
-                    string bgName = bgD.BgSprite != null ? bgD.BgSprite.name : ToolLang.Get("Color", "Цвет");
-                    var bgBlock = new Label($"🖼 {bgName}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter } };
-
+                    string bgName = bgD.BgSprite != null ? bgD.BgSprite.name : ToolLang.Get("(color only)", "(только цвет)");
+                    var bgBlock = new Label("🖼  " + bgName);
+                    bgBlock.pickingMode = PickingMode.Ignore;
+                    bgBlock.style.fontSize = 11;
+                    bgBlock.style.color = NovellaGraphTheme.Text2;
+                    bgBlock.style.paddingLeft = 6;
+                    bgBlock.style.paddingRight = 6;
+                    bgBlock.style.paddingTop = 2;
+                    bgBlock.style.paddingBottom = 2;
                     FormatLongLabel(bgBlock);
-
                     extensionContainer.Add(bgBlock);
                     hasExtensionData = true;
                 }
             }
             else if (Data is EventBroadcastNodeData evD)
             {
-                var evBlock = new Label($"⚡ {evD.BroadcastEventName}") { style = { color = new Color(1f, 0.8f, 0.4f), paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, unityTextAlign = TextAnchor.MiddleCenter, unityFontStyleAndWeight = FontStyle.Bold } };
+                // Event-name выделяем bold-цветом акцента — это «триггер».
+                var evBlock = new Label("⚡  " + evD.BroadcastEventName);
+                evBlock.pickingMode = PickingMode.Ignore;
+                evBlock.style.fontSize = 11;
+                evBlock.style.unityFontStyleAndWeight = FontStyle.Bold;
+                evBlock.style.color = new Color(0.96f, 0.76f, 0.43f); // тёплый янтарный
+                evBlock.style.paddingLeft = 6;
+                evBlock.style.paddingRight = 6;
+                evBlock.style.paddingTop = 2;
+                evBlock.style.paddingBottom = 2;
                 extensionContainer.Add(evBlock);
                 hasExtensionData = true;
             }
             else if (Data is SaveNodeData saveD)
             {
-                string checkpointStr = ToolLang.Get("Checkpoint", "Чекпоинт");
-                var saveBlock = new Label($"💾 {checkpointStr}")
-                {
-                    style = {
-                        color = new Color(0.6f, 1f, 0.6f),
-                        paddingTop = 4,
-                        paddingBottom = 4,
-                        paddingLeft = 8,
-                        paddingRight = 8,
-                        unityTextAlign = TextAnchor.MiddleCenter,
-                        unityFontStyleAndWeight = FontStyle.Bold
-                    }
-                };
+                var saveBlock = new Label("💾  " + ToolLang.Get("Checkpoint", "Чекпоинт"));
+                saveBlock.pickingMode = PickingMode.Ignore;
+                saveBlock.style.fontSize = 11;
+                saveBlock.style.unityFontStyleAndWeight = FontStyle.Bold;
+                saveBlock.style.color = new Color(0.30f, 0.85f, 0.45f); // зелёный success
+                saveBlock.style.paddingLeft = 6;
+                saveBlock.style.paddingRight = 6;
+                saveBlock.style.paddingTop = 2;
+                saveBlock.style.paddingBottom = 2;
                 extensionContainer.Add(saveBlock);
                 hasExtensionData = true;
             }
@@ -463,19 +583,44 @@ namespace NovellaEngine.Editor
             }
             else if (Data is EndNodeData endD)
             {
-                string endText = "";
-                if (endD.EndAction == EEndAction.ReturnToMainMenu) endText = ToolLang.Get("Return to Main Menu", "В гл. меню");
-                else if (endD.EndAction == EEndAction.LoadNextChapter) endText = ToolLang.Get("Load Next Chapter", "След. глава");
-                else if (endD.EndAction == EEndAction.LoadSpecificScene) endText = ToolLang.Get("Load Scene", "Загрузить сцену");
-                else if (endD.EndAction == EEndAction.QuitGame) endText = ToolLang.Get("Quit Game", "Выход");
+                // Раньше: красная плашка-фон (агрессивный визуал). Теперь:
+                // только красный заголовок + муторный subtitle с указанием куда.
+                string endTitle = "";
+                if (endD.EndAction == EEndAction.ReturnToMainMenu) endTitle = ToolLang.Get("To main menu", "В гл. меню");
+                else if (endD.EndAction == EEndAction.LoadNextChapter) endTitle = ToolLang.Get("Next chapter", "След. глава");
+                else if (endD.EndAction == EEndAction.LoadSpecificScene) endTitle = ToolLang.Get("Load scene", "Загрузить сцену");
+                else if (endD.EndAction == EEndAction.QuitGame) endTitle = ToolLang.Get("Quit game", "Выход");
 
+                var endActionLbl = new Label("🛑  " + endTitle);
+                endActionLbl.pickingMode = PickingMode.Ignore;
+                endActionLbl.style.fontSize = 11;
+                endActionLbl.style.unityFontStyleAndWeight = FontStyle.Bold;
+                endActionLbl.style.color = new Color(0.85f, 0.32f, 0.32f); // danger
+                endActionLbl.style.paddingLeft = 6;
+                endActionLbl.style.paddingRight = 6;
+                endActionLbl.style.paddingTop = 2;
+                endActionLbl.style.paddingBottom = 0;
+                extensionContainer.Add(endActionLbl);
+
+                // Указание куда именно (если есть).
+                string targetText = "";
                 if (endD.EndAction == EEndAction.LoadNextChapter && endD.NextChapter != null)
-                    endText += $" -> {endD.NextChapter.name}";
+                    targetText = "→  " + endD.NextChapter.name;
                 else if (endD.EndAction == EEndAction.LoadSpecificScene && !string.IsNullOrEmpty(endD.TargetSceneName))
-                    endText += $" -> {endD.TargetSceneName}";
-
-                var endBlock = new Label($"🛑 {endText}") { style = { backgroundColor = new StyleColor(new Color(0.6f, 0.1f, 0.1f)), color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, marginTop = 4, marginBottom = 4, marginLeft = 5, marginRight = 5, borderBottomLeftRadius = 5, borderBottomRightRadius = 5, borderTopLeftRadius = 5, borderTopRightRadius = 5, unityFontStyleAndWeight = FontStyle.Bold, fontSize = 12 } };
-                extensionContainer.Add(endBlock); hasExtensionData = true;
+                    targetText = "→  " + endD.TargetSceneName;
+                if (!string.IsNullOrEmpty(targetText))
+                {
+                    var tgtLbl = new Label(targetText);
+                    tgtLbl.pickingMode = PickingMode.Ignore;
+                    tgtLbl.style.fontSize = 10;
+                    tgtLbl.style.color = NovellaGraphTheme.Text3;
+                    tgtLbl.style.paddingLeft = 18; // отступ под emoji
+                    tgtLbl.style.paddingRight = 6;
+                    tgtLbl.style.paddingBottom = 4;
+                    FormatLongLabel(tgtLbl);
+                    extensionContainer.Add(tgtLbl);
+                }
+                hasExtensionData = true;
             }
             else if (Data is AudioNodeData audD)
             {
@@ -489,10 +634,20 @@ namespace NovellaEngine.Editor
 
                 if (!isSynced)
                 {
-                    string audioName = audD.AudioAsset != null ? audD.AudioAsset.name : ToolLang.Get("None", "Пусто");
+                    string audioName = audD.AudioAsset != null ? audD.AudioAsset.name : ToolLang.Get("(empty)", "(пусто)");
                     string act = audD.AudioAction == EAudioAction.Play ? "▶" : "⏸";
-                    var audioBlock = new Label($"{act} [{audD.AudioChannel}] {audioName}") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8 } };
-                    extensionContainer.Add(audioBlock); hasExtensionData = true;
+                    // Канал в виде монохромного [BGM] / [SFX] / [Voice] перед именем.
+                    var audioBlock = new Label($"{act}  [{audD.AudioChannel}]  {audioName}");
+                    audioBlock.pickingMode = PickingMode.Ignore;
+                    audioBlock.style.fontSize = 11;
+                    audioBlock.style.color = NovellaGraphTheme.Text2;
+                    audioBlock.style.paddingLeft = 6;
+                    audioBlock.style.paddingRight = 6;
+                    audioBlock.style.paddingTop = 2;
+                    audioBlock.style.paddingBottom = 2;
+                    FormatLongLabel(audioBlock);
+                    extensionContainer.Add(audioBlock);
+                    hasExtensionData = true;
                 }
             }
             else if (Data is AnimationNodeData animD)
@@ -507,8 +662,19 @@ namespace NovellaEngine.Editor
 
                 if (!isSynced)
                 {
-                    var animBlock = new Label($"✨ {animD.AnimEvents.Count} Animations") { style = { color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8 } };
-                    extensionContainer.Add(animBlock); hasExtensionData = true;
+                    string animText = animD.AnimEvents.Count == 1
+                        ? "✨  " + ToolLang.Get("1 animation", "1 анимация")
+                        : "✨  " + string.Format(ToolLang.Get("{0} animations", "{0} анимаций"), animD.AnimEvents.Count);
+                    var animBlock = new Label(animText);
+                    animBlock.pickingMode = PickingMode.Ignore;
+                    animBlock.style.fontSize = 11;
+                    animBlock.style.color = NovellaGraphTheme.Text2;
+                    animBlock.style.paddingLeft = 6;
+                    animBlock.style.paddingRight = 6;
+                    animBlock.style.paddingTop = 2;
+                    animBlock.style.paddingBottom = 2;
+                    extensionContainer.Add(animBlock);
+                    hasExtensionData = true;
                 }
             }
             else if (Data is VariableNodeData varD)
@@ -519,32 +685,226 @@ namespace NovellaEngine.Editor
                     for (int i = 0; i < displayCount; i++)
                     {
                         var v = varD.Variables[i];
-                        string op = v.VarOperation == EVarOperation.Set ? "=" : "+=";
-                        var varBlock = new Label($"📊 {v.VariableName} {op} {v.VarValue}") { style = { color = Color.white, paddingTop = 2, paddingBottom = 2, paddingLeft = 8, paddingRight = 8 } };
+                        // Показываем оператор как чёткий символ; для list-операций
+                        // (ListAdd/Remove/Clear) — отдельные glyph'ы.
+                        string op = v.VarOperation switch
+                        {
+                            EVarOperation.Set => "=",
+                            EVarOperation.Add => "+=",
+                            EVarOperation.ListAdd => "+ list",
+                            EVarOperation.ListRemove => "− list",
+                            EVarOperation.ListClear => "× clear",
+                            _ => "=",
+                        };
+                        var varBlock = new Label($"📊  {v.VariableName}  {op}  {v.VarValue}");
+                        varBlock.pickingMode = PickingMode.Ignore;
+                        varBlock.style.fontSize = 10;
+                        varBlock.style.color = NovellaGraphTheme.Text2;
+                        varBlock.style.paddingLeft = 6;
+                        varBlock.style.paddingRight = 6;
+                        varBlock.style.paddingTop = 1;
+                        varBlock.style.paddingBottom = 1;
+                        FormatLongLabel(varBlock);
                         extensionContainer.Add(varBlock);
                     }
 
                     if (varD.Variables.Count > 3)
                     {
                         int remain = varD.Variables.Count - 3;
-                        var moreBlock = new Label(ToolLang.Get($"... and {remain} more", $"... и еще {remain}")) { style = { color = new Color(0.7f, 0.7f, 0.7f), paddingTop = 2, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, fontSize = 10, unityFontStyleAndWeight = FontStyle.Italic } };
+                        var moreBlock = new Label(string.Format(
+                            ToolLang.Get("…and {0} more", "…и ещё {0}"), remain));
+                        moreBlock.pickingMode = PickingMode.Ignore;
+                        moreBlock.style.fontSize = 9;
+                        moreBlock.style.color = NovellaGraphTheme.Text4;
+                        moreBlock.style.unityFontStyleAndWeight = FontStyle.Italic;
+                        moreBlock.style.paddingLeft = 6;
+                        moreBlock.style.paddingRight = 6;
+                        moreBlock.style.paddingTop = 2;
+                        moreBlock.style.paddingBottom = 4;
                         extensionContainer.Add(moreBlock);
                     }
                     hasExtensionData = true;
                 }
             }
+            else if (Data is BranchNodeData branchD)
+            {
+                int n = branchD.Choices != null ? branchD.Choices.Count : 0;
+                var bLbl = new Label(n == 1
+                    ? "🔀  " + ToolLang.Get("1 choice", "1 выбор")
+                    : "🔀  " + string.Format(ToolLang.Get("{0} choices", "{0} вариантов"), n));
+                bLbl.pickingMode = PickingMode.Ignore;
+                bLbl.style.fontSize = 11;
+                bLbl.style.color = NovellaGraphTheme.Text2;
+                bLbl.style.paddingLeft = 6;
+                bLbl.style.paddingRight = 6;
+                bLbl.style.paddingTop = 2;
+                bLbl.style.paddingBottom = 2;
+                extensionContainer.Add(bLbl);
+                hasExtensionData = true;
+            }
+            else if (Data is ConditionNodeData condD)
+            {
+                int condCount = condD.Conditions != null ? condD.Conditions.Count : 0;
+                if (condCount > 0)
+                {
+                    var first = condD.Conditions[0];
+                    string opStr = first.Operator switch
+                    {
+                        EConditionOperator.Equal => "==",
+                        EConditionOperator.NotEqual => "!=",
+                        EConditionOperator.Greater => ">",
+                        EConditionOperator.Less => "<",
+                        EConditionOperator.GreaterOrEqual => ">=",
+                        EConditionOperator.LessOrEqual => "<=",
+                        EConditionOperator.Contains => "⊃",
+                        EConditionOperator.NotContains => "⊅",
+                        _ => "=="
+                    };
+                    string valStr = first.Value.ToString();
+                    var lbl = new Label("❓  " + first.Variable + " " + opStr + " " + valStr);
+                    lbl.pickingMode = PickingMode.Ignore;
+                    lbl.style.fontSize = 11;
+                    lbl.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    lbl.style.color = new Color(0.96f, 0.65f, 0.22f); // тёплый янтарный, тот же что у accent-strip
+                    lbl.style.paddingLeft = 6;
+                    lbl.style.paddingRight = 6;
+                    lbl.style.paddingTop = 2;
+                    lbl.style.paddingBottom = 2;
+                    FormatLongLabel(lbl);
+                    extensionContainer.Add(lbl);
+
+                    if (condCount > 1)
+                    {
+                        var more = new Label(string.Format(
+                            ToolLang.Get("+{0} more conditions", "+{0} условия"), condCount - 1));
+                        more.pickingMode = PickingMode.Ignore;
+                        more.style.fontSize = 9;
+                        more.style.color = NovellaGraphTheme.Text4;
+                        more.style.unityFontStyleAndWeight = FontStyle.Italic;
+                        more.style.paddingLeft = 6;
+                        more.style.paddingRight = 6;
+                        more.style.paddingBottom = 2;
+                        extensionContainer.Add(more);
+                    }
+                    hasExtensionData = true;
+                }
+            }
+            else if (Data is RandomNodeData rndD)
+            {
+                int n = rndD.Choices != null ? rndD.Choices.Count : 0;
+                int totalW = 0;
+                if (rndD.Choices != null)
+                    foreach (var c in rndD.Choices) totalW += c.ChanceWeight;
+
+                var rLbl = new Label("🎲  " + string.Format(
+                    ToolLang.Get("{0} chances · weight {1}", "{0} шансов · вес {1}"), n, totalW));
+                rLbl.pickingMode = PickingMode.Ignore;
+                rLbl.style.fontSize = 11;
+                rLbl.style.color = NovellaGraphTheme.Text2;
+                rLbl.style.paddingLeft = 6;
+                rLbl.style.paddingRight = 6;
+                rLbl.style.paddingTop = 2;
+                rLbl.style.paddingBottom = 2;
+                extensionContainer.Add(rLbl);
+                hasExtensionData = true;
+            }
             else if (Data is DialogueNodeData dialD)
             {
+                // Block 2C — Dialogue body: preview-line + speaker dots.
+                // Раньше: цветастые блоки с белой рамкой, по одному на строку —
+                // визуально шумно, занимает много места.
+                // Теперь: компактная превью первой реплики (italic) +
+                // одна строка-row с цветными dots для каждого speaker'а.
                 if (dialD.DialogueLines.Count > 0)
                 {
-                    var distinctSpeakers = dialD.DialogueLines.Where(l => l.Speaker != null).Select(l => l.Speaker).Distinct().ToList();
-
-                    foreach (var spk in distinctSpeakers)
+                    // ─── Preview первой реплики (на текущем preview-языке) ───
+                    string previewLang = _graphView != null && _graphView.Window != null
+                        ? _graphView.Window.PreviewLanguage : "EN";
+                    string previewText = "";
+                    foreach (var line in dialD.DialogueLines)
                     {
-                        int linesCount = dialD.DialogueLines.Count(l => l.Speaker == spk);
-                        var speakerBlock = new Label($"🗣 {spk.name} ({linesCount})") { style = { backgroundColor = new StyleColor(spk.ThemeColor), color = Color.white, paddingTop = 4, paddingBottom = 4, paddingLeft = 8, paddingRight = 8, marginTop = 4, marginBottom = 4, marginLeft = 5, marginRight = 5, borderBottomLeftRadius = 5, borderBottomRightRadius = 5, borderTopLeftRadius = 5, borderTopRightRadius = 5, borderTopWidth = 2, borderBottomWidth = 2, borderLeftWidth = 2, borderRightWidth = 2, borderTopColor = new Color(1f, 1f, 1f, 0.8f), borderBottomColor = new Color(1f, 1f, 1f, 0.8f), borderLeftColor = new Color(1f, 1f, 1f, 0.8f), borderRightColor = new Color(1f, 1f, 1f, 0.8f), unityFontStyleAndWeight = FontStyle.Bold, fontSize = 11 } };
-                        extensionContainer.Add(speakerBlock);
+                        string t = line.LocalizedPhrase != null ? line.LocalizedPhrase.GetText(previewLang) : "";
+                        if (!string.IsNullOrEmpty(t)) { previewText = t; break; }
                     }
+                    if (!string.IsNullOrEmpty(previewText))
+                    {
+                        // Truncate до ~60 символов чтобы не растягивало ноду.
+                        string trimmed = previewText.Length > 60
+                            ? previewText.Substring(0, 58).TrimEnd() + "…"
+                            : previewText;
+                        var preview = new Label("«" + trimmed + "»");
+                        preview.style.fontSize = 11;
+                        preview.style.unityFontStyleAndWeight = FontStyle.Italic;
+                        preview.style.color = NovellaGraphTheme.Text2;
+                        preview.style.whiteSpace = WhiteSpace.Normal;
+                        preview.style.paddingLeft = 4;
+                        preview.style.paddingRight = 4;
+                        preview.style.paddingTop = 2;
+                        preview.style.paddingBottom = 4;
+                        preview.style.maxWidth = 240;
+                        extensionContainer.Add(preview);
+                    }
+
+                    // ─── Speaker dots — компактная строка ●<color> name · ●<color> name ───
+                    var distinctSpeakers = dialD.DialogueLines
+                        .Where(l => l.Speaker != null)
+                        .Select(l => l.Speaker)
+                        .Distinct()
+                        .ToList();
+
+                    if (distinctSpeakers.Count > 0)
+                    {
+                        var speakerRow = new VisualElement();
+                        speakerRow.style.flexDirection = FlexDirection.Row;
+                        speakerRow.style.flexWrap = Wrap.Wrap;
+                        speakerRow.style.alignItems = Align.Center;
+                        speakerRow.style.paddingLeft = 4;
+                        speakerRow.style.paddingRight = 4;
+                        speakerRow.style.paddingTop = 2;
+                        speakerRow.style.paddingBottom = 2;
+
+                        for (int i = 0; i < distinctSpeakers.Count; i++)
+                        {
+                            var spk = distinctSpeakers[i];
+                            int linesCount = dialD.DialogueLines.Count(l => l.Speaker == spk);
+
+                            // Колоr-dot 8×8 = ThemeColor персонажа.
+                            var dot = new VisualElement();
+                            dot.pickingMode = PickingMode.Ignore;
+                            dot.style.width = 8;
+                            dot.style.height = 8;
+                            dot.style.borderTopLeftRadius = 4;
+                            dot.style.borderTopRightRadius = 4;
+                            dot.style.borderBottomLeftRadius = 4;
+                            dot.style.borderBottomRightRadius = 4;
+                            dot.style.backgroundColor = spk.ThemeColor;
+                            dot.style.marginRight = 4;
+                            dot.style.marginLeft = i == 0 ? 0 : 8;
+                            speakerRow.Add(dot);
+
+                            // Имя + count tiny — flat, без рамок.
+                            var nameLbl = new Label(spk.name + " · " + linesCount);
+                            nameLbl.pickingMode = PickingMode.Ignore;
+                            nameLbl.style.fontSize = 10;
+                            nameLbl.style.unityFontStyleAndWeight = FontStyle.Bold;
+                            nameLbl.style.color = NovellaGraphTheme.Text2;
+                            speakerRow.Add(nameLbl);
+                        }
+                        extensionContainer.Add(speakerRow);
+                    }
+
+                    // Total line count внизу — мелкий футер.
+                    var totalLbl = new Label(string.Format(
+                        ToolLang.Get("{0} lines", "{0} реплик"),
+                        dialD.DialogueLines.Count));
+                    totalLbl.pickingMode = PickingMode.Ignore;
+                    totalLbl.style.fontSize = 9;
+                    totalLbl.style.color = NovellaGraphTheme.Text4;
+                    totalLbl.style.paddingLeft = 4;
+                    totalLbl.style.paddingTop = 4;
+                    totalLbl.style.unityFontStyleAndWeight = FontStyle.Italic;
+                    extensionContainer.Add(totalLbl);
+
                     hasExtensionData = true;
                 }
             }
@@ -552,8 +912,17 @@ namespace NovellaEngine.Editor
             if (hasExtensionData)
             {
                 extensionContainer.style.display = DisplayStyle.Flex;
-                extensionContainer.style.backgroundColor = Data.NodeType == ENodeType.Note && !(Data is NoteNodeData nd && nd.ShowBackground) ? new StyleColor(Color.clear) : new StyleColor(new Color(0.15f, 0.15f, 0.15f, 0.8f));
-                extensionContainer.style.paddingTop = 5; extensionContainer.style.paddingBottom = 5;
+                // Фон extensionContainer: BgPrimary с лёгкой прозрачностью —
+                // визуально отделяется от title-bar (BgRaised) тонкой ступенькой.
+                // Note без фона остаётся прозрачным как раньше.
+                bool noteWithoutBg = Data.NodeType == ENodeType.Note && !(Data is NoteNodeData nd && nd.ShowBackground);
+                extensionContainer.style.backgroundColor = noteWithoutBg
+                    ? new StyleColor(Color.clear)
+                    : new StyleColor(new Color(NovellaGraphTheme.BgPrimary.r, NovellaGraphTheme.BgPrimary.g, NovellaGraphTheme.BgPrimary.b, 0.6f));
+                extensionContainer.style.paddingTop = 6;
+                extensionContainer.style.paddingBottom = 6;
+                extensionContainer.style.paddingLeft = 4;
+                extensionContainer.style.paddingRight = 4;
                 extensionContainer.style.overflow = Overflow.Visible;
             }
             else { extensionContainer.style.display = DisplayStyle.None; }
@@ -562,7 +931,18 @@ namespace NovellaEngine.Editor
             RefreshExpandedState();
         }
 
-        public override void OnSelected() { base.OnSelected(); _graphView?.OnNodeSelected?.Invoke(this); }
+        public override void OnSelected()
+        {
+            base.OnSelected();
+            // Cyan-outline selection (Block 2A) — заменяет стоковую белую линию.
+            if (_selectionOutline != null) _selectionOutline.style.display = DisplayStyle.Flex;
+            _graphView?.OnNodeSelected?.Invoke(this);
+        }
+        public override void OnUnselected()
+        {
+            base.OnUnselected();
+            if (_selectionOutline != null) _selectionOutline.style.display = DisplayStyle.None;
+        }
         public override void SetPosition(Rect newPos) { base.SetPosition(newPos); if (Data != null) Data.GraphPosition = newPos.position; }
 
         public void SaveNodeData()

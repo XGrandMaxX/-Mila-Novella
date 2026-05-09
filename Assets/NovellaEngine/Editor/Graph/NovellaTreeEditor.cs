@@ -11,18 +11,36 @@ namespace NovellaEngine.Editor
         {
             NovellaTree tree = (NovellaTree)target;
 
-            GUILayout.Space(10);
-            GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, fontSize = 14 };
-            GUILayout.Label("🕸️ NOVELLA GRAPH DATA", headerStyle);
+            GUILayout.Space(12);
+
+            // Заголовок: «📖 Глава истории» (более понятное чем «GRAPH DATA»).
+            var titleSt = new GUIStyle(EditorStyles.boldLabel) {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 13,
+                normal = { textColor = NovellaSettingsModule.GetTextColor() }
+            };
+            GUILayout.Label("📖  " + ToolLang.Get("Story chapter", "Глава истории"), titleSt);
+
+            // Подзаголовок с количеством нод (приземляет «что это вообще»).
+            int nodes = tree.Nodes != null ? tree.Nodes.Count : 0;
+            var subSt = new GUIStyle(EditorStyles.miniLabel) {
+                alignment = TextAnchor.MiddleCenter,
+                fontSize = 10,
+                normal = { textColor = NovellaSettingsModule.GetTextMuted() }
+            };
+            GUILayout.Label(string.Format(ToolLang.Get("{0} nodes", "{0} нод"), nodes), subSt);
+
             GUILayout.Space(10);
 
-            GUI.backgroundColor = new Color(0.2f, 0.8f, 0.4f);
-            if (GUILayout.Button(ToolLang.Get("🛠️ OPEN GRAPH EDITOR", "🛠️ ОТКРЫТЬ РЕДАКТОР ГРАФА"), GUILayout.Height(40)))
+            // Accent-кнопка в стиле Hub: cyan-fill (а не зелёный backgroundColor-хак).
+            // Высота 36 — подгоняем под Hub-стиль (раньше было 40 + GUI.backgroundColor).
+            if (NovellaSettingsModule.AccentButton(
+                "🛠  " + ToolLang.Get("Open graph editor", "Открыть редактор графа"),
+                GUILayout.Height(36)))
             {
                 NovellaGraphWindow.OpenGraphWindow(tree);
             }
 
-            GUI.backgroundColor = Color.white;
             GUILayout.Space(10);
         }
     }

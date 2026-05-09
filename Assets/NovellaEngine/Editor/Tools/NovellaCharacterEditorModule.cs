@@ -19,19 +19,25 @@ namespace NovellaEngine.Editor
         [MenuItem("Tools/Novella Engine/Character Editor")]
         public static void OpenWindow()
         {
-            NovellaHubWindow.ShowWindow();
-            if (NovellaHubWindow.Instance != null) NovellaHubWindow.Instance.SwitchToModule(1);
+            // Открываем как ОТДЕЛЬНОЕ окно — не переключая Hub.
+            // Раньше OpenWindow() звал NovellaHubWindow.ShowWindow() и
+            // SwitchToModule(1), что выкидывало юзера из активного окна
+            // (например из редактора графа). Теперь редактор персонажей
+            // живёт в своём окне поверх текущего рабочего пространства.
+            NovellaStandaloneModuleWindow.Open(
+                new NovellaCharacterEditorModule(),
+                minSize: new Vector2(900, 600));
         }
 
         public static void OpenWithCharacter(NovellaCharacter charToSelect)
         {
-            NovellaHubWindow.ShowWindow();
-            if (NovellaHubWindow.Instance != null)
-            {
-                NovellaHubWindow.Instance.SwitchToModule(1);
-                var module = NovellaHubWindow.Instance.GetModule(1) as NovellaCharacterEditorModule;
-                module?.SelectCharacter(charToSelect);
-            }
+            var win = NovellaStandaloneModuleWindow.Open(
+                new NovellaCharacterEditorModule(),
+                minSize: new Vector2(900, 600));
+            // Open() мог вернуть уже существующее окно — забираем актуальный
+            // экземпляр модуля и выделяем нужного персонажа.
+            var hosted = win?.HostedModule as NovellaCharacterEditorModule;
+            hosted?.SelectCharacter(charToSelect);
         }
 
         // Все цвета — динамические, читаются из NovellaSettingsModule (Hub → Settings).

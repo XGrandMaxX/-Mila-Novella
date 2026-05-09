@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: NovellaVariableSettings
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaVariableSettings
   Variables:
-  - Name: HELLO_MY_NAME_IS_MAD
+  - Name: HELLO_MY_NAME_IS_MAXIMKAS
     Category: "\u0421\u044E\u0436\u0435\u0442"
     Description: 
     Type: 0

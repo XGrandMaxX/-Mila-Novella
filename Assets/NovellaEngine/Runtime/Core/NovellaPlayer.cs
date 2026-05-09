@@ -88,6 +88,24 @@ namespace NovellaEngine.Runtime
         private bool _isFastForwarding = false;
         private float _autoSaveTimer = 0f;
 
+        // ─── Stage layout (per-line StagePlacement) ───
+        // Эти константы переводят NormalizedPos (0..1) от редактора-stage'а
+        // в world-coords игровой сцены. Если у тебя VN с другими размерами
+        // сцены — поменяй STAGE_WIDTH / STAGE_HEIGHT.
+        private const float STAGE_WIDTH    = 14f; // от -7 до +7 по X
+        private const float STAGE_HEIGHT   = 4f;  // диапазон Y-смещения
+        private const float STAGE_GROUND_Y = 0.92f; // NormalizedPos.y для «земли»
+
+        // Tween'ы перехода персонажей между репликами (Animate=true).
+        private struct EntityTween {
+            public Transform Target;
+            public Vector3 FromPos, ToPos;
+            public Vector3 FromScale, ToScale;
+            public float StartTime, Duration;
+        }
+        private readonly Dictionary<string, EntityTween> _entityTweens = new Dictionary<string, EntityTween>();
+        private const float ENTITY_TWEEN_DURATION = 0.30f;
+
         // Listener'ы, которые ShowChoices навесил на binding-кнопки в сцене.
         // Снимаются при следующем ShowChoices/JumpToNode чтобы не накапливаться.
         private readonly List<(Button btn, UnityEngine.Events.UnityAction handler)> _choiceBindingListeners = new List<(Button, UnityEngine.Events.UnityAction)>();
@@ -1040,6 +1058,9 @@ namespace NovellaEngine.Runtime
 
         private void Update()
         {
+            // Тикаем tween'ы перемещения персонажей (Animate=true в StagePlacement).
+            TickEntityTweens();
+
             if (StoryTree != null && StoryTree.EnableAutoSave && !_isFastForwarding)
             {
                 _autoSaveTimer += Time.deltaTime;
@@ -1269,6 +1290,34 @@ namespace NovellaEngine.Runtime
             _isTyping = false; _isWaitingForClick = true;
         }
 
+        // Public-обёртка для editor preview. Player.Start не вызывается
+        // вне Play mode, поэтому без этого метода Camera.Render не видит
+        // ни одного NovellaSceneEntity.
+        //
+        // ВАЖНО: перед sync в edit mode чистим CharactersContainer от
+        // старых Char_* GameObject'ов — иначе при каждом вызове (10 раз
+        // в секунду из tween) поиск entity по LinkedNodeID может не
+        // найти подходящего и создать дубль. За минуту накапливаются
+        // сотни «выключенных» Char_NewCharacter в Hierarchy.
+        public void EditorSyncDialogueLine(DialogueNodeData dialData, DialogueLine currentLine)
+        {
+            if (dialData == null) return;
+            if (CharactersContainer != null && !Application.isPlaying)
+            {
+                // DestroyImmediate потому что в edit-mode обычный Destroy
+                // не выполняется до конца фрейма, и мы тут же создадим
+                // дубли заново.
+                for (int i = CharactersContainer.childCount - 1; i >= 0; i--)
+                {
+                    var child = CharactersContainer.GetChild(i);
+                    if (child == null) continue;
+                    if (child.name != null && child.name.StartsWith("Char_"))
+                        DestroyImmediate(child.gameObject);
+                }
+            }
+            SyncCharactersInScene(dialData, currentLine);
+        }
+
         private void SyncCharactersInScene(DialogueNodeData dialData, DialogueLine currentLine)
         {
             if (CharactersContainer == null) return;
@@ -1336,19 +1385,101 @@ namespace NovellaEngine.Runtime
                     }
                 }
 
-                entity.transform.localScale = Vector3.one * targetScale;
-                entity.transform.localPosition = targetPos;
+                // ─── Per-line StagePlacement override ───
+                // Если в текущей реплике для этого персонажа есть placement —
+                // он перебивает targetPos и targetScale, а Animate решает —
+                // плавно или телепортом.
+                CharacterStagePlacement placement = null;
+                if (currentLine != null && currentLine.StagePlacements != null)
+                {
+                    foreach (var p in currentLine.StagePlacements)
+                    {
+                        if (p?.Character != null && p.Character.CharacterID == config.CharacterAsset.CharacterID)
+                        { placement = p; break; }
+                    }
+                }
+                bool placementHide = placement != null && !placement.Visible;
+                if (placement != null && placement.Visible)
+                {
+                    // NormalizedPos.x в [0..1] → world.x в [-W/2..+W/2].
+                    // NormalizedPos.y в [0..1] → world.y относительно «земли».
+                    float worldX = (placement.NormalizedPos.x - 0.5f) * STAGE_WIDTH;
+                    float worldY = (STAGE_GROUND_Y - placement.NormalizedPos.y) * STAGE_HEIGHT;
+                    targetPos = new Vector3(worldX, config.PosY + worldY, 0);
+                    targetScale = config.Scale * Mathf.Max(0.1f, placement.Scale);
+                    // InFrontOfUI — бустим sorting order чтобы перекрыть
+                    // диалоговое окно (Canvas обычно sorting 0-100).
+                    // По умолчанию персонаж ПОЗАДИ UI.
+                    if (placement.InFrontOfUI) targetPlane = 1000;
+                }
 
                 entity.ApplyAppearance(config.CharacterAsset, emotionToSet);
                 entity.SetSortingOrder(targetPlane);
                 entity.SetFlip(targetFlipX, targetFlipY);
 
-                bool shouldHide = false;
+                // Применяем позицию/масштаб: телепорт или tween.
+                bool animate = placement != null && placement.Animate
+                    && entity.gameObject.activeSelf; // если только что вышел из hidden — телепортируем чтобы не лететь из (0,0)
+                if (animate)
+                {
+                    // Длительность tween'а берётся из placement.AnimDuration
+                    // (настраивается слайдером в редакторе раскадровки).
+                    float dur = placement != null && placement.AnimDuration > 0f
+                        ? placement.AnimDuration
+                        : ENTITY_TWEEN_DURATION;
+                    _entityTweens[config.CharacterAsset.CharacterID] = new EntityTween {
+                        Target    = entity.transform,
+                        FromPos   = entity.transform.localPosition,
+                        ToPos     = targetPos,
+                        FromScale = entity.transform.localScale,
+                        ToScale   = Vector3.one * targetScale,
+                        StartTime = Time.time,
+                        Duration  = dur
+                    };
+                }
+                else
+                {
+                    // Телепорт + сбрасываем активный tween если был.
+                    _entityTweens.Remove(config.CharacterAsset.CharacterID);
+                    entity.transform.localScale    = Vector3.one * targetScale;
+                    entity.transform.localPosition = targetPos;
+                }
+
+                bool shouldHide = placementHide;
                 if (currentLine != null && currentLine.HideSpeakerSprite && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID) shouldHide = true;
                 entity.gameObject.SetActive(!shouldHide);
             }
 
             foreach (var entity in entities) if (!charConfigs.ContainsKey(entity.LinkedNodeID)) entity.gameObject.SetActive(false);
+        }
+
+        // ─── Тик активных tween'ов персонажей ───
+        // Дёргается из Update. Каждый tween живёт ENTITY_TWEEN_DURATION секунд,
+        // затем удаляется из словаря.
+        private void TickEntityTweens()
+        {
+            if (_entityTweens.Count == 0) return;
+            // Собираем ключи в массив чтобы не падать на mutation during iteration.
+            var keys = new string[_entityTweens.Count];
+            int ki = 0; foreach (var k in _entityTweens.Keys) keys[ki++] = k;
+
+            foreach (var key in keys)
+            {
+                var tw = _entityTweens[key];
+                if (tw.Target == null) { _entityTweens.Remove(key); continue; }
+                float t = (Time.time - tw.StartTime) / Mathf.Max(0.001f, tw.Duration);
+                if (t >= 1f)
+                {
+                    tw.Target.localPosition = tw.ToPos;
+                    tw.Target.localScale    = tw.ToScale;
+                    _entityTweens.Remove(key);
+                    continue;
+                }
+                // EaseOutCubic — мягкое торможение в конце, как в редакторе.
+                float e = 1f - Mathf.Pow(1f - t, 3f);
+                tw.Target.localPosition = Vector3.Lerp(tw.FromPos, tw.ToPos, e);
+                tw.Target.localScale    = Vector3.Lerp(tw.FromScale, tw.ToScale, e);
+            }
         }
 
         private void ShowChoices(BranchNodeData branchData)
