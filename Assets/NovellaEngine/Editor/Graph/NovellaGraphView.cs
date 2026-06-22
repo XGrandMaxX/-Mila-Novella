@@ -673,7 +673,6 @@ namespace NovellaEngine.Editor
         {
             // Note не имеет InputPort'а, никто не может к нему подключиться.
             if (targetType == ENodeType.Note) return false;
-            if (targetType == ENodeType.Character) return false;
 
             // Sync-порты Dialogue имеют locale-зависимые имена.
             string audioSync = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
@@ -1505,7 +1504,7 @@ namespace NovellaEngine.Editor
 
         private void HandleAutoConnect(NovellaNodeView view, Port autoConnectPort, ENodeType type)
         {
-            if (autoConnectPort == null || type == ENodeType.Character || type == ENodeType.Note) return;
+            if (autoConnectPort == null || type == ENodeType.Note) return;
 
             string audioSyncName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
             string animSyncName = ToolLang.Get("✨ Anim Sync", "✨ Аним Синхр.");
@@ -1684,7 +1683,7 @@ namespace NovellaEngine.Editor
 
             foreach (var nodeView in nodeDict.Values)
             {
-                if (nodeView.Data.NodeType == ENodeType.End || nodeView.Data.NodeType == ENodeType.Character || nodeView.Data.NodeType == ENodeType.Note) continue;
+                if (nodeView.Data.NodeType == ENodeType.End || nodeView.Data.NodeType == ENodeType.Note) continue;
 
                 if (nodeView.Data is DialogueNodeData dnd)
                 {

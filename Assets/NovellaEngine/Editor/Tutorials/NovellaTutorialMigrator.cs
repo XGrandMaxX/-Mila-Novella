@@ -335,8 +335,8 @@ namespace NovellaEngine.Editor.Tutorials
                 Step(
                     titleEN: "Experiment freely",
                     titleRU: "Экспериментируй свободно",
-                    bodyEN: "Feel free to <b>delete, create and modify</b> nodes. Don't worry about breaking things — this lesson graph auto-restores when you restart the tutorial.",
-                    bodyRU: "Можешь смело <b>удалять, создавать и менять</b> ноды. Не бойся ничего сломать — обучающий граф восстановится при перезапуске урока.",
+                    bodyEN: "Feel free to experiment — <b>create nodes, connect them, edit text</b>. This is your sandbox graph. Changes are saved like in any graph, so if you want to keep a clean copy of this lesson, duplicate the graph asset first (Ctrl+D in the Project window).",
+                    bodyRU: "Экспериментируй смело — <b>создавай ноды, соединяй их, меняй текст</b>. Это твой граф-песочница. Изменения сохраняются как в любом графе, поэтому если хочешь сохранить чистую копию урока — сначала продублируй ассет графа (Ctrl+D в окне Project).",
                     hint: ETutorialHintStyle.Spotlight,
                     target: ManualPercent(0, 0.10f, 1f, 0.90f)
                 ),

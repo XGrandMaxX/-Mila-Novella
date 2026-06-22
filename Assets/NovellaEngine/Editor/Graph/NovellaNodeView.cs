@@ -42,13 +42,13 @@ namespace NovellaEngine.Editor
 
             if (Data == null) return;
 
-            if (Data.NodeType != ENodeType.Character && Data.NodeType != ENodeType.Note)
+            if (Data.NodeType != ENodeType.Note)
             {
                 InputPort = _graphView.GeneratePort(this, Direction.Input, Port.Capacity.Multi);
                 InputPort.portName = Data.NodeType == ENodeType.End ? ToolLang.Get("Close", "Конец") : ToolLang.Get("Input", "Вход");
                 inputContainer.Add(InputPort);
 
-                if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event)
+                if (Data.NodeType == ENodeType.Dialogue)
                 {
                     AudioSyncPort = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
                     AudioSyncPort.portName = ToolLang.Get("🎵 Audio Sync", "🎵 Аудио Синхр.");
@@ -66,7 +66,7 @@ namespace NovellaEngine.Editor
                     outputContainer.Add(SceneSyncPort);
                 }
 
-                if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Variable || Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.SceneSettings || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast || Data.NodeType == ENodeType.CustomDLC || Data.NodeType == ENodeType.Save)
+                if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Audio || Data.NodeType == ENodeType.Variable || Data.NodeType == ENodeType.Wait || Data.NodeType == ENodeType.SceneSettings || Data.NodeType == ENodeType.Animation || Data.NodeType == ENodeType.EventBroadcast || Data.NodeType == ENodeType.CustomDLC || Data.NodeType == ENodeType.Save)
                 {
                     OutputPort = _graphView.GeneratePort(this, Direction.Output, Port.Capacity.Single);
                     OutputPort.portName = ToolLang.Get("Next ➡", "Далее ➡");
@@ -260,19 +260,28 @@ namespace NovellaEngine.Editor
         {
             if (Data == null || _pinLabel == null) return;
 
-            bool hasText = false;
-            if (Data is DialogueNodeData dnd) hasText = dnd.DialogueLines.Any(l => l.LocalizedPhrase.Translations.Any(t => !string.IsNullOrEmpty(t.Text)));
-            else if (Data is BranchNodeData bnd) hasText = bnd.Choices.Any(c => c.LocalizedText.Translations.Any(t => !string.IsNullOrEmpty(t.Text)));
-            else if (Data is ConditionNodeData cnd) hasText = cnd.Choices.Any(c => c.LocalizedText.Translations.Any(t => !string.IsNullOrEmpty(t.Text)));
-
-            string titlePrefix = hasText ? "💬 " : "";
-            if (Data.NodeType == ENodeType.Wait) titlePrefix = "⏳ ";
-            else if (Data.NodeType == ENodeType.SceneSettings) titlePrefix = "🖼 ";
-            else if (Data.NodeType == ENodeType.Animation) titlePrefix = "✨ ";
-            else if (Data.NodeType == ENodeType.EventBroadcast) titlePrefix = "⚡ ";
-            else if (Data.NodeType == ENodeType.Audio) titlePrefix = "🎵 ";
-            else if (Data.NodeType == ENodeType.Save) titlePrefix = "💾 ";
-            else if (Data.NodeType == ENodeType.CustomDLC) titlePrefix = "🧩 ";
+            // ─── Иконка типа ноды — единый стиль для ВСЕХ типов ───
+            // Раньше Branch/Condition/Random/Variable/Note/End не получали
+            // иконку (только 💬 при наличии текста), из-за чего граф выглядел
+            // непоследовательно. Теперь у каждого типа стабильная иконка.
+            string titlePrefix;
+            switch (Data.NodeType)
+            {
+                case ENodeType.Branch:         titlePrefix = "🔀 "; break;
+                case ENodeType.Condition:      titlePrefix = "❓ "; break;
+                case ENodeType.Random:         titlePrefix = "🎲 "; break;
+                case ENodeType.Variable:       titlePrefix = "🔢 "; break;
+                case ENodeType.Wait:           titlePrefix = "⏳ "; break;
+                case ENodeType.SceneSettings:  titlePrefix = "🖼 "; break;
+                case ENodeType.Animation:      titlePrefix = "✨ "; break;
+                case ENodeType.EventBroadcast: titlePrefix = "⚡ "; break;
+                case ENodeType.Audio:          titlePrefix = "🎵 "; break;
+                case ENodeType.Save:           titlePrefix = "💾 "; break;
+                case ENodeType.Note:           titlePrefix = "📝 "; break;
+                case ENodeType.End:            titlePrefix = "🏁 "; break;
+                case ENodeType.CustomDLC:      titlePrefix = "🧩 "; break;
+                default:                       titlePrefix = "💬 "; break; // Dialogue / Event (легаси)
+            }
 
             title = titlePrefix + (string.IsNullOrEmpty(Data.NodeTitle) ? Data.NodeID : Data.NodeTitle);
 
@@ -286,7 +295,7 @@ namespace NovellaEngine.Editor
 
             // ─── Per-type цвет — выбираем источник ───
             Color nodeColor = Color.grey;
-            if (Data.NodeType == ENodeType.Dialogue || Data.NodeType == ENodeType.Event ||
+            if (Data.NodeType == ENodeType.Dialogue ||
                 Data.NodeType == ENodeType.Note || Data.NodeType == ENodeType.CustomDLC)
             {
                 nodeColor = Data.NodeCustomColor;

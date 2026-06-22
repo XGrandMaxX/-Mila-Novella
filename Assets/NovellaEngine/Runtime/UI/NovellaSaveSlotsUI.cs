@@ -195,16 +195,19 @@ namespace NovellaEngine.Runtime.UI
                 }
                 else
                 {
-                    // Из главного меню — просто запускаем игру: StoryLauncher
-                    // прочитает LoadFromSlot и сделает остальное.
+                    // Из главного меню: LoadFromSlot уже выставлен выше.
+                    // Запускаем историю через StoryLauncher — ProceedToGameScene
+                    // подхватит LoadFromSlot, выставит ноду из слота и возобновит
+                    // игру. Раньше тут был только Debug.Log → панель сейвов в меню
+                    // молча не работала.
                     var launcher = FindFirstObjectByType<StoryLauncher>();
                     if (launcher != null)
                     {
-                        // Имитируем клик «Продолжить» через launcher: он сам найдёт
-                        // активную историю и загрузится с нужного слота.
-                        // Юзеру может потребоваться добавить кнопку «Continue» которая
-                        // вызывает launcher напрямую — здесь полагаемся на flow.
-                        Debug.Log("[NovellaSaveSlotsUI] Slot picked from menu — start the story to load.");
+                        launcher.LaunchStoryByName(storyName);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[NovellaSaveSlotsUI] No StoryLauncher in scene — can't load a save from the menu.");
                     }
                 }
             }

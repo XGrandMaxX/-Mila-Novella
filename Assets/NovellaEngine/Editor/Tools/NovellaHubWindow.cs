@@ -2428,15 +2428,37 @@ namespace NovellaEngine.Editor
             GUILayout.Space(18);
             DrawSectionHeader("📖 " + ToolLang.Get("Recent stories", "Последние истории"));
 
-            if (NovellaSettingsModule.AccentButton("➕ " + ToolLang.Get("Create new story", "Создать новую историю"), GUILayout.Height(34), GUILayout.MaxWidth(360)))
+            GUILayout.BeginHorizontal();
+            if (NovellaSettingsModule.AccentButton("✨ " + ToolLang.Get("New Project", "Новый проект"), GUILayout.Height(38), GUILayout.MaxWidth(280)))
+            {
+                RequestCreateNewProject();
+            }
+            GUILayout.Space(8);
+            if (NovellaSettingsModule.NeutralButton("➕ " + ToolLang.Get("Empty story", "Пустая история"), GUILayout.Height(38), GUILayout.MaxWidth(200)))
             {
                 EditorApplication.delayCall += CreateNewStory;
             }
+            GUILayout.EndHorizontal();
+            var npHint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
+            npHint.normal.textColor = NovellaSettingsModule.GetTextMuted();
+            GUILayout.Label(ToolLang.Get(
+                "New Project sets up a playable scene + character + sample dialogue in one click. Empty story creates just the story graph.",
+                "«Новый проект» создаёт играбельную сцену + персонажа + пример диалога одним кликом. «Пустая история» — только граф истории."), npHint);
             GUILayout.Space(12);
 
             float availW = position.width - 28 - 28;
             int columns = Mathf.Clamp(Mathf.FloorToInt(availW / 240f), 1, 4);
             DrawStoriesGrid(columns);
+
+            if (_stories.Count == 0)
+            {
+                GUILayout.Space(6);
+                var emptySt = new GUIStyle(EditorStyles.label) { fontSize = 12, fontStyle = FontStyle.Italic, wordWrap = true };
+                emptySt.normal.textColor = NovellaSettingsModule.GetTextMuted();
+                GUILayout.Label(ToolLang.Get(
+                    "No stories yet — click ✨ New Project above to create a playable starter novella in one click.",
+                    "Историй пока нет — нажми ✨ Новый проект выше, и за один клик соберётся играбельная стартовая новелла."), emptySt);
+            }
 
             GUILayout.Space(18);
             DrawSectionHeader("🛠 " + ToolLang.Get("Library tools", "Инструменты библиотеки"));
@@ -2863,6 +2885,48 @@ namespace NovellaEngine.Editor
             {
                 RefreshData();
                 if (_window is NovellaHubWindow hub) hub.RefreshActiveStoryLabel();
+            });
+        }
+
+        // «Новый проект» — полная настройка «0 → играбельно» прямо из Hub
+        // (без отдельного окна). Переиспользует тот же flow создания истории
+        // (модалка настроек), а в callback после сохранения собирает
+        // играбельный стартовый сетап: сцена-пресет + персонаж + Dialogue→End.
+        public void RequestCreateNewProject()
+        {
+            EditorApplication.delayCall += CreateNewProject;
+        }
+
+        private void CreateNewProject()
+        {
+            string baseDir = "Assets/NovellaEngine/Resources/Stories";
+            if (!Directory.Exists(baseDir))
+            {
+                Directory.CreateDirectory(baseDir);
+                AssetDatabase.Refresh();
+            }
+
+            string guid = Guid.NewGuid().ToString().Substring(0, 5);
+
+            var newTree = ScriptableObject.CreateInstance<NovellaTree>();
+            newTree.name = $"Chapter_1_{guid}";
+
+            var newStory = ScriptableObject.CreateInstance<NovellaStory>();
+            newStory.name = $"Story_{guid}";
+            newStory.Title = "New Story";
+            newStory.StartingChapter = newTree;
+
+            string treePath = $"{baseDir}/Chapter_1_{guid}.asset";
+            string storyPath = $"{baseDir}/Story_{guid}.asset";
+
+            NovellaStorySettingsPopup.ShowWindowForNew(newStory, newTree, storyPath, treePath, () =>
+            {
+                RefreshData();
+                if (_window is NovellaHubWindow hub) hub.RefreshActiveStoryLabel();
+                // Аугментация — только если историю реально сохранили на диск
+                // (на Cancel pending-ассеты уничтожаются, Contains == false).
+                if (newStory != null && AssetDatabase.Contains(newStory))
+                    NovellaSampleProject.SetUpSampleProject(newStory);
             });
         }
     }

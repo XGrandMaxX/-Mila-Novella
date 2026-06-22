@@ -185,6 +185,7 @@ namespace NovellaEngine.Runtime
 
             Canvas rootCanvas = DialoguePanel.GetComponentInParent<Canvas>(true);
             if (rootCanvas != null && rootCanvas.rootCanvas != null) rootCanvas = rootCanvas.rootCanvas;
+            if (rootCanvas == null) return; // DialoguePanel вне Canvas — настраивать MC-панель негде
 
             Transform mcPanel = rootCanvas.transform.Find("MCCreationPanel");
             if (mcPanel != null)
@@ -377,6 +378,11 @@ namespace NovellaEngine.Runtime
                 return;
             }
 
+            if (StoryTree == null)
+            {
+                Debug.LogError("[Novella] PlayNode: StoryTree не назначен у NovellaPlayer — история не может проигрываться.");
+                return;
+            }
             _currentNodeBase = StoryTree.Nodes.FirstOrDefault(n => n.NodeID == nodeID);
             if (_currentNodeBase == null) return;
 
@@ -426,6 +432,16 @@ namespace NovellaEngine.Runtime
                 {
                     OnExecuteDLCNode?.Invoke(this, _currentNodeBase);
                 }
+            }
+            else
+            {
+                // Необработанный тип ноды (повреждённый граф, удалённый DLC-класс,
+                // легаси Event/Character без хендлера). НЕ убиваем историю молча —
+                // логируем и пытаемся продолжить по NextNodeID (если поле есть).
+                Debug.LogWarning($"[Novella] Неизвестный тип ноды '{_currentNodeBase.NodeType}' (id={nodeID}) — пропускаю.");
+                var nextField = _currentNodeBase.GetType().GetField("NextNodeID");
+                string nextId = nextField != null ? nextField.GetValue(_currentNodeBase) as string : null;
+                if (!string.IsNullOrEmpty(nextId)) PlayNode(nextId);
             }
         }
 
@@ -882,7 +898,11 @@ namespace NovellaEngine.Runtime
             bool isTrue = CheckConditions(condData.Conditions);
             if (isTrue && condData.Choices.Count > 0) PlayNode(condData.Choices[0].NextNodeID);
             else if (!isTrue && condData.Choices.Count > 1) PlayNode(condData.Choices[1].NextNodeID);
-            else PlayNode("");
+            else
+            {
+                Debug.LogWarning($"[Novella] Condition node '{condData.NodeTitle}' ({condData.NodeID}): the needed {(isTrue ? "TRUE" : "FALSE")} branch is not connected in the graph — story stops here.");
+                PlayNode("");
+            }
         }
 
         private void ProcessRandomNode(RandomNodeData rndData)
@@ -928,7 +948,11 @@ namespace NovellaEngine.Runtime
             foreach (var v in varData.Variables)
             {
                 var def = settings?.Variables.FirstOrDefault(x => x.Name == v.VariableName);
-                if (def == null) continue;
+                if (def == null)
+                {
+                    Debug.LogWarning($"[Novella] Variable node: variable '{v.VariableName}' was not found in the Variable Manager (renamed or deleted?) — this change is skipped.");
+                    continue;
+                }
 
                 if (v.VarOperation == EVarOperation.Set)
                 {
@@ -992,6 +1016,10 @@ namespace NovellaEngine.Runtime
             {
                 UnityEngine.SceneManagement.SceneManager.LoadScene(endData.TargetSceneName);
             }
+            else if (endData.EndAction == EEndAction.LoadNextChapter)
+                Debug.LogWarning("[Novella] End node: action 'Load Next Chapter' but no chapter is assigned — the game stops here. Assign a chapter or use 'Return to Main Menu'.");
+            else if (endData.EndAction == EEndAction.LoadSpecificScene)
+                Debug.LogWarning("[Novella] End node: action 'Load Specific Scene' but no scene is set — the game stops here.");
         }
 
         private void ProcessDialogueLine()
@@ -1085,7 +1113,7 @@ namespace NovellaEngine.Runtime
             }
             if (Keyboard.current != null && Keyboard.current.f9Key.wasPressedThisFrame)
             {
-                if (PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node"))
+                if (StoryTree != null && PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node"))
                 {
                     PlayerPrefs.SetString("LoadTargetNodeID", PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_Node"));
                     UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
@@ -1104,7 +1132,7 @@ namespace NovellaEngine.Runtime
             }
             if (Input.GetKeyDown(KeyCode.F9)) 
             { 
-                if (PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node")) {
+                if (StoryTree != null && PlayerPrefs.HasKey($"NovellaSave_{StoryTree.name}_Node")) {
                     PlayerPrefs.SetString("LoadTargetNodeID", PlayerPrefs.GetString($"NovellaSave_{StoryTree.name}_Node"));
                     UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
                     Debug.Log("[NovellaEngine] QuickLoad!");
@@ -1244,7 +1272,13 @@ namespace NovellaEngine.Runtime
             if (DialogueBodyText != null)
             {
                 DialogueBodyText.fontSize = line.FontSize > 0 ? line.FontSize : 32;
-                string localizedText = line.LocalizedPhrase.GetText(CurrentLanguage);
+                // ВАЖНО: конвертируем markdown (**жирно**, _курсив_, ~подчёрк~)
+                // в TMP rich-text перед передачей в TextMeshProUGUI. Уже-TMP
+                // теги (color/size) проходят без изменений. Это позволяет в
+                // редакторе писать короткий markdown, а в runtime получать
+                // правильный TMP-формат.
+                string localizedText = NovellaMarkdownConverter.MarkdownToTmp(
+                    line.LocalizedPhrase.GetText(CurrentLanguage));
 
                 if (line.UseTypewriter && !_isFastForwarding)
                 {
@@ -1268,6 +1302,13 @@ namespace NovellaEngine.Runtime
             int totalVisibleChars = DialogueBodyText.textInfo.characterCount;
             float timer = 0f; int currentVisibleCount = 0;
 
+            // Auto-scroll: если у DialogueBodyText есть parent ScrollRect —
+            // прокручиваем его вниз вслед за typewriter, чтобы последняя
+            // строка длинного текста всегда была видна. Безопасно для
+            // сцен без ScrollRect (просто null → ничего не делаем).
+            UnityEngine.UI.ScrollRect parentScroll = DialogueBodyText.GetComponentInParent<UnityEngine.UI.ScrollRect>();
+            int autoScrollFrameCounter = 0;
+
             while (currentVisibleCount < totalVisibleChars)
             {
                 float currentSpeed = line.BaseSpeed;
@@ -1283,38 +1324,37 @@ namespace NovellaEngine.Runtime
 
                 while (timer >= timePerChar && currentVisibleCount < totalVisibleChars) { currentVisibleCount++; timer -= timePerChar; }
                 DialogueBodyText.maxVisibleCharacters = currentVisibleCount;
+
+                // Прокрутка не на каждом кадре — раз в ~3 фрейма, чтобы
+                // не дёргать ForceUpdateCanvases слишком часто.
+                if (parentScroll != null && (autoScrollFrameCounter++ % 3 == 0))
+                {
+                    Canvas.ForceUpdateCanvases();
+                    parentScroll.verticalNormalizedPosition = 0f; // 0 = низ
+                }
                 yield return null;
             }
 
             DialogueBodyText.maxVisibleCharacters = int.MaxValue;
+            // Финальный «доскролл» на конец — на случай если последний
+            // кусок текста ещё не показан полностью.
+            if (parentScroll != null)
+            {
+                Canvas.ForceUpdateCanvases();
+                parentScroll.verticalNormalizedPosition = 0f;
+            }
             _isTyping = false; _isWaitingForClick = true;
         }
 
-        // Public-обёртка для editor preview. Player.Start не вызывается
-        // вне Play mode, поэтому без этого метода Camera.Render не видит
-        // ни одного NovellaSceneEntity.
-        //
-        // ВАЖНО: перед sync в edit mode чистим CharactersContainer от
-        // старых Char_* GameObject'ов — иначе при каждом вызове (10 раз
-        // в секунду из tween) поиск entity по LinkedNodeID может не
-        // найти подходящего и создать дубль. За минуту накапливаются
-        // сотни «выключенных» Char_NewCharacter в Hierarchy.
+        // Public-обёртка для редактора. Player.Start не вызывается вне Play
+        // mode, поэтому без этого метода Char_* не появляются на сцене и
+        // Кузница UI не может их редактировать. Дёргаем этот метод из
+        // Dialogue Editor когда меняется массовка / активная реплика.
+        // Не тащим за собой превью (RenderTexture/маскирование), просто
+        // создаём/обновляем NovellaSceneEntity.
         public void EditorSyncDialogueLine(DialogueNodeData dialData, DialogueLine currentLine)
         {
             if (dialData == null) return;
-            if (CharactersContainer != null && !Application.isPlaying)
-            {
-                // DestroyImmediate потому что в edit-mode обычный Destroy
-                // не выполняется до конца фрейма, и мы тут же создадим
-                // дубли заново.
-                for (int i = CharactersContainer.childCount - 1; i >= 0; i--)
-                {
-                    var child = CharactersContainer.GetChild(i);
-                    if (child == null) continue;
-                    if (child.name != null && child.name.StartsWith("Char_"))
-                        DestroyImmediate(child.gameObject);
-                }
-            }
             SyncCharactersInScene(dialData, currentLine);
         }
 
@@ -1334,12 +1374,31 @@ namespace NovellaEngine.Runtime
                 }
             }
 
+            // Если CharactersContainer лежит внутри Canvas — мы в UI-режиме.
+            // Тогда персонажа создаём как UI-элемент (RectTransform + Image),
+            // чтобы Кузница UI могла его выделять/двигать/скейлить как
+            // обычный UI. Иначе — обычный worldspace GameObject.
+            bool inCanvas = CharactersContainer.GetComponentInParent<Canvas>() != null;
+
             foreach (var config in charConfigs.Values)
             {
                 var entity = entities.FirstOrDefault(e => e.LinkedNodeID == config.CharacterAsset.CharacterID);
+
+                // Миграция legacy entity: был создан без RectTransform до
+                // включения Canvas-режима — пересоздаём как UI.
+                if (entity != null && inCanvas && !(entity.transform is RectTransform))
+                {
+                    if (Application.isPlaying) Destroy(entity.gameObject);
+                    else                       DestroyImmediate(entity.gameObject);
+                    entities.Remove(entity);
+                    entity = null;
+                }
+
                 if (entity == null)
                 {
-                    GameObject go = new GameObject("Char_" + config.CharacterAsset.name);
+                    GameObject go = inCanvas
+                        ? new GameObject("Char_" + config.CharacterAsset.name, typeof(RectTransform))
+                        : new GameObject("Char_" + config.CharacterAsset.name);
                     go.transform.SetParent(CharactersContainer, false);
                     entity = go.AddComponent<NovellaSceneEntity>();
                     entity.Initialize(config.CharacterAsset.CharacterID);
@@ -1417,6 +1476,21 @@ namespace NovellaEngine.Runtime
                 entity.SetSortingOrder(targetPlane);
                 entity.SetFlip(targetFlipX, targetFlipY);
 
+                // ─── Adaptive position для UI Canvas ───
+                // В UI родной размер персонажа задаётся через RectTransform.sizeDelta
+                // (= размер спрайта в пикселях, см. NovellaSceneEntity.ApplyAppearanceUI),
+                // поэтому localScale=1 уже даёт нативный размер. Множить
+                // его НЕ надо — иначе получится ×100 от нативного.
+                //
+                // А вот position нужно масштабировать: NormPos[0..1] раскрывается
+                // в worldspace -7..+7, для пиксельного канваса этого мало
+                // (все персонажи слипнутся у нуля). Умножаем ×100 → -700..+700,
+                // что соответствует ~разумному диапазону для канваса 1920×1080.
+                if (inCanvas)
+                {
+                    targetPos *= 100f;
+                }
+
                 // Применяем позицию/масштаб: телепорт или tween.
                 bool animate = placement != null && placement.Animate
                     && entity.gameObject.activeSelf; // если только что вышел из hidden — телепортируем чтобы не лететь из (0,0)
@@ -1447,6 +1521,22 @@ namespace NovellaEngine.Runtime
 
                 bool shouldHide = placementHide;
                 if (currentLine != null && currentLine.HideSpeakerSprite && currentLine.Speaker != null && config.CharacterAsset.CharacterID == currentLine.Speaker.CharacterID) shouldHide = true;
+
+                // Если у персонажа нет ни одного спрайта в BaseLayers —
+                // принудительно скрываем (иначе в UI-mode будет пустой
+                // белый Image-прямоугольник, в World-mode SR без sprite).
+                // Это автоматически реализует «голос за кадром» для ГГ
+                // без визуальной модели — она остаётся как Speaker, но
+                // на сцене ничего не появляется.
+                bool hasAnySprite = false;
+                if (config.CharacterAsset.BaseLayers != null)
+                {
+                    for (int li = 0; li < config.CharacterAsset.BaseLayers.Count; li++)
+                        if (config.CharacterAsset.BaseLayers[li].DefaultSprite != null)
+                        { hasAnySprite = true; break; }
+                }
+                if (!hasAnySprite) shouldHide = true;
+
                 entity.gameObject.SetActive(!shouldHide);
             }
 

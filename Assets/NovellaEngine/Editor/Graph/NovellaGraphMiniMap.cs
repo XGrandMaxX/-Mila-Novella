@@ -345,7 +345,6 @@ namespace NovellaEngine.Editor
             if (n is NovellaNodeView nnv && nnv.Data != null)
             {
                 if (nnv.Data.NodeType == ENodeType.Dialogue ||
-                    nnv.Data.NodeType == ENodeType.Event ||
                     nnv.Data.NodeType == ENodeType.Note ||
                     nnv.Data.NodeType == ENodeType.CustomDLC)
                 {

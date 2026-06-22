@@ -1263,13 +1263,6 @@ namespace NovellaEngine.Editor
         // Reusable UI bits
         // ───────────────────────────────────────────────
 
-        private void DrawHeader(string title)
-        {
-            var st = new GUIStyle(EditorStyles.label) { fontSize = 18, fontStyle = FontStyle.Bold };
-            st.normal.textColor = C_TEXT_1;
-            GUILayout.Label(title, st);
-        }
-
         private void DrawMeta(string text)
         {
             var st = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10 };

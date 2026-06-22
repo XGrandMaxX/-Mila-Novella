@@ -692,22 +692,5 @@ namespace NovellaEngine.Editor
             }
             return false;
         }
-
-        private bool DrawSquareIconBtn(Rect r, string icon, Color color)
-        {
-            bool hover = r.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(r, hover ? C_BG_RAISED : C_BG_PRIMARY);
-            DrawRectBorder(r, C_BORDER);
-            var st = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 11, fontStyle = FontStyle.Bold };
-            st.normal.textColor = hover ? color : new Color(color.r, color.g, color.b, 0.7f);
-            GUI.Label(r, icon, st);
-            if (hover && Event.current.type == EventType.MouseMove) Repaint();
-            if (Event.current.type == EventType.MouseDown && hover)
-            {
-                Event.current.Use();
-                return true;
-            }
-            return false;
-        }
     }
 }

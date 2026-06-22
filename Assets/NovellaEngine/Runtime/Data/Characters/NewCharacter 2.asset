@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 123d97a4e04b8e94dbf3d6a10a21fbb5, type: 3}
   m_Name: NewCharacter 2
   m_EditorClassIdentifier: Assembly-CSharp::NovellaEngine.Data.NovellaCharacter
-  CharacterID: NewCharacter
+  CharacterID: NewCharacter_3
   IsPlayerCharacter: 0
   Gender: 1
   AvailableBaseBodies: []

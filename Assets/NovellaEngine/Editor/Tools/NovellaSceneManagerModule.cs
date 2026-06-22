@@ -1161,138 +1161,6 @@ namespace NovellaEngine.Editor
                 EditorGUI.DrawRect(new Rect(r.x, r.yMax - 1, r.width, 1), C_BORDER);
         }
 
-        // ─── Presets ───
-
-        private void DrawPresetsBlock(SceneRow sc, AppliedPreset applied, float contentWidth)
-        {
-            DrawSectionHeader("🎬 " + ToolLang.Get("SCENE PRESETS", "ПРЕСЕТЫ СЦЕНЫ"));
-            DrawHint(ToolLang.Get(
-                "Presets <b>fill an empty scene</b> with a Canvas, dialogue box, cameras, and basic UI. Pick one to set up the scene quickly. After applying, customise the look in <b>UI Forge</b>.",
-                "Пресеты <b>заполняют пустую сцену</b> Canvas'ом, диалоговым окном, камерами и базовым UI. Выбери один, чтобы быстро настроить сцену. После применения настрой внешний вид в <b>Кузнице UI</b>."
-            ), contentWidth);
-
-            float headH = 32;
-            float gridH = 100;
-            float blockH = headH + gridH + 16;
-
-            Rect block = GUILayoutUtility.GetRect(0, blockH, GUILayout.ExpandWidth(true));
-            EditorGUI.DrawRect(block, C_BG_SIDE);
-            DrawRectBorder(block, C_BORDER);
-
-            var ic = new GUIStyle(EditorStyles.label) { fontSize = 14, alignment = TextAnchor.MiddleCenter };
-            ic.normal.textColor = C_ACCENT;
-            GUI.Label(new Rect(block.x + 14, block.y + 8, 22, 20), "🎬", ic);
-
-            var ti = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            ti.normal.textColor = C_TEXT_1;
-            GUI.Label(new Rect(block.x + 40, block.y + 8, block.width - 200, 20), ToolLang.Get("Scene presets", "Пресеты сцены"), ti);
-
-            if (applied != AppliedPreset.None)
-            {
-                Rect pill = new Rect(block.xMax - 130, block.y + 11, 116, 16);
-                EditorGUI.DrawRect(pill, new Color(C_OK.r, C_OK.g, C_OK.b, 0.13f));
-                var ps = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, fontSize = 9, fontStyle = FontStyle.Bold };
-                ps.normal.textColor = C_OK;
-                GUI.Label(pill, ToolLang.Get("PRESET APPLIED", "ПРЕСЕТ ПРИМЕНЁН"), ps);
-            }
-
-            float gridY = block.y + headH + 6;
-            float gridGap = 10;
-            // Три карточки: Main Menu / Gameplay / Empty Canvas.
-            float cardW = (block.width - 28 - gridGap * 2) / 3;
-
-            Rect menuCard  = new Rect(block.x + 14,                         gridY, cardW, gridH - 10);
-            Rect gpCard    = new Rect(block.x + 14 + cardW + gridGap,       gridY, cardW, gridH - 10);
-            Rect emptyCard = new Rect(block.x + 14 + (cardW + gridGap) * 2, gridY, cardW, gridH - 10);
-
-            // ApplyPreset надо вызывать ЧЕРЕЗ delayCall — он делает много
-            // тяжёлых операций со сценой (создание GameObjects, AssetDatabase
-            // CreateAsset/SaveAssets, EditorSceneManager.MarkSceneDirty/SaveScene),
-            // и если выполнять прямо в onClick посреди OnGUI — IMGUI-стек
-            // разваливается. ClearPreset рядом уже обёрнут в delayCall —
-            // теперь и ApplyPreset тоже.
-            bool isAnyApplied = applied != AppliedPreset.None;
-            DrawPresetCard(menuCard, "📱", ToolLang.Get("Main Menu", "Главное Меню"),
-                ToolLang.Get("Menu with character editor and story selection.", "Меню с редактором персонажа и выбором истории."),
-                C_PURPLE, applied == AppliedPreset.MainMenu, isAnyApplied && applied != AppliedPreset.MainMenu, applied,
-                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.MainMenu));
-
-            DrawPresetCard(gpCard, "🎮", ToolLang.Get("Gameplay", "Игровая сцена"),
-                ToolLang.Get("Canvas with dialogue box, character displays and CG layer.", "Canvas с диалоговым окном, персонажами и слоем CG."),
-                C_ACCENT, applied == AppliedPreset.Gameplay, isAnyApplied && applied != AppliedPreset.Gameplay, applied,
-                () => EditorApplication.delayCall += () => ApplyPreset(sc, AppliedPreset.Gameplay));
-
-            DrawPresetCard(emptyCard, "⬜", ToolLang.Get("Empty canvas", "Пустой холст"),
-                ToolLang.Get("Bare minimum: Camera, Canvas, EventSystem, NovellaPlayer. You build UI yourself in UI Forge.",
-                             "Минимум: Камера, Canvas, EventSystem, NovellaPlayer. UI собираешь сам в Кузнице."),
-                new Color(0.55f, 0.85f, 1f), applied == AppliedPreset.Empty, isAnyApplied && applied != AppliedPreset.Empty, applied,
-                () => EditorApplication.delayCall += () => ConfirmAndApplyEmptyPreset(sc));
-
-            GUILayout.Space(14);
-        }
-
-        private void DrawPresetCard(Rect r, string emoji, string title, string desc, Color accent,
-                                    bool isApplied, bool isLocked, AppliedPreset blockingPreset, System.Action onClick)
-        {
-            bool disabled = isLocked;
-            bool hover = !disabled && r.Contains(Event.current.mousePosition);
-
-            Color bg;
-            if (isApplied) bg = new Color(C_OK.r, C_OK.g, C_OK.b, 0.05f);
-            else if (disabled) bg = C_BG_PRIMARY;
-            else if (hover) bg = C_BG_RAISED;
-            else bg = C_BG_PRIMARY;
-            EditorGUI.DrawRect(r, bg);
-
-            Color borderC;
-            if (isApplied) borderC = new Color(C_OK.r, C_OK.g, C_OK.b, 0.5f);
-            else if (hover) borderC = new Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.5f);
-            else borderC = C_BORDER;
-            DrawRectBorder(r, borderC);
-
-            Rect iconR = new Rect(r.x + 12, r.y + 12, 38, 38);
-            Color iconBg = new Color(accent.r, accent.g, accent.b, disabled ? 0.06f : 0.15f);
-            EditorGUI.DrawRect(iconR, iconBg);
-            DrawRectBorder(iconR, new Color(accent.r, accent.g, accent.b, disabled ? 0.25f : 0.5f));
-            var iconStyle = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 17 };
-            iconStyle.normal.textColor = disabled ? new Color(accent.r, accent.g, accent.b, 0.5f) : accent;
-            GUI.Label(iconR, emoji, iconStyle);
-
-            var ts = new GUIStyle(EditorStyles.label) { fontSize = 13, fontStyle = FontStyle.Bold };
-            ts.normal.textColor = disabled ? C_TEXT_3 : C_TEXT_1;
-            GUI.Label(new Rect(r.x + 60, r.y + 12, r.width - 80, 18), title, ts);
-
-            var ds = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = true };
-            ds.normal.textColor = disabled ? C_TEXT_4 : C_TEXT_3;
-            GUI.Label(new Rect(r.x + 60, r.y + 32, r.width - 72, 30), desc, ds);
-
-            if (disabled)
-            {
-                var ls = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold, wordWrap = true, richText = true };
-                ls.normal.textColor = C_WARN;
-                string blockingName = blockingPreset == AppliedPreset.MainMenu
-                    ? ToolLang.Get("Main Menu", "Главное Меню")
-                    : ToolLang.Get("Gameplay", "Игровая");
-                string hint = string.Format(ToolLang.Get("🔒 Already set up as <b>{0}</b> — clear it first to switch",
-                                                          "🔒 Уже настроено как <b>{0}</b> — сначала удали чтобы заменить"), blockingName);
-                GUI.Label(new Rect(r.x + 60, r.y + 64, r.width - 72, 24), hint, ls);
-            }
-
-            if (isApplied)
-            {
-                var ms = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, fontStyle = FontStyle.Bold };
-                ms.normal.textColor = C_OK;
-                GUI.Label(new Rect(r.xMax - 80, r.y + 12, 70, 14), "✓ ACTIVE", ms);
-            }
-
-            if (!disabled && Event.current.type == EventType.MouseDown && r.Contains(Event.current.mousePosition))
-            {
-                onClick?.Invoke();
-                Event.current.Use();
-            }
-            if (Event.current.type == EventType.MouseMove && r.Contains(Event.current.mousePosition)) _window?.Repaint();
-        }
-
         // ─── Tools ───
 
         private void DrawToolsBlock(SceneRow sc, AppliedPreset applied, float contentWidth)
@@ -2529,11 +2397,54 @@ namespace NovellaEngine.Editor
             snRT.anchoredPosition = new Vector2(40, -20);
             snRT.sizeDelta = new Vector2(400, 40);
 
-            var dialogueText = CreateUIText(dialogueBox, "Dialogue_Text",
+            // ─── Dialogue_Scroll → Viewport → Content → Dialogue_Text ───
+            // Текст диалога ВСЕГДА оборачиваем в ScrollView, чтобы длинные
+            // реплики не уезжали за края бокса. Auto-scroll на typewriter
+            // подключается автоматически в NovellaPlayer.TypewriterRoutine
+            // если у DialogueBodyText есть parent ScrollRect — а он есть.
+            var dialogueScroll = new GameObject("Dialogue_Scroll");
+            dialogueScroll.transform.SetParent(dialogueBox.transform, false);
+            var dsRT = dialogueScroll.AddComponent<RectTransform>();
+            dsRT.anchorMin = Vector2.zero; dsRT.anchorMax = Vector2.one;
+            dsRT.offsetMin = new Vector2(40, 30); dsRT.offsetMax = new Vector2(-40, -65);
+            var scrollRect = dialogueScroll.AddComponent<UnityEngine.UI.ScrollRect>();
+            scrollRect.horizontal = false; scrollRect.vertical = true;
+            scrollRect.movementType = UnityEngine.UI.ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 22;
+
+            var viewport = new GameObject("Viewport");
+            viewport.transform.SetParent(dialogueScroll.transform, false);
+            var vpRT = viewport.AddComponent<RectTransform>();
+            vpRT.anchorMin = Vector2.zero; vpRT.anchorMax = Vector2.one;
+            vpRT.offsetMin = Vector2.zero; vpRT.offsetMax = Vector2.zero;
+            var vpImg = viewport.AddComponent<UnityEngine.UI.Image>();
+            vpImg.color = new Color(1, 1, 1, 0.001f); // почти невидимый — Mask требует Image
+            var vpMask = viewport.AddComponent<UnityEngine.UI.Mask>();
+            vpMask.showMaskGraphic = false;
+
+            var content = new GameObject("Content");
+            content.transform.SetParent(viewport.transform, false);
+            var cRT = content.AddComponent<RectTransform>();
+            cRT.anchorMin = new Vector2(0, 1); cRT.anchorMax = new Vector2(1, 1);
+            cRT.pivot = new Vector2(0.5f, 1);
+            cRT.anchoredPosition = Vector2.zero;
+            cRT.sizeDelta = new Vector2(0, 100);
+            var cFitter = content.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+            cFitter.verticalFit = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+
+            var dialogueText = CreateUIText(content, "Dialogue_Text",
                 ToolLang.Get("Dialogue text appears here…", "Здесь появляется текст диалога…"), 22, FontStyle.Normal);
             var dtRT = dialogueText.GetComponent<RectTransform>();
-            dtRT.anchorMin = Vector2.zero; dtRT.anchorMax = Vector2.one;
-            dtRT.offsetMin = new Vector2(40, 30); dtRT.offsetMax = new Vector2(-40, -65);
+            dtRT.anchorMin = new Vector2(0, 1); dtRT.anchorMax = new Vector2(1, 1);
+            dtRT.pivot = new Vector2(0.5f, 1);
+            dtRT.anchoredPosition = Vector2.zero;
+            dtRT.sizeDelta = new Vector2(0, 100);
+            // ContentSizeFitter на самом TMP — чтобы Content рос под текст.
+            var dtFitter = dialogueText.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+            dtFitter.verticalFit = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+
+            scrollRect.viewport = vpRT;
+            scrollRect.content  = cRT;
 
             // ChoiceContainer — сюда NovellaPlayer спавнит кнопки выбора.
             // Якорь привязан к НИЖНЕЙ части canvas'а (anchor 0.5, 0) с пивотом
@@ -2860,45 +2771,6 @@ namespace NovellaEngine.Editor
             Rect r = GUILayoutUtility.GetRect(0, 1, GUILayout.ExpandWidth(true));
             EditorGUI.DrawRect(r, C_BORDER);
             GUILayout.Space(8);
-        }
-
-        private bool DrawCreateButton(Rect r, string label)
-        {
-            bool hover = r.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(r, hover ? C_BG_RAISED : C_BG_PRIMARY);
-            DrawRectBorderDashed(r, hover ? C_ACCENT : C_BORDER);
-
-            var st = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 12, fontStyle = FontStyle.Bold };
-            st.normal.textColor = hover ? C_ACCENT : C_TEXT_3;
-            GUI.Label(r, label, st);
-
-            if (hover && Event.current.type == EventType.MouseMove) _window?.Repaint();
-            if (Event.current.type == EventType.MouseDown && hover)
-            {
-                Event.current.Use();
-                return true;
-            }
-            return false;
-        }
-
-        private bool DrawAccentButton(Rect r, string label)
-        {
-            bool hover = r.Contains(Event.current.mousePosition);
-            EditorGUI.DrawRect(r, hover ? new Color(0.45f, 0.80f, 0.95f) : C_ACCENT);
-
-            DrawRectBorder(r, new Color(0, 0, 0, 0.6f));
-
-            var st = new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter, fontSize = 12, fontStyle = FontStyle.Bold };
-            st.normal.textColor = C_BG_PRIMARY;
-            GUI.Label(r, label, st);
-
-            if (hover && Event.current.type == EventType.MouseMove) _window?.Repaint();
-            if (Event.current.type == EventType.MouseDown && hover)
-            {
-                Event.current.Use();
-                return true;
-            }
-            return false;
         }
 
         private bool DrawSquareIconBtn(Rect r, string icon, Color color)

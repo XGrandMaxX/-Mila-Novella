@@ -532,26 +532,6 @@ namespace NovellaEngine.Editor.UIBindings
             return s.Length > max ? s.Substring(0, max - 1) + "…" : s;
         }
 
-        // Текст для колонки OnClick→ (legacy одноразовый — оставлен на случай).
-        private static string ActionLabel(NovellaUIBinding b)
-        {
-            if (b == null || b.ClickSequence == null || b.ClickSequence.Count == 0) return "";
-            if (b.ClickSequence.Count == 1)
-            {
-                return StepShortLabel(b.ClickSequence[0]);
-            }
-            // Multi-step — иконки подряд.
-            string s = "";
-            int max = System.Math.Min(4, b.ClickSequence.Count);
-            for (int i = 0; i < max; i++)
-            {
-                var step = b.ClickSequence[i];
-                s += StepIcon(step.Action) + " ";
-            }
-            if (b.ClickSequence.Count > max) s += "+" + (b.ClickSequence.Count - max);
-            return s.Trim();
-        }
-
         private static string StepShortLabel(NovellaUIBinding.ClickActionStep step)
         {
             string ic = StepIcon(step.Action);

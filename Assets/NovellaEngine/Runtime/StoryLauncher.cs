@@ -190,8 +190,6 @@ namespace NovellaEngine.Runtime
             if (panelToShow != null) panelToShow.SetActive(true);
         }
 
-        private void OpenSettings() { Debug.Log("[Novella Engine] ������� ���������."); }
-
         private void ExitGame()
         {
             Application.Quit();
@@ -270,6 +268,35 @@ namespace NovellaEngine.Runtime
             }
 
             ProceedToGameScene(found);
+        }
+
+        // Публичный запуск истории по имени (= NovellaStory.name / SelectedStoryID).
+        // Панель сейвов в главном меню ставит PlayerPrefs("LoadFromSlot") и зовёт
+        // этот метод — ProceedToGameScene подхватит слот, выставит LoadTargetNodeID
+        // и возобновит игру с нужной ноды. Резолв истории — как в ContinueLastSave.
+        public void LaunchStoryByName(string storyName)
+        {
+            if (string.IsNullOrEmpty(storyName))
+            {
+                Debug.LogWarning("[Novella Engine] LaunchStoryByName: пустое имя истории.");
+                return;
+            }
+            NovellaStory found = null;
+            if (SpecificStories != null)
+                foreach (var s in SpecificStories)
+                    if (s != null && s.name == storyName) { found = s; break; }
+            if (found == null)
+            {
+                var all = Resources.LoadAll<NovellaStory>("Stories");
+                foreach (var s in all)
+                    if (s != null && s.name == storyName) { found = s; break; }
+            }
+            if (found == null)
+            {
+                Debug.LogWarning($"[Novella Engine] LaunchStoryByName: история '{storyName}' не найдена (ассет вне Resources/Stories?).");
+                return;
+            }
+            TryLaunchStory(found);
         }
 
         private void LoadStoriesFromResources()

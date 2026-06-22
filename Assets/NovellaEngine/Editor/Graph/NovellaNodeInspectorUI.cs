@@ -43,68 +43,55 @@ namespace NovellaEngine.Editor
 
         public void SetGraphView(NovellaGraphView gv) => _graphView = gv;
 
-        private string DrawVariableDropdown(string currentVar, params GUILayoutOption[] options)
+        // Кнопка выбора переменной → открывает ВИЗУАЛЬНОЕ окно
+        // NovellaVariablePickerWindow (группировка по типам, поиск, иконки)
+        // вместо плоского enum-popup. Значение приходит через callback.
+        private void DrawVariablePicker(string current, Action<string> onPicked, params GUILayoutOption[] options)
         {
             GUILayout.BeginHorizontal();
 
             var settings = NovellaVariableSettings.Instance;
-            if (settings.Variables.Count == 0)
+            if (settings == null || settings.Variables.Count == 0)
             {
-                GUI.backgroundColor = new Color(1f, 0.6f, 0.6f);
-                if (GUILayout.Button(ToolLang.Get("Create Var!", "Создать!"), EditorStyles.popup, options))
-                {
+                if (NovellaInspectorChrome.DrawSlimBtn(ToolLang.Get("+ Create a variable first", "+ Сначала создай переменную"), options))
                     NovellaVariableEditorModule.ShowWindow();
-                }
-                GUI.backgroundColor = Color.white;
                 GUILayout.EndHorizontal();
-                return currentVar;
+                return;
             }
 
-            var realNames = settings.Variables.Select(v => v.Name).ToArray();
-            var displayNames = settings.Variables.Select(v => (v.Type == EVarType.Integer && v.IsPremiumCurrency ? "💎 " : "") + v.Name).ToArray();
+            bool known  = !string.IsNullOrEmpty(current) && settings.Variables.Any(v => v.Name == current);
+            bool orphan = !string.IsNullOrEmpty(current) && !known;
 
-            int idx = Array.IndexOf(realNames, currentVar);
-
-            // ─── Orphan variable detection ──────────────────────────────────
-            // Если переменная задана но в settings её больше нет — НЕ заменяем
-            // молча на первую в списке (как было раньше — это давало невидимые
-            // баги логики). Вставляем «⚠ (missing: name)» первым пунктом и
-            // сохраняем оригинальное имя пока юзер не выберет валидную.
-            bool orphan = !string.IsNullOrEmpty(currentVar) && idx == -1;
-            string[] dropdownNames = displayNames;
+            string label;
             if (orphan)
+                label = ToolLang.Get($"⚠ missing: {current}", $"⚠ нет: {current}");
+            else if (string.IsNullOrEmpty(current))
+                label = ToolLang.Get("📊  — pick variable —", "📊  — выбери переменную —");
+            else
             {
-                dropdownNames = new string[displayNames.Length + 1];
-                dropdownNames[0] = ToolLang.Get($"⚠ (missing: {currentVar})", $"⚠ (нет такой: {currentVar})");
-                System.Array.Copy(displayNames, 0, dropdownNames, 1, displayNames.Length);
-                idx = 0;
+                var def = settings.Variables.FirstOrDefault(v => v.Name == current);
+                string gem = (def != null && def.Type == EVarType.Integer && def.IsPremiumCurrency) ? "💎 " : "";
+                label = "📊  " + gem + current;
             }
-            else if (idx == -1) idx = 0;
 
-            // Подсветка popup'а красным если orphan — сразу видно проблему.
             Color prevBg = GUI.backgroundColor;
             if (orphan) GUI.backgroundColor = new Color(0.95f, 0.55f, 0.40f);
-            int newIdx = EditorGUILayout.Popup(idx, dropdownNames, options);
+            if (GUILayout.Button(label, EditorStyles.popup, options))
+            {
+                NovellaEngine.Editor.UIBindings.NovellaVariablePickerWindow.Open(current, picked =>
+                {
+                    Undo.RecordObject(_currentTree, "Pick Variable");
+                    onPicked?.Invoke(picked);
+                    _onMarkUnsaved?.Invoke();
+                    _window?.Repaint();
+                });
+            }
             GUI.backgroundColor = prevBg;
 
             if (GUILayout.Button("⚙", EditorStyles.miniButton, GUILayout.Width(25), GUILayout.Height(18)))
-            {
-                // Открываем редактор переменных. Если orphan — без выделения,
-                // иначе с фокусом на текущей.
-                NovellaVariableEditorModule.ShowWindow(orphan ? null : realNames[newIdx]);
-            }
+                NovellaVariableEditorModule.ShowWindow(orphan ? null : current);
 
             GUILayout.EndHorizontal();
-
-            // Возвращаем выбор:
-            //   • orphan + остался на «(missing)» (newIdx==0) → НЕ перезаписываем currentVar
-            //   • orphan + выбрал валидную → пишем realNames[newIdx-1]
-            //   • не orphan → пишем realNames[newIdx]
-            if (orphan)
-            {
-                return newIdx == 0 ? currentVar : realNames[newIdx - 1];
-            }
-            return realNames[newIdx];
         }
 
         private EVarType GetVarType(string varName)
@@ -474,7 +461,7 @@ namespace NovellaEngine.Editor
             {
                 if (ev.Target == EAnimTarget.Character)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Characters use custom scene positions (posX, posY) from Dialogue Node. This tween overrides it.", "Персонажи используют позы из ноды Диалога. Этот твин временно перекроет их."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Characters use custom scene positions (posX, posY) from Dialogue Node. This tween overrides it.", "Персонажи используют позы из ноды Диалога. Этот твин временно перекроет их."));
                 }
                 ev.EndVector = EditorGUILayout.Vector2Field(ToolLang.Get("End Position", "Конечная Позиция"), ev.EndVector);
             }
@@ -655,7 +642,7 @@ namespace NovellaEngine.Editor
 
             // Color picker — только для Dialogue/Event/Note (остальные используют
             // глобальные настройки). Слева label «Цвет», справа — color field.
-            if (nodeData.NodeType == ENodeType.Dialogue || nodeData.NodeType == ENodeType.Event || nodeData.NodeType == ENodeType.Note)
+            if (nodeData.NodeType == ENodeType.Dialogue || nodeData.NodeType == ENodeType.Note)
             {
                 var colLblSt = new GUIStyle(EditorStyles.miniLabel) {
                     fontSize = 9, fontStyle = FontStyle.Bold,
@@ -735,6 +722,9 @@ namespace NovellaEngine.Editor
             if (nodeData is WaitNodeData waitData)
             {
                 DrawSectionHeader("⏳", ToolLang.Get("Wait Settings", "Настройки Ожидания"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Pauses the story. 'Time' auto-continues after N seconds; 'User Click' waits for a click/tap. Use it for dramatic beats or 'press to continue' moments.",
+                    "Ставит историю на паузу. «Время» — авто-продолжение через N секунд; «По клику игрока» — ждёт клик/тап. Удобно для драматических пауз или «нажми чтобы продолжить»."));
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
                 EditorGUI.BeginChangeCheck();
@@ -871,10 +861,9 @@ namespace NovellaEngine.Editor
                 DrawSectionHeader("💾", ToolLang.Get("Save Checkpoint", "Сохранение (Чекпоинт)"));
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "Acts as a Checkpoint. When the player reaches this node, the game forcibly saves their progress immediately, ignoring the Auto-Save timer. Great for saving before major branching choices!",
-                    "Работает как Чекпоинт. Когда игрок достигает этой ноды, игра принудительно сохраняет прогресс, игнорируя таймер автосохранения. Идеально ставить перед важными выборами!"
-                ), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Acts as a checkpoint: when the player reaches this node the game saves immediately (ignoring the auto-save timer). Great to place before major branching choices.",
+                    "Работает как чекпоинт: когда игрок достигает этой ноды, игра сразу сохраняется (игнорируя таймер автосохранения). Удобно ставить перед важными выборами."));
 
                 GUILayout.Space(10);
                 GUILayout.Label("✅ " + ToolLang.Get("No configuration needed.", "Настройка не требуется."), EditorStyles.centeredGreyMiniLabel);
@@ -926,6 +915,9 @@ namespace NovellaEngine.Editor
                 }
 
                 DrawSectionHeader("📌", ToolLang.Get("Note Settings", "Настройки Заметки"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "A sticky note for YOU — it organizes the graph and never appears in the game. Use it for comments, to-dos or section labels.",
+                    "Заметка для ТЕБЯ — помогает организовать граф и НЕ появляется в игре. Используй для комментариев, to-do или подписей разделов."));
 
                 EditorGUI.BeginChangeCheck();
 
@@ -1048,10 +1040,9 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(15);
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "💡 Tip: Use 'Background' preset to place image under text. Use offsets to adjust spacing.",
-                    "💡 Подсказка: Пресет 'Background' кладет картинку под текст как водяной знак. Используйте 'Смещение' для точной подгонки."
-                ), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Tip: Use the 'Background' preset to place the image under the text. Use offsets to fine-tune spacing.",
+                    "Подсказка: Пресет 'Background' кладёт картинку под текст как водяной знак. Смещения — для точной подгонки."));
 
                 EndLayout(); return;
             }
@@ -1076,6 +1067,10 @@ namespace NovellaEngine.Editor
                 if (endData.EndAction == EEndAction.LoadNextChapter)
                 {
                     endData.NextChapter = (NovellaTree)EditorGUILayout.ObjectField(ToolLang.Get("Next Chapter:", "След. глава:"), endData.NextChapter, typeof(NovellaTree), false);
+                    if (endData.NextChapter == null)
+                        NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                            "⚠ No next chapter assigned — the game will stop here at runtime. Assign a chapter, or switch to 'Return to Main Menu'.",
+                            "⚠ Следующая глава не назначена — игра остановится здесь. Назначь главу или переключи на «Вернуться в главное меню»."), true);
                 }
                 else if (endData.EndAction == EEndAction.LoadSpecificScene)
                 {
@@ -1093,7 +1088,7 @@ namespace NovellaEngine.Editor
 
                     if (sceneNames.Count == 0)
                     {
-                        EditorGUILayout.HelpBox(ToolLang.Get("Add scenes to File -> Build Settings first!", "Сначала добавьте сцены в File -> Build Settings!"), MessageType.Warning);
+                        NovellaInspectorChrome.DrawWarn(ToolLang.Get("Add scenes to File -> Build Settings first!", "Сначала добавьте сцены в File -> Build Settings!"), true);
 
                         if (GUILayout.Button("🛠 " + ToolLang.Get("Open Scene Manager", "Открыть Менеджер Сцен"), EditorStyles.miniButton, GUILayout.Height(25)))
                         {
@@ -1153,10 +1148,9 @@ namespace NovellaEngine.Editor
 
                         if (orphan)
                         {
-                            EditorGUILayout.HelpBox(ToolLang.Get(
+                            NovellaInspectorChrome.DrawWarn(ToolLang.Get(
                                 "The previously selected scene is no longer in Build Settings. The end node will fail at runtime — pick a valid scene above.",
-                                "Ранее выбранная сцена больше не в Build Settings. Нода End сломается в рантайме — выбери валидную сцену выше."),
-                                MessageType.Warning);
+                                "Ранее выбранная сцена больше не в Build Settings. Нода End сломается в рантайме — выбери валидную сцену выше."), true);
                         }
                     }
                 }
@@ -1171,6 +1165,9 @@ namespace NovellaEngine.Editor
             if (nodeData is AudioNodeData audData)
             {
                 DrawSectionHeader("🎵", ToolLang.Get("Audio Settings", "Настройки звука"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Plays or stops music / sound. Pick a clip, the channel (Music or SFX) and the action. Turn on 'Sync with dialogue' to fire sounds on specific lines.",
+                    "Проигрывает или останавливает музыку / звук. Выбери клип, канал (Музыка или SFX) и действие. Включи «Синхр. с диалогом» чтобы запускать звуки на конкретных репликах."));
                 EditorGUIUtility.labelWidth = 130; EditorGUI.BeginChangeCheck();
 
                 DialogueNodeData syncedDialogue = _currentTree.Nodes.OfType<DialogueNodeData>().FirstOrDefault(n => n.AudioSyncNodeID == audData.NodeID);
@@ -1178,7 +1175,7 @@ namespace NovellaEngine.Editor
 
                 if (!audData.SyncWithDialogue)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Standard sequential mode. Connect to Dialogue 'Audio Sync' port for advanced features.", "Обычный режим. Подключите к порту 'Audio Sync' Диалога для продвинутых фишек."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Standard sequential mode. Connect to Dialogue 'Audio Sync' port for advanced features.", "Обычный режим. Подключите к порту 'Audio Sync' Диалога для продвинутых фишек."));
 
                     GUILayout.BeginVertical(EditorStyles.helpBox);
                     audData.AudioChannel = (EAudioChannel)EditorGUILayout.EnumPopup(ToolLang.Get("Channel", "Канал"), audData.AudioChannel);
@@ -1187,7 +1184,7 @@ namespace NovellaEngine.Editor
                     if (audData.AudioChannel == EAudioChannel.BGM) channelInfo = ToolLang.Get("BGM - Background Music (Loops usually).", "BGM - Фоновая музыка (музыка сцены).");
                     else if (audData.AudioChannel == EAudioChannel.SFX) channelInfo = ToolLang.Get("SFX - Sound Effects (Steps, clicks, etc).", "SFX - Звуковые эффекты (шаги, удары и т.д).");
                     else if (audData.AudioChannel == EAudioChannel.Voice) channelInfo = ToolLang.Get("Voice - Character Voiceover.", "Voice - Озвучка персонажей.");
-                    EditorGUILayout.HelpBox(channelInfo, MessageType.None);
+                    NovellaInspectorChrome.DrawHint(channelInfo);
                     GUILayout.EndVertical();
 
                     GUILayout.Space(5);
@@ -1214,6 +1211,11 @@ namespace NovellaEngine.Editor
                         if (GUILayout.Button("✖", GUILayout.Width(25))) { Undo.RecordObject(_currentTree, "Clear Audio"); audData.AudioAsset = null; selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); }
                         GUI.backgroundColor = Color.white;
                         GUILayout.EndHorizontal();
+
+                        if (audData.AudioAsset == null)
+                            NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                                "⚠ No audio clip selected — nothing will play at this node.",
+                                "⚠ Аудиоклип не выбран — на этой ноде ничего не проиграется."), true);
 
                         audData.AudioVolume = EditorGUILayout.Slider(ToolLang.Get("Volume", "Громкость"), audData.AudioVolume, 0f, 1f);
                     }
@@ -1273,7 +1275,7 @@ namespace NovellaEngine.Editor
                         if (ev.AudioChannel == EAudioChannel.BGM) evChannelInfo = ToolLang.Get("BGM - Background Music (Loops usually).", "BGM - Фоновая музыка (музыка сцены).");
                         else if (ev.AudioChannel == EAudioChannel.SFX) evChannelInfo = ToolLang.Get("SFX - Sound Effects (Steps, clicks, etc).", "SFX - Звуковые эффекты (шаги, удары и т.д).");
                         else if (ev.AudioChannel == EAudioChannel.Voice) evChannelInfo = ToolLang.Get("Voice - Character Voiceover.", "Voice - Озвучка персонажей.");
-                        EditorGUILayout.HelpBox(evChannelInfo, MessageType.None);
+                        NovellaInspectorChrome.DrawHint(evChannelInfo);
                         GUILayout.EndVertical();
 
                         ev.AudioAction = (EAudioAction)EditorGUILayout.EnumPopup(ToolLang.Get("Action", "Действие"), ev.AudioAction);
@@ -1316,6 +1318,9 @@ namespace NovellaEngine.Editor
             if (nodeData is VariableNodeData varData)
             {
                 DrawSectionHeader("📊", ToolLang.Get("Variables List", "Список переменных"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Changes story variables (money, reputation, flags) the moment the story reaches this node. The player sees nothing — it runs instantly and moves on.",
+                    "Меняет переменные истории (деньги, репутацию, флаги) как только сюжет доходит до этой ноды. Игрок ничего не видит — срабатывает мгновенно и идёт дальше."));
 
                 if (varData.Variables.Count == 0) varData.Variables.Add(new VariableUpdate());
 
@@ -1338,10 +1343,22 @@ namespace NovellaEngine.Editor
 
                     GUILayout.BeginHorizontal();
                     GUILayout.Label(ToolLang.Get("Name", "Имя"), GUILayout.Width(50));
-                    v.VariableName = DrawVariableDropdown(v.VariableName, GUILayout.ExpandWidth(true));
+                    DrawVariablePicker(v.VariableName, picked => v.VariableName = picked, GUILayout.ExpandWidth(true));
                     GUILayout.EndHorizontal();
 
                     EVarType type = GetVarType(v.VariableName);
+
+                    // Предупреждение: переменная выбрана, но её нет в Менеджере
+                    // переменных (переименована/удалена) → в игре изменение
+                    // молча пропустится.
+                    if (!string.IsNullOrEmpty(v.VariableName)
+                        && NovellaVariableSettings.Instance != null
+                        && !NovellaVariableSettings.Instance.Variables.Any(d => d.Name == v.VariableName))
+                    {
+                        NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                            "⚠ This variable no longer exists in the Variable Manager — the change will be silently skipped in game. Pick an existing variable.",
+                            "⚠ Этой переменной больше нет в Менеджере переменных — изменение молча пропустится в игре. Выбери существующую."), true);
+                    }
 
                     GUILayout.BeginHorizontal();
                     if (type == EVarType.Integer)
@@ -1439,6 +1456,9 @@ namespace NovellaEngine.Editor
             if (nodeData is ConditionNodeData condData)
             {
                 DrawSectionHeader("❓", ToolLang.Get("Condition Logic", "Логика Условия (If/Else)"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Automatically sends the story down the True or False branch — no player choice. Use it for things like \"if the player has the key, open the door\".",
+                    "Автоматически направляет историю по ветке Истина или Ложь — без выбора игрока. Например: «если у игрока есть ключ — открыть дверь»."));
 
                 if (condData.Conditions.Count == 0) condData.Conditions.Add(new ChoiceCondition());
 
@@ -1449,7 +1469,7 @@ namespace NovellaEngine.Editor
                     GUILayout.BeginHorizontal();
 
                     GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), EditorStyles.boldLabel, GUILayout.Width(40));
-                    cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
+                    DrawVariablePicker(cond.Variable, picked => cond.Variable = picked, GUILayout.ExpandWidth(true));
 
                     EVarType type = GetVarType(cond.Variable);
                     DrawConditionOperatorAndValue(cond.Variable, cond, opW: 50, valW: 80);
@@ -1475,10 +1495,19 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "If ALL conditions above are met, the story goes to the 'True' port. Otherwise, it goes to 'False'.",
-                    "Если ВСЕ условия выше выполняются, сюжет пойдет по ветке 'Истина' (True). Иначе — по ветке 'Ложь' (False)."
-                ), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "If ALL conditions above are met, the story goes to the 'True' port. Otherwise — the 'False' port.",
+                    "Если ВСЕ условия выше выполняются — сюжет идёт по ветке 'Истина' (True). Иначе — по ветке 'Ложь' (False)."));
+
+                // Предупреждение: неподключённая ветка = молчаливый тупик в игре.
+                bool trueWired  = condData.Choices != null && condData.Choices.Count > 0 && !string.IsNullOrEmpty(condData.Choices[0].NextNodeID);
+                bool falseWired = condData.Choices != null && condData.Choices.Count > 1 && !string.IsNullOrEmpty(condData.Choices[1].NextNodeID);
+                if (!trueWired || !falseWired)
+                {
+                    NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                        "⚠ A branch is not connected. If the story takes an unconnected branch, it will STOP. Connect both the True and False ports in the graph.",
+                        "⚠ Ветка не подключена. Если сюжет пойдёт по неподключённой ветке — он ОСТАНОВИТСЯ. Подключи оба порта (Истина и Ложь) в графе."), true);
+                }
 
                 EndLayout(); return;
             }
@@ -1489,6 +1518,9 @@ namespace NovellaEngine.Editor
             if (nodeData is RandomNodeData rndData)
             {
                 DrawSectionHeader("🎲", ToolLang.Get("Random Chances", "Случайные события (Шанс)"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Randomly picks ONE outcome, like a weighted dice roll. Higher weight = more likely. Each outcome connects to its own branch. Great for random events.",
+                    "Случайно выбирает ОДИН исход, как взвешенный бросок кубика. Больше вес = выше шанс. Каждый исход ведёт в свою ветку. Удобно для случайных событий."));
 
                 int totalMaxWeight = rndData.Choices.Sum(c => c.ChanceWeight + c.ChanceModifiers.Sum(m => m.BonusWeight));
 
@@ -1526,7 +1558,7 @@ namespace NovellaEngine.Editor
 
                         GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), GUILayout.Width(35));
 
-                        mod.Variable = DrawVariableDropdown(mod.Variable, GUILayout.ExpandWidth(true), GUILayout.MinWidth(80));
+                        DrawVariablePicker(mod.Variable, picked => mod.Variable = picked, GUILayout.ExpandWidth(true), GUILayout.MinWidth(80));
 
                         EVarType type = GetVarType(mod.Variable);
                         DrawConditionOperatorAndValue(mod.Variable, mod, opW: 45, valW: 50);
@@ -1555,14 +1587,13 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "💡 How it works:\n• Base Weight: Default probability.\n• Modifiers: Add EXTRA weight if true.\n• Chance = (Weight / Total Weight) * 100%\n\n% shown above calculates the MAX chance if all conditions apply.",
-                    "💡 Как это работает:\n• Базовый Вес: Стандартная доля вероятности.\n• Модификаторы: Дают ЭКСТРА вес, если условие истинно.\n• Шанс = (Вес / Сумма всех весов) * 100%\n\nПроценты (%) выше показывают МАКСИМАЛЬНЫЙ шанс, если все условия сработают."
-                ), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "How it works: Base Weight = default share. Modifiers add EXTRA weight when their condition is true. Chance = Weight / Total Weight. The % shown above is the MAX chance if all modifiers apply.",
+                    "Как это работает: Базовый Вес — стандартная доля. Модификаторы дают ЭКСТРА вес если их условие истинно. Шанс = Вес / Сумма всех весов. Процент выше — МАКСИМАЛЬНЫЙ шанс если все модификаторы сработают."));
 
                 if (rndData.Choices.Count >= 4 && !rndData.UnlockChoiceLimit)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Default limit of 4 choices reached.", "Достигнут базовый лимит (4 выхода)."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Default limit of 4 outcomes reached.", "Достигнут базовый лимит (4 исхода)."));
                     if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять ограничение"), EditorStyles.miniButton, GUILayout.Height(25))) { Undo.RecordObject(_currentTree, "Unlock Choice"); rndData.UnlockChoiceLimit = true; _onMarkUnsaved?.Invoke(); }
                 }
                 else { if (GUILayout.Button($"+ {ToolLang.Get("Add Chance", "Добавить шанс")}", EditorStyles.miniButton, GUILayout.Height(30))) { Undo.RecordObject(_currentTree, "Add Choice"); rndData.Choices.Add(new NovellaChoice() { ChanceWeight = 50 }); _serializedObject.Update(); selectedNodeView.DrawBranchPorts(); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); } }
@@ -1575,6 +1606,9 @@ namespace NovellaEngine.Editor
             if (nodeData is BranchNodeData branchData)
             {
                 DrawSectionHeader("🔀", $"{ToolLang.Get("Branch Choices", "Варианты выбора")} ({_window.PreviewLanguage})");
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "The player picks ONE option. Each choice connects to its own branch — if a choice's output isn't connected, the story ends there. Add conditions to show a choice only when a variable matches.",
+                    "Игрок выбирает ОДИН вариант. Каждый выбор ведёт в свою ветку — если выход выбора ни к чему не подключён, на нём история закончится. Добавь условия чтобы показывать выбор только когда переменная подходит."));
 
                 GUILayout.BeginHorizontal(EditorStyles.helpBox);
                 GUILayout.Label(ToolLang.Get("Custom Button Prefab:", "Кастомный префаб кнопок:"), EditorStyles.miniBoldLabel, GUILayout.Width(170));
@@ -1613,7 +1647,7 @@ namespace NovellaEngine.Editor
 
                     EditorGUI.BeginChangeCheck();
                     string currentText = choice.LocalizedText.GetText(_window.PreviewLanguage);
-                    string newText = EditorGUILayout.TextField("Text", currentText);
+                    string newText = EditorGUILayout.TextField(ToolLang.Get("Button text", "Текст кнопки"), currentText);
 
                     GUILayout.Space(5);
 
@@ -1633,7 +1667,7 @@ namespace NovellaEngine.Editor
                             GUILayout.BeginHorizontal();
 
                             GUILayout.Label(ToolLang.Get("IF", "ЕСЛИ"), GUILayout.Width(35));
-                            cond.Variable = DrawVariableDropdown(cond.Variable, GUILayout.ExpandWidth(true));
+                            DrawVariablePicker(cond.Variable, picked => cond.Variable = picked, GUILayout.ExpandWidth(true));
 
                             EVarType type = GetVarType(cond.Variable);
                             DrawConditionOperatorAndValue(cond.Variable, cond, opW: 50, valW: 80);
@@ -1669,14 +1703,13 @@ namespace NovellaEngine.Editor
                 }
 
                 GUILayout.Space(10);
-                EditorGUILayout.HelpBox(ToolLang.Get(
-                    "💡 Info: If a choice has multiple conditions, ALL of them must be met (AND logic).",
-                    "💡 Инфо: Если у выбора несколько условий, они все должны быть выполнены (логика И)."
-                ), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "If a choice has multiple conditions, ALL of them must be met (AND logic).",
+                    "Если у выбора несколько условий, все они должны быть выполнены (логика И)."));
 
                 if (branchData.Choices.Count >= 4 && !branchData.UnlockChoiceLimit)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Default limit of 4 choices reached.", "Достигнут базовый лимит (4 выбора)."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Default limit of 4 choices reached.", "Достигнут базовый лимит (4 выбора)."));
                     if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять ограничение"), EditorStyles.miniButton, GUILayout.Height(25))) { Undo.RecordObject(_currentTree, "Unlock Choice"); branchData.UnlockChoiceLimit = true; _onMarkUnsaved?.Invoke(); }
                 }
                 else { if (GUILayout.Button($"+ {ToolLang.Get("Add Choice", "Добавить выбор")}", EditorStyles.miniButton, GUILayout.Height(30))) { Undo.RecordObject(_currentTree, "Add Choice"); branchData.Choices.Add(new NovellaChoice()); _serializedObject.Update(); selectedNodeView.DrawBranchPorts(); selectedNodeView.RefreshVisuals(); _onMarkUnsaved?.Invoke(); } }
@@ -1689,6 +1722,9 @@ namespace NovellaEngine.Editor
             if (nodeData is SceneSettingsNodeData sceneData)
             {
                 DrawSectionHeader("🎬", ToolLang.Get("Scene Settings", "Настройки Сцены"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Sets the background and arranges characters on stage. Turn on 'Sync with dialogue' to apply changes on specific lines.",
+                    "Задаёт фон и расставляет персонажей на сцене. Включи «Синхр. с диалогом» чтобы применять изменения на конкретных репликах."));
                 EditorGUIUtility.labelWidth = 130;
                 EditorGUI.BeginChangeCheck();
 
@@ -1697,10 +1733,9 @@ namespace NovellaEngine.Editor
 
                 if (!sceneData.SyncWithDialogue)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get(
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get(
                         "Standalone mode. Changes the visual backdrop before moving to the next node.",
-                        "Одиночный режим. Меняет фон перед переходом к следующей ноде."
-                    ), MessageType.Info);
+                        "Одиночный режим. Меняет фон перед переходом к следующей ноде."));
                     GUILayout.Space(10);
 
                     GUILayout.BeginVertical(EditorStyles.helpBox);
@@ -1751,10 +1786,9 @@ namespace NovellaEngine.Editor
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get(
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get(
                         "Synced with Dialogue. Tie scene changes (backgrounds, hiding characters) to specific lines.",
-                        "Синхронизировано с Диалогом. Привяжите изменения сцены к конкретным репликам."
-                    ), MessageType.Info);
+                        "Синхронизировано с Диалогом. Привяжите изменения сцены к конкретным репликам."));
                     GUILayout.Space(5);
 
                     for (int i = 0; i < sceneData.SceneEvents.Count; i++)
@@ -1846,9 +1880,22 @@ namespace NovellaEngine.Editor
 
                             ev.BgColor = EditorGUILayout.ColorField(ToolLang.Get("Color", "Цвет"), ev.BgColor);
 
-                            string[] transNames = { ToolLang.Get("None", "Нет"), ToolLang.Get("Fade", "Растворение"), ToolLang.Get("Slide Left", "Сдвиг Влево"), ToolLang.Get("Slide Right", "Сдвиг Вправо"), ToolLang.Get("Flash White", "Вспышка (Белая)"), ToolLang.Get("Flash Black", "Вспышка (Черная)") };
-                            ev.BgTransition = (EBgTransition)EditorGUILayout.Popup(ToolLang.Get("Transition", "Переход"), (int)ev.BgTransition, transNames);
-                            if (ev.BgTransition != EBgTransition.None) ev.BgTransitionTime = Mathf.Max(0.1f, EditorGUILayout.FloatField(ToolLang.Get("Duration", "Время"), ev.BgTransitionTime));
+                            // Переход применяется ТОЛЬКО для несинхронизированной
+                            // ноды. При «Синхр. с диалогом» рантайм меняет фон
+                            // мгновенно и BgTransition игнорирует — поэтому
+                            // прячем контрол, чтобы не вводить в заблуждение.
+                            if (!sceneData.SyncWithDialogue)
+                            {
+                                string[] transNames = { ToolLang.Get("None", "Нет"), ToolLang.Get("Fade", "Растворение"), ToolLang.Get("Slide Left", "Сдвиг Влево"), ToolLang.Get("Slide Right", "Сдвиг Вправо"), ToolLang.Get("Flash White", "Вспышка (Белая)"), ToolLang.Get("Flash Black", "Вспышка (Черная)") };
+                                ev.BgTransition = (EBgTransition)EditorGUILayout.Popup(ToolLang.Get("Transition", "Переход"), (int)ev.BgTransition, transNames);
+                                if (ev.BgTransition != EBgTransition.None) ev.BgTransitionTime = Mathf.Max(0.1f, EditorGUILayout.FloatField(ToolLang.Get("Duration", "Время"), ev.BgTransitionTime));
+                            }
+                            else
+                            {
+                                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                                    "Synced with dialogue: the background changes instantly — transition effects aren't applied here.",
+                                    "Синхронизировано с диалогом: фон меняется мгновенно — эффекты перехода здесь не применяются."));
+                            }
                         }
                         else if (ev.ActionType == ESceneActionType.ShowUI ||
                                  ev.ActionType == ESceneActionType.HideUI ||
@@ -1904,7 +1951,7 @@ namespace NovellaEngine.Editor
 
                     if (sceneData.SceneEvents.Count >= 4 && !sceneData.UnlockLimit)
                     {
-                        EditorGUILayout.HelpBox(ToolLang.Get("Default limit of 4 events reached.", "Достигнут базовый лимит (4 события)."), MessageType.Warning);
+                        NovellaInspectorChrome.DrawWarn(ToolLang.Get("Default limit of 4 events reached.", "Достигнут базовый лимит (4 события)."), true);
                         if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять ограничение"), EditorStyles.miniButton, GUILayout.Height(25)))
                         {
                             Undo.RecordObject(_currentTree, "Unlock Scene Events");
@@ -1943,22 +1990,25 @@ namespace NovellaEngine.Editor
             if (nodeData is AnimationNodeData animData)
             {
                 DrawSectionHeader("✨", ToolLang.Get("Animation Sequence", "Настройки Анимаций"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Plays visual effects (shake, fade, move, scale…) on the camera, background or a character. Turn on 'Sync with dialogue' to fire effects on specific lines.",
+                    "Проигрывает визуальные эффекты (тряска, затухание, движение, масштаб…) на камере, фоне или персонаже. Включи «Синхр. с диалогом» чтобы запускать эффекты на конкретных репликах."));
 
                 DialogueNodeData syncedDialogue = _currentTree.Nodes.OfType<DialogueNodeData>().FirstOrDefault(n => n.AnimSyncNodeID == animData.NodeID);
                 animData.SyncWithDialogue = (syncedDialogue != null);
 
                 if (animData.SyncWithDialogue)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Synced with Dialogue. Tie animations to specific lines.", "Синхронизировано с Диалогом. Привяжите анимации к конкретным репликам."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Synced with Dialogue. Tie animations to specific lines.", "Синхронизировано с Диалогом. Привяжите анимации к конкретным репликам."));
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Standalone mode. Animations will play sequentially or by time delay.", "Обычный режим. Анимации проиграются по очереди или по задержке времени."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Standalone mode. Animations will play sequentially or by time delay.", "Обычный режим. Анимации проиграются по очереди или по задержке времени."));
                 }
 
                 if (animData.AnimEvents.Count == 0)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("No animations added.", "Нет добавленных анимаций."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("No animations added.", "Нет добавленных анимаций."));
                 }
                 else
                 {
@@ -1971,7 +2021,7 @@ namespace NovellaEngine.Editor
                 int animLimit = 4;
                 if (!animData.SyncWithDialogue && animData.AnimEvents.Count >= animLimit && !animData.UnlockAnimLimit)
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get("Default limit of 4 animations reached.", "Достигнут базовый лимит (4 анимации)."), MessageType.Warning);
+                    NovellaInspectorChrome.DrawWarn(ToolLang.Get("Default limit of 4 animations reached.", "Достигнут базовый лимит (4 анимации)."), true);
                     if (GUILayout.Button(ToolLang.Get("🔓 Remove Limit", "🔓 Снять ограничение"), EditorStyles.miniButton, GUILayout.Height(25)))
                     {
                         Undo.RecordObject(_currentTree, "Unlock Anim");
@@ -2001,6 +2051,9 @@ namespace NovellaEngine.Editor
             if (nodeData is EventBroadcastNodeData ebData)
             {
                 DrawSectionHeader("⚡", ToolLang.Get("Event Broadcast", "Вызов Внешнего События"));
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
+                    "Sends a signal to your game's C# code — e.g. give an item, start a minigame, unlock something. Just type a unique Event ID; the code recipe below is for programmers (optional).",
+                    "Посылает сигнал в C#-код твоей игры — например выдать предмет, запустить миниигру, что-то разблокировать. Просто впиши уникальный ID события; рецепт кода ниже — для программистов (опционально)."));
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
                 GUIStyle codeStyle = new GUIStyle(EditorStyles.label) { richText = true, wordWrap = true, fontSize = 12 };
@@ -2036,6 +2089,11 @@ namespace NovellaEngine.Editor
                 ebData.BroadcastEventName = EditorGUILayout.TextField(new GUIContent(ToolLang.Get("Event ID (String)", "ID События (Строка)"), ToolLang.Get("Exact match with 'id' in your C# code", "Точное совпадение с параметром id в вашем C# коде")), ebData.BroadcastEventName);
                 ebData.BroadcastEventParam = EditorGUILayout.TextField(new GUIContent(ToolLang.Get("Parameter (Optional)", "Параметр (Опционально)"), ToolLang.Get("Passed as 'string param'. Parse it to int/bool if needed.", "Передается как string param. В коде можно конвертировать через int.Parse() и т.д.")), ebData.BroadcastEventParam);
                 EditorGUIUtility.labelWidth = lwEv;
+
+                if (string.IsNullOrWhiteSpace(ebData.BroadcastEventName))
+                    NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                        "⚠ Event ID is empty — your code won't be able to catch this event. Give it a unique name.",
+                        "⚠ ID события пустой — твой код не сможет поймать это событие. Задай уникальное имя."), true);
 
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -2465,10 +2523,9 @@ namespace NovellaEngine.Editor
                 DrawSectionHeader("👗", ToolLang.Get("Wardrobe Settings", "Настройки Гардероба"));
                 GUILayout.BeginVertical(EditorStyles.helpBox);
 
-                EditorGUILayout.HelpBox(ToolLang.Get(
+                NovellaInspectorChrome.DrawHint(ToolLang.Get(
                     "This node opens the Wardrobe UI in-game. \n\n• STANDARD MODE: Opens full wardrobe for the player to mix and match.\n• GIFT MODE: Gives the player a choice of specific items (like a lootbox).",
-                    "Эта нода открывает интерфейс Гардероба в игре. \n\n• СТАНДАРТНЫЙ РЕЖИМ: Открывает полный гардероб для переодевания.\n• РЕЖИМ ПОДАРКА: Дает игроку выбор из конкретных предметов (как сундук с лутом)."
-                ), MessageType.Info);
+                    "Эта нода открывает интерфейс Гардероба в игре. \n\n• СТАНДАРТНЫЙ РЕЖИМ: Открывает полный гардероб для переодевания.\n• РЕЖИМ ПОДАРКА: Дает игроку выбор из конкретных предметов (как сундук с лутом)."));
                 GUILayout.Space(10);
 
                 EditorGUI.BeginChangeCheck();
@@ -2571,7 +2628,7 @@ namespace NovellaEngine.Editor
                 else
                 {
                     GUILayout.Space(5);
-                    EditorGUILayout.HelpBox(ToolLang.Get("Standard Mode: Opens the wardrobe screen with all currently unlocked items for the selected character.", "Стандартный режим: Открывает экран гардероба со всеми доступными вещами для выбранного персонажа."), MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get("Standard Mode: Opens the wardrobe screen with all currently unlocked items for the selected character.", "Стандартный режим: Открывает экран гардероба со всеми доступными вещами для выбранного персонажа."));
                 }
 
                 if (EditorGUI.EndChangeCheck())
@@ -2604,16 +2661,15 @@ namespace NovellaEngine.Editor
                 // Раньше юзер видел голые поля без объяснения что это вообще за нода.
                 if (!string.IsNullOrEmpty(dlcDesc))
                 {
-                    EditorGUILayout.HelpBox(dlcDesc, MessageType.Info);
+                    NovellaInspectorChrome.DrawHint(dlcDesc);
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox(ToolLang.Get(
+                    NovellaInspectorChrome.DrawHint(ToolLang.Get(
                         "This is a DLC node — its fields come from a third-party module. " +
                         "Hover over each field name to see its description (if the DLC author provided one).",
                         "Это DLC-нода — её поля приходят из стороннего модуля. " +
-                        "Наведи мышь на название поля чтобы увидеть подсказку (если автор DLC её написал)."),
-                        MessageType.None);
+                        "Наведи мышь на название поля чтобы увидеть подсказку (если автор DLC её написал)."));
                 }
 
                 GUILayout.BeginVertical(EditorStyles.helpBox);
@@ -2694,7 +2750,7 @@ namespace NovellaEngine.Editor
             if (hasPlayer)
             {
                 DrawSectionHeader("🚀", ToolLang.Get("SCENE READY", "СЦЕНА ГОТОВА К РАБОТЕ"));
-                EditorGUILayout.HelpBox(ToolLang.Get("NovellaPlayer detected. Scene is fully linked.", "NovellaPlayer найден. Сцена подключена."), MessageType.Info);
+                NovellaInspectorChrome.DrawHint(ToolLang.Get("NovellaPlayer detected. Scene is fully linked.", "NovellaPlayer найден. Сцена подключена."));
                 // Раньше тут была фиолетовая кнопка «Редактор UI» — убрана,
                 // т.к. Кузница UI открывалась криво из этого контекста.
                 // Юзер открывает её из Tools / Novella Studio.
@@ -2724,10 +2780,9 @@ namespace NovellaEngine.Editor
             DrawSectionHeader("💾", ToolLang.Get("AUTO-SAVE", "АВТОСОХРАНЕНИЕ"));
             GUILayout.BeginVertical(EditorStyles.helpBox);
 
-            EditorGUILayout.HelpBox(ToolLang.Get(
+            NovellaInspectorChrome.DrawHint(ToolLang.Get(
                 "Auto-Save silently records the player's progress in the background every X seconds. When they click 'Continue' in the Main Menu, the story resumes from the last saved node.",
-                "Автосохранение незаметно записывает прогресс игрока каждые X секунд. При нажатии на карточку истории в Главном меню игра продолжится с этого места."
-            ), MessageType.Info);
+                "Автосохранение незаметно записывает прогресс игрока каждые X секунд. При нажатии на карточку истории в Главном меню игра продолжится с этого места."));
 
             EditorGUI.BeginChangeCheck();
             _currentTree.EnableAutoSave = EditorGUILayout.ToggleLeft(ToolLang.Get(" Enable Auto-Save (Timer)", " Включить автосохранение по таймеру"), _currentTree.EnableAutoSave, EditorStyles.boldLabel);
@@ -2745,10 +2800,9 @@ namespace NovellaEngine.Editor
                 if (_currentTree.AutoSaveInterval < 10f)
                 {
                     GUILayout.Space(5);
-                    EditorGUILayout.HelpBox(ToolLang.Get(
-                        "Warning: An interval of less than 10 seconds may cause micro-stutters on mobile devices due to frequent file writing. 15-30 seconds is recommended.",
-                        "Внимание: Интервал менее 10 секунд может вызывать микро-фризы на слабых мобильных устройствах из-за частой записи в память. Рекомендуется 15-30 секунд."
-                    ), MessageType.Warning);
+                    NovellaInspectorChrome.DrawWarn(ToolLang.Get(
+                        "An interval below 10 seconds may cause micro-stutters on mobile devices due to frequent file writing. 15-30 seconds is recommended.",
+                        "Интервал менее 10 секунд может вызывать микро-фризы на слабых мобильных устройствах из-за частой записи в память. Рекомендуется 15-30 секунд."), true);
                 }
             }
 

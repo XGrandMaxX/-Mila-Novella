@@ -156,25 +156,6 @@ namespace NovellaEngine.Editor
             return new ActionMeta { Action = a, Icon = "?", LabelRU = a.ToString(), LabelEN = a.ToString() };
         }
 
-        private static string CategoryNameRU(ActionCategory c) => c switch
-        {
-            ActionCategory.Game       => "🎮 Игра",
-            ActionCategory.Navigation => "🧭 Навигация",
-            ActionCategory.System     => "⚙ Система",
-            ActionCategory.Data       => "📊 Данные",
-            ActionCategory.Audio      => "🔊 Звук",
-            _                         => "📦 Прочее",
-        };
-        private static string CategoryNameEN(ActionCategory c) => c switch
-        {
-            ActionCategory.Game       => "🎮 Game",
-            ActionCategory.Navigation => "🧭 Navigation",
-            ActionCategory.System     => "⚙ System",
-            ActionCategory.Data       => "📊 Data",
-            ActionCategory.Audio      => "🔊 Audio",
-            _                         => "📦 Other",
-        };
-
         // ════════════════════════════════════════════════════════════════════
         // PUBLIC: главная точка входа из Logic-таба.
         // ════════════════════════════════════════════════════════════════════
@@ -1171,33 +1152,5 @@ namespace NovellaEngine.Editor
             GUILayout.Space(2);
         }
 
-        private static void ShowAllBindingsMenu(NovellaUIBinding source, NovellaUIBinding.ClickActionStep step)
-        {
-            var menu = new GenericMenu();
-            var all = UnityEngine.Object.FindObjectsByType<NovellaUIBinding>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            menu.AddItem(new GUIContent(ToolLang.Get("(none)", "(не задано)")), string.IsNullOrEmpty(step.TargetBindingId), () =>
-            {
-                Undo.RecordObject(source, "Clear target");
-                step.TargetBindingId = "";
-                EditorUtility.SetDirty(source);
-            });
-            menu.AddSeparator("");
-            foreach (var b in all)
-            {
-                if (b == null || b == source) continue;
-                string id = b.Id;
-                string display = string.IsNullOrEmpty(b.Name) ? b.gameObject.name : b.Name;
-                var capId = id;
-                menu.AddItem(new GUIContent(display + "    [" + id + "]"),
-                    step.TargetBindingId == capId,
-                    () =>
-                    {
-                        Undo.RecordObject(source, "Pick target");
-                        step.TargetBindingId = capId;
-                        EditorUtility.SetDirty(source);
-                    });
-            }
-            menu.ShowAsContext();
-        }
     }
 }

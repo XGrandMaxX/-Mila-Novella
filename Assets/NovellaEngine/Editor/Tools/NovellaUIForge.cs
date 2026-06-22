@@ -168,9 +168,6 @@ namespace NovellaEngine.Editor
         // в фокусе. Список prefab'ов слева, тот же canvas-redaktor по центру.
         private enum ForgeMode { Scene, Prefabs }
         private ForgeMode _mode = ForgeMode.Scene;
-        // Текущий префаб который редактируется (загружен в mock-сцену).
-        // null если режим Prefabs пустой / только-что зашли.
-        private GameObject _currentPrefabAsset;
         private Vector2 _prefabsListScroll;
         // Кэш списка префабов в Gallery/Prefabs — обновляется при входе в режим
         // и после действий create/delete.
@@ -2675,6 +2672,17 @@ namespace NovellaEngine.Editor
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => {
                 _selectedList.Clear(); _selectedList.Add(parent); CreatePanel();
             });
+            menu.AddItem(new GUIContent(ToolLang.Get("📜 Scroll View", "📜 Прокрутка")), false, () => {
+                _selectedList.Clear(); _selectedList.Add(parent); CreateScrollView();
+            });
+            menu.AddSeparator("");
+            // Готовые Novella-пресеты — для быстрой сборки сцены диалога.
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/💬 Dialogue Panel", "Novella/💬 Панель диалога")), false, () => {
+                _selectedList.Clear(); _selectedList.Add(parent); CreateDialoguePanel();
+            });
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/🎭 Characters Container", "Novella/🎭 Контейнер персонажей")), false, () => {
+                _selectedList.Clear(); _selectedList.Add(parent); CreateCharactersContainer();
+            });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📦 Prefab…", "📦 Префаб…")), false, () => {
                 _selectedList.Clear(); _selectedList.Add(parent);
@@ -2872,6 +2880,245 @@ namespace NovellaEngine.Editor
             var img = go.AddComponent<Image>();
             img.color = new Color(0.10f, 0.11f, 0.15f, 0.85f);
             PlaceUnderParent(go, new Vector2(420, 220), "Create Panel");
+        }
+
+        // ScrollView — готовая прокручиваемая область с подложкой,
+        // маской, Content + дефолтным TMP внутри. Используется когда
+        // в реплике/панели может быть много текста: содержимое
+        // прокручивается, а размер контейнера остаётся фиксированным.
+        // Структура: ScrollView → Viewport (Mask) → Content → Text.
+        private void CreateScrollView()
+        {
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Create ScrollView");
+
+            string locName = ToolLang.Get("Scroll View", "Прокрутка");
+            var go = new GameObject(locName);
+            var bg = go.AddComponent<Image>();
+            bg.color = new Color(0.10f, 0.11f, 0.15f, 0.85f);
+            bg.raycastTarget = true;
+            var scrollRect = go.AddComponent<ScrollRect>();
+            var rt = PlaceUnderParent(go, new Vector2(420, 240), "Create ScrollView");
+            if (rt == null) return;
+
+            // Viewport — маска. Обязательно с Image (иначе Mask не работает).
+            var viewportGo = new GameObject(ToolLang.Get("Viewport", "Окно прокрутки"));
+            viewportGo.transform.SetParent(go.transform, false);
+            var viewportRT = viewportGo.AddComponent<RectTransform>();
+            viewportRT.anchorMin = Vector2.zero;
+            viewportRT.anchorMax = Vector2.one;
+            viewportRT.offsetMin = new Vector2(8, 8);
+            viewportRT.offsetMax = new Vector2(-8, -8);
+            var viewportImg = viewportGo.AddComponent<Image>();
+            viewportImg.color = new Color(1, 1, 1, 0.001f); // почти невидимый, но Mask нужен Image
+            var viewportMask = viewportGo.AddComponent<Mask>();
+            viewportMask.showMaskGraphic = false;
+
+            // Content — растёт по preferredSize (за счёт ContentSizeFitter).
+            var contentGo = new GameObject(ToolLang.Get("Content", "Содержимое"));
+            contentGo.transform.SetParent(viewportGo.transform, false);
+            var contentRT = contentGo.AddComponent<RectTransform>();
+            contentRT.anchorMin = new Vector2(0, 1);
+            contentRT.anchorMax = new Vector2(1, 1);
+            contentRT.pivot = new Vector2(0.5f, 1);
+            contentRT.anchoredPosition = Vector2.zero;
+            contentRT.sizeDelta = new Vector2(0, 100);
+            var fitter = contentGo.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var layout = contentGo.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(4, 4, 4, 4);
+            layout.spacing = 4;
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+
+            // Дефолтный TMP — для подсказки. Юзер может удалить и положить
+            // свои элементы (или оставить как есть для длинного диалога).
+            var textGo = new GameObject(ToolLang.Get("Text", "Текст"));
+            textGo.transform.SetParent(contentGo.transform, false);
+            var textRT = textGo.AddComponent<RectTransform>();
+            var tmp = textGo.AddComponent<TextMeshProUGUI>();
+            tmp.text = ToolLang.Get(
+                "Scrollable text area. Long content will scroll automatically.",
+                "Область с прокруткой. Длинный текст прокручивается автоматически.");
+            tmp.fontSize = 22;
+            tmp.color = Color.white;
+            tmp.alignment = TextAlignmentOptions.TopLeft;
+            tmp.enableWordWrapping = true;
+            var textFitter = textGo.AddComponent<ContentSizeFitter>();
+            textFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // Подключаем ScrollRect.
+            scrollRect.viewport = viewportRT;
+            scrollRect.content  = contentRT;
+            scrollRect.horizontal = false;
+            scrollRect.vertical   = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 22;
+
+            Undo.RegisterCreatedObjectUndo(viewportGo, "Create Viewport");
+            Undo.RegisterCreatedObjectUndo(contentGo, "Create Content");
+            Undo.RegisterCreatedObjectUndo(textGo, "Create Text");
+            Undo.CollapseUndoOperations(undoGroup);
+
+            RefreshRectsCache();
+        }
+
+        // ─── Готовая панель диалога Novella ───
+        // Один клик создаёт ПОЛНУЮ структуру нижней диалоговой панели:
+        //   DialoguePanel (Image bg)
+        //     ├ SpeakerName (TMP, 28pt, болд, сверху)
+        //     └ DialogueScroll (ScrollRect)
+        //         └ Viewport (Mask)
+        //             └ Content (ContentSizeFitter)
+        //                 └ DialogueBody (TMP, wrapping, 24pt)
+        // Поля DialogueBody / SpeakerName автоматически пытаются привязаться
+        // к NovellaPlayer в сцене (если он есть). Если Player'а нет —
+        // структура создаётся без привязки, юзер свяжет вручную.
+        private void CreateDialoguePanel()
+        {
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Create Dialogue Panel");
+
+            string locName = ToolLang.Get("Dialogue Panel", "Панель диалога");
+            var panelGo = new GameObject(locName);
+            var bg = panelGo.AddComponent<Image>();
+            bg.color = new Color(0, 0, 0, 0.85f);
+            var panelRT = PlaceUnderParent(panelGo, new Vector2(1500, 280), "Create Dialogue Panel");
+            if (panelRT == null) return;
+
+            // SpeakerName — поверх в верхней части.
+            var spkGo = new GameObject(ToolLang.Get("Speaker Name", "Имя говорящего"));
+            spkGo.transform.SetParent(panelGo.transform, false);
+            var spkRT = spkGo.AddComponent<RectTransform>();
+            spkRT.anchorMin = new Vector2(0, 1); spkRT.anchorMax = new Vector2(1, 1);
+            spkRT.pivot = new Vector2(0, 1);
+            spkRT.anchoredPosition = new Vector2(20, -10);
+            spkRT.sizeDelta = new Vector2(-40, 40);
+            var spkTmp = spkGo.AddComponent<TextMeshProUGUI>();
+            spkTmp.text = ToolLang.Get("Speaker", "Имя");
+            spkTmp.fontSize = 28;
+            spkTmp.color = Color.white;
+            spkTmp.fontStyle = FontStyles.Bold;
+            Undo.RegisterCreatedObjectUndo(spkGo, "Create Speaker");
+            RegisterTmpSubmeshes(spkGo);
+
+            // ScrollRect — для длинного текста.
+            var scrollGo = new GameObject(ToolLang.Get("Dialogue Scroll", "Прокрутка диалога"));
+            scrollGo.transform.SetParent(panelGo.transform, false);
+            var scrollRT = scrollGo.AddComponent<RectTransform>();
+            scrollRT.anchorMin = new Vector2(0, 0); scrollRT.anchorMax = new Vector2(1, 1);
+            scrollRT.offsetMin = new Vector2(20, 16); scrollRT.offsetMax = new Vector2(-20, -54);
+            var scrollRect = scrollGo.AddComponent<ScrollRect>();
+            scrollRect.horizontal = false; scrollRect.vertical = true;
+            scrollRect.movementType = ScrollRect.MovementType.Clamped;
+            scrollRect.scrollSensitivity = 22;
+            Undo.RegisterCreatedObjectUndo(scrollGo, "Create Scroll");
+
+            // Viewport (Mask).
+            var viewportGo = new GameObject(ToolLang.Get("Viewport", "Окно прокрутки"));
+            viewportGo.transform.SetParent(scrollGo.transform, false);
+            var viewportRT = viewportGo.AddComponent<RectTransform>();
+            viewportRT.anchorMin = Vector2.zero; viewportRT.anchorMax = Vector2.one;
+            viewportRT.offsetMin = Vector2.zero; viewportRT.offsetMax = Vector2.zero;
+            var viewportImg = viewportGo.AddComponent<Image>();
+            viewportImg.color = new Color(1, 1, 1, 0.001f);
+            var viewportMask = viewportGo.AddComponent<Mask>();
+            viewportMask.showMaskGraphic = false;
+            Undo.RegisterCreatedObjectUndo(viewportGo, "Create Viewport");
+
+            // Content.
+            var contentGo = new GameObject(ToolLang.Get("Content", "Содержимое"));
+            contentGo.transform.SetParent(viewportGo.transform, false);
+            var contentRT = contentGo.AddComponent<RectTransform>();
+            contentRT.anchorMin = new Vector2(0, 1); contentRT.anchorMax = new Vector2(1, 1);
+            contentRT.pivot = new Vector2(0.5f, 1);
+            contentRT.anchoredPosition = Vector2.zero;
+            contentRT.sizeDelta = new Vector2(0, 100);
+            var contentFitter = contentGo.AddComponent<ContentSizeFitter>();
+            contentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            Undo.RegisterCreatedObjectUndo(contentGo, "Create Content");
+
+            // Body text.
+            var bodyGo = new GameObject(ToolLang.Get("Dialogue Text", "Текст диалога"));
+            bodyGo.transform.SetParent(contentGo.transform, false);
+            var bodyRT = bodyGo.AddComponent<RectTransform>();
+            bodyRT.anchorMin = new Vector2(0, 1); bodyRT.anchorMax = new Vector2(1, 1);
+            bodyRT.pivot = new Vector2(0.5f, 1);
+            bodyRT.anchoredPosition = Vector2.zero;
+            bodyRT.sizeDelta = new Vector2(0, 100);
+            var bodyTmp = bodyGo.AddComponent<TextMeshProUGUI>();
+            bodyTmp.text = ToolLang.Get("Dialogue text…", "Текст диалога…");
+            bodyTmp.fontSize = 24;
+            bodyTmp.color = Color.white;
+            bodyTmp.enableWordWrapping = true;
+            bodyTmp.alignment = TextAlignmentOptions.TopLeft;
+            var bodyFitter = bodyGo.AddComponent<ContentSizeFitter>();
+            bodyFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            Undo.RegisterCreatedObjectUndo(bodyGo, "Create Body");
+            RegisterTmpSubmeshes(bodyGo);
+
+            scrollRect.viewport = viewportRT;
+            scrollRect.content  = contentRT;
+
+            // Авто-привязка к NovellaPlayer если он есть в сцене —
+            // чтобы юзер не лазил в инспекторе руками.
+            var player = UnityEngine.Object.FindFirstObjectByType<NovellaEngine.Runtime.NovellaPlayer>();
+            if (player != null)
+            {
+                Undo.RecordObject(player, "Bind DialoguePanel");
+                if (player.DialoguePanel == null)     player.DialoguePanel = panelGo;
+                if (player.SpeakerNameText == null)   player.SpeakerNameText = spkTmp;
+                if (player.DialogueBodyText == null)  player.DialogueBodyText = bodyTmp;
+                EditorUtility.SetDirty(player);
+            }
+
+            Undo.CollapseUndoOperations(undoGroup);
+            RefreshRectsCache();
+        }
+
+        // Регистрирует TMP-сабмеши которые TextMeshProUGUI создаёт под
+        // собой при первом рендере (TMP SubMeshUI [...]). Без этого
+        // Undo даёт warning «child became dangling».
+        private static void RegisterTmpSubmeshes(GameObject hostGo)
+        {
+            if (hostGo == null) return;
+            var tmp = hostGo.GetComponent<TextMeshProUGUI>();
+            if (tmp == null) return;
+            tmp.ForceMeshUpdate();
+            for (int i = 0; i < hostGo.transform.childCount; i++)
+            {
+                var child = hostGo.transform.GetChild(i).gameObject;
+                if (child.name != null && child.name.StartsWith("TMP SubMesh"))
+                    Undo.RegisterCreatedObjectUndo(child, "TMP submesh");
+            }
+        }
+
+        // ─── Готовый контейнер для персонажей Novella ───
+        // RectTransform full-stretch с именем «Characters» — куда
+        // NovellaPlayer спавнит Char_* при старте диалога. Авто-привязка
+        // к NovellaPlayer.CharactersContainer если Player в сцене.
+        private void CreateCharactersContainer()
+        {
+            string locName = ToolLang.Get("Characters", "Персонажи");
+            var go = new GameObject(locName);
+            var rt = PlaceUnderParent(go, new Vector2(200, 200), "Create Characters Container");
+            if (rt == null) return;
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+
+            var player = UnityEngine.Object.FindFirstObjectByType<NovellaEngine.Runtime.NovellaPlayer>();
+            if (player != null && player.CharactersContainer == null)
+            {
+                Undo.RecordObject(player, "Bind CharactersContainer");
+                player.CharactersContainer = go.transform;
+                EditorUtility.SetDirty(player);
+            }
+            EditorUtility.SetDirty(go);
+            RefreshRectsCache();
         }
 
         // Пустышка — RectTransform-контейнер без графики. Используется как
@@ -3434,6 +3681,11 @@ namespace NovellaEngine.Editor
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreatePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("📜 Scroll View", "📜 Прокрутка")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateScrollView(); });
+            menu.AddSeparator("");
+            // Готовые Novella-пресеты.
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/💬 Dialogue Panel", "Novella/💬 Панель диалога")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateDialoguePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/🎭 Characters Container", "Novella/🎭 Контейнер персонажей")), false, () => { _selectedList.Clear(); _selectedList.Add(rt); CreateCharactersContainer(); });
             menu.AddSeparator("");
             // Вставка готового префаба из библиотеки — открывает popup-пикер
             // с поиском, чтобы не делать раздутый submenu при сотнях префабов.
@@ -3480,6 +3732,11 @@ namespace NovellaEngine.Editor
             menu.AddItem(new GUIContent(ToolLang.Get("🔘 Button", "🔘 Кнопка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateButton(); });
             menu.AddItem(new GUIContent(ToolLang.Get("🖼 Image", "🖼 Картинка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateImage(); });
             menu.AddItem(new GUIContent(ToolLang.Get("▣ Panel", "▣ Панель")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreatePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("📜 Scroll View", "📜 Прокрутка")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateScrollView(); });
+            // Готовые Novella-пресеты — обёрнуты в submenu «Novella/…»
+            // чтобы не загромождать корневое меню.
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/💬 Dialogue Panel", "Novella/💬 Панель диалога")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateDialoguePanel(); });
+            menu.AddItem(new GUIContent(ToolLang.Get("Novella/🎭 Characters Container", "Novella/🎭 Контейнер персонажей")), false, () => { _selectedList.Clear(); _selectedList.Add(creationParent.GetComponent<RectTransform>()); CreateCharactersContainer(); });
             menu.AddSeparator("");
             menu.AddItem(new GUIContent(ToolLang.Get("📦 Prefab…", "📦 Префаб…")), false, () =>
             {
@@ -4514,18 +4771,6 @@ namespace NovellaEngine.Editor
                 t = parent;
             }
             return false;
-        }
-
-        private RectTransform GetTopLevelParent(RectTransform deepest)
-        {
-            if (_canvas == null) return deepest;
-            RectTransform canvasRT = _canvas.GetComponent<RectTransform>();
-            RectTransform curr = deepest;
-            while (curr.parent != null && curr.parent != canvasRT && curr.parent != canvasRT.parent)
-            {
-                curr = curr.parent.GetComponent<RectTransform>();
-            }
-            return curr;
         }
 
         private Rect ComputeRectScreenForRT(RectTransform rt, Rect drawRect, int targetW, int targetH)
@@ -6084,522 +6329,6 @@ namespace NovellaEngine.Editor
             GUILayout.Space(8);
         }
 
-        // Редактор «что делает кнопка по клику» — список шагов (ClickSequence).
-        // Каждый шаг = карточка с заголовком (action picker), ↑↓✖ кнопками,
-        // delay-полем и контекстным редактором параметров. Внизу — «+ Добавить шаг».
-        // Все шаги выполняются сверху вниз с задержкой DelayBefore у каждого.
-        private static void DrawClickActionEditor(NovellaEngine.Runtime.UI.NovellaUIBinding b)
-        {
-            if (b.ClickSequence == null) b.ClickSequence = new System.Collections.Generic.List<NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep>();
-
-            // Если sequence пустая — миграция legacy single-action.
-            if (b.ClickSequence.Count == 0 && b.ClickAction != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
-            {
-                b.ClickSequence.Add(new NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep
-                {
-                    Action = b.ClickAction,
-                    OnClickGotoNodeId = b.OnClickGotoNodeId,
-                    StoryToStart = b.StoryToStart,
-                    TargetBindingId = b.TargetBindingId,
-                    LanguageCode = b.LanguageCode,
-                    URL = b.URL,
-                });
-                b.ClickAction = NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None;
-                EditorUtility.SetDirty(b);
-            }
-
-            // Знаем ли мы что предыдущий шаг — терминальный (сменит сцену и т.п.).
-            bool sceneEnded = false;
-
-            for (int i = 0; i < b.ClickSequence.Count; i++)
-            {
-                var step = b.ClickSequence[i];
-                int stepIndex = i;
-                DrawStepCard(b, step, stepIndex, sceneEnded);
-                if (NovellaEngine.Runtime.UI.NovellaUIBinding.IsTerminalAction(step.Action)) sceneEnded = true;
-                GUILayout.Space(6);
-            }
-
-            GUILayout.Space(2);
-            // «+ Добавить действие»
-            if (NovellaSettingsModule.NeutralButton("➕  " + ToolLang.Get("Add action", "Добавить действие"), GUILayout.Height(28)))
-            {
-                NovellaEngine.Editor.UIBindings.NovellaActionPickerWindow.Open(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None, picked =>
-                {
-                    if (b == null) return;
-                    if (picked == NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None) return;
-                    b.ClickSequence.Add(new NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep { Action = picked });
-                    EditorUtility.SetDirty(b);
-                });
-            }
-        }
-
-        private static void DrawStepCard(NovellaEngine.Runtime.UI.NovellaUIBinding b, NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep step, int idx, bool sceneEnded)
-        {
-            Rect cardStart = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true));
-            GUILayout.Space(8);
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Space(8);
-            GUILayout.BeginVertical();
-
-            // Header: №, action picker (растягивается), ↑ ↓ ✖
-            GUILayout.BeginHorizontal();
-
-            var numSt = new GUIStyle(EditorStyles.miniBoldLabel) { fontSize = 10 };
-            numSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-            GUILayout.Label("#" + (idx + 1), numSt, GUILayout.Width(26));
-
-            // Action picker — кнопка с текущим действием.
-            var (icon, name) = ActionIconAndName(step.Action);
-            string label = step.Action == NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None
-                ? "—  " + ToolLang.Get("(pick an action)", "(выбери действие)")
-                : $"{icon}    {name}    ▾";
-
-            Color prevBg = GUI.backgroundColor;
-            if (step.Action != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
-                GUI.backgroundColor = new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.45f);
-            var btnSt = new GUIStyle(EditorStyles.miniButton) { fontSize = 11, alignment = TextAnchor.MiddleLeft, padding = new RectOffset(8, 8, 4, 4) };
-            if (GUILayout.Button(label, btnSt, GUILayout.Height(26)))
-            {
-                NovellaEngine.Editor.UIBindings.NovellaActionPickerWindow.Open(step.Action, picked =>
-                {
-                    step.Action = picked;
-                    EditorUtility.SetDirty(b);
-                });
-            }
-            GUI.backgroundColor = prevBg;
-
-            using (new EditorGUI.DisabledScope(idx == 0))
-                if (GUILayout.Button("↑", GUILayout.Width(22), GUILayout.Height(26)))
-                {
-                    var t = b.ClickSequence[idx]; b.ClickSequence[idx] = b.ClickSequence[idx - 1]; b.ClickSequence[idx - 1] = t;
-                    EditorUtility.SetDirty(b);
-                }
-            using (new EditorGUI.DisabledScope(idx == b.ClickSequence.Count - 1))
-                if (GUILayout.Button("↓", GUILayout.Width(22), GUILayout.Height(26)))
-                {
-                    var t = b.ClickSequence[idx]; b.ClickSequence[idx] = b.ClickSequence[idx + 1]; b.ClickSequence[idx + 1] = t;
-                    EditorUtility.SetDirty(b);
-                }
-            if (GUILayout.Button("✖", GUILayout.Width(22), GUILayout.Height(26)))
-            {
-                b.ClickSequence.RemoveAt(idx);
-                EditorUtility.SetDirty(b);
-                GUILayout.EndHorizontal();
-                GUILayout.EndVertical();
-                GUILayout.Space(8);
-                GUILayout.EndHorizontal();
-                return;
-            }
-            GUILayout.EndHorizontal();
-
-            // Описание действия + warning если предыдущий шаг закроет сцену.
-            if (step.Action != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
-            {
-                var descSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-                descSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                GUILayout.Label(ActionDescription(step.Action), descSt);
-            }
-            if (sceneEnded)
-            {
-                var wSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-                wSt.normal.textColor = new Color(0.95f, 0.66f, 0.30f);
-                GUILayout.Label("⚠  " + ToolLang.Get("Previous step closes the scene — this action probably won't run.",
-                                                     "Предыдущий шаг закрывает сцену — этот шаг скорее всего не выполнится."), wSt);
-            }
-
-            GUILayout.Space(4);
-
-            // Параметр(ы) для конкретного действия — те же поля что были в legacy editor'е,
-            // но теперь читаются/пишутся в step.X.
-            DrawStepParameters(b, step);
-
-            // Задержка — мини-плашка внизу шага с коротким лейблом и числовым полем.
-            // Текст один-в-строку, без переносов, чтобы у двух соседних шагов
-            // оставался одинаковый размер и ничего не съезжало за рамку.
-            if (step.Action != NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None)
-            {
-                GUILayout.Space(4);
-                Rect delayRect = GUILayoutUtility.GetRect(0, 28, GUILayout.ExpandWidth(true));
-                EditorGUI.DrawRect(delayRect, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.06f));
-
-                string when = idx == 0
-                    ? ToolLang.Get("⏱ Wait before start",        "⏱ Подождать перед запуском")
-                    : ToolLang.Get("⏱ Wait after previous step", "⏱ Подождать после прошлого шага");
-                string tooltip = idx == 0
-                    ? ToolLang.Get("How many seconds to wait AFTER the click, before running this step.",
-                                   "Сколько секунд ждать ПОСЛЕ клика, прежде чем выполнить этот шаг.")
-                    : ToolLang.Get("How many seconds to wait AFTER the previous step finishes, before running this step.",
-                                   "Сколько секунд ждать ПОСЛЕ окончания предыдущего шага, прежде чем выполнить этот шаг.");
-
-                var lblSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, wordWrap = false, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
-                lblSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                GUI.Label(new Rect(delayRect.x + 8, delayRect.y, delayRect.width - 96, delayRect.height),
-                          new GUIContent(when, tooltip), lblSt);
-
-                Rect numRect = new Rect(delayRect.xMax - 86, delayRect.y + 4, 50, 20);
-                float newDelay = EditorGUI.FloatField(numRect, step.DelayBefore);
-                if (Mathf.Abs(newDelay - step.DelayBefore) > 0.0001f) { step.DelayBefore = Mathf.Max(0f, newDelay); EditorUtility.SetDirty(b); }
-                var sSt = new GUIStyle(EditorStyles.miniLabel) { fontSize = 10, alignment = TextAnchor.MiddleLeft };
-                sSt.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                GUI.Label(new Rect(delayRect.xMax - 32, delayRect.y, 30, delayRect.height), "сек", sSt);
-            }
-
-            GUILayout.EndVertical();
-            GUILayout.Space(8);
-            GUILayout.EndHorizontal();
-            GUILayout.Space(8);
-
-            Rect cardEnd = GUILayoutUtility.GetLastRect();
-            Rect cardRect = new Rect(cardStart.x, cardStart.y, cardStart.width, cardEnd.yMax - cardStart.y);
-            DrawRectBorder(cardRect, new Color(NovellaSettingsModule.GetAccentColor().r, NovellaSettingsModule.GetAccentColor().g, NovellaSettingsModule.GetAccentColor().b, 0.4f));
-            EditorGUI.DrawRect(new Rect(cardRect.x, cardRect.y, 3, cardRect.height), NovellaSettingsModule.GetAccentColor());
-        }
-
-        private static void DrawStepParameters(NovellaEngine.Runtime.UI.NovellaUIBinding b, NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep step)
-        {
-            switch (step.Action)
-            {
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.GoToNode:
-                    DrawNodePickerRow(step.OnClickGotoNodeId,
-                        v => { step.OnClickGotoNodeId = v; EditorUtility.SetDirty(b); });
-                    break;
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.StartNewGame:
-                    DrawStoryPickerRow(step.StoryToStart,
-                        v => { step.StoryToStart = v; EditorUtility.SetDirty(b); });
-                    break;
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ShowPanel:
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.HidePanel:
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel:
-                    NovellaEngine.Editor.UIBindings.UIBindingFieldGUI.Draw(
-                        ToolLang.Get("Target UI element", "Целевой UI элемент"),
-                        step.TargetBindingId,
-                        NovellaEngine.Runtime.UI.UIBindingKind.Any,
-                        v => { step.TargetBindingId = v; EditorUtility.SetDirty(b); });
-                    break;
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage:
-                    DrawLanguagePickerRow(step.LanguageCode,
-                        v => { step.LanguageCode = v; EditorUtility.SetDirty(b); });
-                    break;
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:
-                {
-                    string newUrl = EditorGUILayout.TextField(step.URL ?? "");
-                    if (newUrl != step.URL) { step.URL = newUrl; EditorUtility.SetDirty(b); }
-                    break;
-                }
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.SetVariable:
-                    DrawSetVariableEditor(b, step);
-                    break;
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TriggerEvent:
-                {
-                    var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-                    hint.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                    GUILayout.Label("👨‍💻 " + ToolLang.Get("For coders: subscribe to NovellaPlayer.OnNovellaEvent in C# to react.",
-                                                            "Для кодеров: подпишись на NovellaPlayer.OnNovellaEvent в C# чтобы обработать."), hint);
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Event name", "Имя"), GUILayout.Width(80));
-                    string en = EditorGUILayout.TextField(step.EventName ?? "");
-                    if (en != step.EventName) { step.EventName = en; EditorUtility.SetDirty(b); }
-                    GUILayout.EndHorizontal();
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Param", "Параметр"), GUILayout.Width(80));
-                    string ep = EditorGUILayout.TextField(step.EventParam ?? "");
-                    if (ep != step.EventParam) { step.EventParam = ep; EditorUtility.SetDirty(b); }
-                    GUILayout.EndHorizontal();
-                    break;
-                }
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PlaySFX:
-                {
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Sound", "Звук"), GUILayout.Width(80));
-                    string clipName = step.SfxClip != null ? step.SfxClip.name : ToolLang.Get("— pick from gallery —", "— выбрать из галереи —");
-                    if (GUILayout.Button("🎵  " + clipName, EditorStyles.popup))
-                    {
-                        NovellaGalleryWindow.ShowWindow(obj =>
-                        {
-                            if (obj is AudioClip clip) { step.SfxClip = clip; EditorUtility.SetDirty(b); }
-                        }, NovellaGalleryWindow.EGalleryFilter.Audio);
-                    }
-                    using (new EditorGUI.DisabledScope(step.SfxClip == null))
-                    {
-                        if (GUILayout.Button("✖", GUILayout.Width(22))) { step.SfxClip = null; EditorUtility.SetDirty(b); }
-                    }
-                    GUILayout.EndHorizontal();
-
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Volume", "Громкость"), GUILayout.Width(80));
-                    float nv = EditorGUILayout.Slider(step.SfxVolume, 0f, 1f);
-                    if (Mathf.Abs(nv - step.SfxVolume) > 0.0001f) { step.SfxVolume = nv; EditorUtility.SetDirty(b); }
-                    GUILayout.EndHorizontal();
-                    break;
-                }
-
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.UnlockAchievement:
-                {
-                    var hint = new GUIStyle(EditorStyles.miniLabel) { fontSize = 9, wordWrap = true };
-                    hint.normal.textColor = NovellaSettingsModule.GetTextMuted();
-                    GUILayout.Label("👨‍💻 " + ToolLang.Get("For coders: integrate Steam/Google Play via NovellaPlayer.OnNovellaEvent (event = 'Achievement.Unlock').",
-                                                            "Для кодеров: подключи Steam/Google Play через NovellaPlayer.OnNovellaEvent (event = 'Achievement.Unlock')."), hint);
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(ToolLang.Get("Achievement ID", "ID ачивки"), GUILayout.Width(120));
-                    string ai = EditorGUILayout.TextField(step.AchievementId ?? "");
-                    if (ai != step.AchievementId) { step.AchievementId = ai; EditorUtility.SetDirty(b); }
-                    GUILayout.EndHorizontal();
-                    break;
-                }
-            }
-        }
-
-        // Редактор для SetVariable: пикер имени переменной → потом поле под её тип.
-        private static void DrawSetVariableEditor(NovellaEngine.Runtime.UI.NovellaUIBinding b, NovellaEngine.Runtime.UI.NovellaUIBinding.ClickActionStep step)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Variable", "Переменная"), GUILayout.Width(100));
-            string current = step.VariableName ?? "";
-            if (GUILayout.Button(string.IsNullOrEmpty(current) ? ToolLang.Get("— pick a variable —", "— выбери переменную —") : "🔧  " + current, EditorStyles.popup))
-            {
-                NovellaEngine.Editor.UIBindings.NovellaVariablePickerWindow.Open(current, picked =>
-                {
-                    if (b == null || step == null) return;
-                    step.VariableName = picked;
-                    EditorUtility.SetDirty(b);
-                });
-            }
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
-            {
-                if (GUILayout.Button("✖", GUILayout.Width(22))) { step.VariableName = ""; EditorUtility.SetDirty(b); }
-            }
-            GUILayout.EndHorizontal();
-
-            // Тип переменной — показываем поле под её Type из настроек.
-            if (string.IsNullOrEmpty(step.VariableName)) return;
-            var def = GetVariableDef(step.VariableName);
-            if (def == null) return;
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ToolLang.Get("Set to", "Значение"), GUILayout.Width(100));
-            switch (def.Type)
-            {
-                case NovellaEngine.Data.EVarType.Integer:
-                    int ni = EditorGUILayout.IntField(step.VariableInt);
-                    if (ni != step.VariableInt) { step.VariableInt = ni; EditorUtility.SetDirty(b); }
-                    break;
-                case NovellaEngine.Data.EVarType.Boolean:
-                    bool nb = EditorGUILayout.Toggle(step.VariableBool);
-                    if (nb != step.VariableBool) { step.VariableBool = nb; EditorUtility.SetDirty(b); }
-                    break;
-                case NovellaEngine.Data.EVarType.String:
-                    string ns = EditorGUILayout.TextField(step.VariableString ?? "");
-                    if (ns != step.VariableString) { step.VariableString = ns; EditorUtility.SetDirty(b); }
-                    break;
-                case NovellaEngine.Data.EVarType.Float:
-                    float nf = EditorGUILayout.FloatField(step.VariableFloat);
-                    if (!Mathf.Approximately(nf, step.VariableFloat)) { step.VariableFloat = nf; EditorUtility.SetDirty(b); }
-                    break;
-                case NovellaEngine.Data.EVarType.Choice:
-                    if (def.Choices == null || def.Choices.Count == 0)
-                    {
-                        GUILayout.Label(ToolLang.Get("(no values defined)", "(значения не заданы)"),
-                            EditorStyles.miniLabel);
-                    }
-                    else
-                    {
-                        string[] choices = def.Choices.Select(c => (c ?? "").Replace("/", "-")).ToArray();
-                        int sel = System.Array.IndexOf(choices, (step.VariableString ?? "").Replace("/", "-"));
-                        if (sel < 0) sel = 0;
-                        int newSel = EditorGUILayout.Popup(sel, choices);
-                        if (newSel != sel) { step.VariableString = choices[newSel]; EditorUtility.SetDirty(b); }
-                        else if (string.IsNullOrEmpty(step.VariableString)) { step.VariableString = choices[0]; EditorUtility.SetDirty(b); }
-                    }
-                    break;
-                case NovellaEngine.Data.EVarType.List:
-                    // Для List показываем операцию Add/Remove/Clear + поле
-                    // элемента (если не Clear).
-                    string[] opNames = ToolLang.IsRU
-                        ? new[] { "Добавить", "Убрать", "Очистить" }
-                        : new[] { "Add item", "Remove item", "Clear all" };
-                    NovellaEngine.Data.EVarOperation[] opMap = {
-                        NovellaEngine.Data.EVarOperation.ListAdd,
-                        NovellaEngine.Data.EVarOperation.ListRemove,
-                        NovellaEngine.Data.EVarOperation.ListClear
-                    };
-                    int opIdx = System.Array.IndexOf(opMap, step.VariableListOp);
-                    if (opIdx == -1) opIdx = 0;
-                    int newOp = EditorGUILayout.Popup(opIdx, opNames, GUILayout.Width(100));
-                    if (newOp != opIdx) { step.VariableListOp = opMap[newOp]; EditorUtility.SetDirty(b); }
-                    if (step.VariableListOp != NovellaEngine.Data.EVarOperation.ListClear)
-                    {
-                        string nls = EditorGUILayout.TextField(step.VariableString ?? "");
-                        if (nls != step.VariableString) { step.VariableString = nls; EditorUtility.SetDirty(b); }
-                    }
-                    else
-                    {
-                        GUILayout.Label(ToolLang.Get("(removes all items)", "(удалит все элементы)"),
-                            EditorStyles.miniLabel);
-                    }
-                    break;
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private static NovellaEngine.Data.VariableDefinition GetVariableDef(string name)
-        {
-            var settings = Resources.Load<NovellaEngine.Data.NovellaVariableSettings>("NovellaEngine/NovellaVariableSettings");
-            if (settings == null || settings.Variables == null) return null;
-            return settings.Variables.Find(v => v.Name == name);
-        }
-
-        private static (string icon, string name) ActionIconAndName(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction a)
-        {
-            switch (a)
-            {
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None:              return ("—",  ToolLang.Get("No action",            "Без действия"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.GoToNode:          return ("🎯", ToolLang.Get("Go to graph node",     "Перейти к ноде графа"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.StartNewGame:      return ("▶",  ToolLang.Get("Start new game",       "Начать новую игру"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.LoadLastSave:      return ("📥", ToolLang.Get("Load last save",       "Загрузить сохранение"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.RestartChapter:    return ("↻",  ToolLang.Get("Restart chapter",      "Перезапустить главу"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.QuitGame:          return ("🚪", ToolLang.Get("Quit game",             "Выйти из игры"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ShowPanel:         return ("👁", ToolLang.Get("Show UI element",      "Показать UI элемент"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.HidePanel:         return ("🚫", ToolLang.Get("Hide UI element",      "Скрыть UI элемент"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel:       return ("🔁", ToolLang.Get("Toggle UI element",    "Переключить UI элемент"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.SetVariable:       return ("🔧", ToolLang.Get("Set variable",         "Установить переменную"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TriggerEvent:      return ("📡", ToolLang.Get("Trigger event",        "Послать событие"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.UnlockAchievement: return ("🏆", ToolLang.Get("Unlock achievement",   "Разблокировать ачивку"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PlaySFX:           return ("🎵", ToolLang.Get("Play SFX",             "Проиграть звук"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage:    return ("🌐", ToolLang.Get("Change language",      "Сменить язык"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:           return ("🔗", ToolLang.Get("Open URL",             "Открыть ссылку"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PauseGame:         return ("⏸",  ToolLang.Get("Pause game",           "Пауза игры"));
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ResumeGame:        return ("▶",  ToolLang.Get("Resume game",          "Снять паузу"));
-            }
-            return ("?", a.ToString());
-        }
-
-        private static string ActionDescription(NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction a)
-        {
-            switch (a)
-            {
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.None:              return ToolLang.Get("Click does nothing.", "Клик ничего не делает.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.RestartChapter:    return ToolLang.Get("Wipes save of the current chapter and restarts it from the root node.", "Стирает сохранение текущей главы и перезапускает её с корневой ноды.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.SetVariable:       return ToolLang.Get("Sets a NovellaVariables value. Useful for like-buttons, name choosers, ...", "Устанавливает значение игровой переменной. Удобно для кнопок «Лайкнуть», «Выбрать имя» и т.п.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TriggerEvent:      return ToolLang.Get("(For coders) Sends a named event to NovellaPlayer.OnNovellaEvent.", "(Для кодеров) Посылает именованное событие в NovellaPlayer.OnNovellaEvent.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.UnlockAchievement: return ToolLang.Get("(For coders) Sends 'Achievement.Unlock' — wire your platform via NovellaPlayer.OnNovellaEvent.", "(Для кодеров) Посылает 'Achievement.Unlock' — подключи платформу через NovellaPlayer.OnNovellaEvent.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PlaySFX:           return ToolLang.Get("Plays a one-shot sound effect.", "Проигрывает звуковой эффект (одноразово).");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.GoToNode:          return ToolLang.Get("Player jumps to a graph node — for in-dialogue choices and menus.", "Player переходит на ноду графа — для диалоговых выборов и меню.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.StartNewGame:   return ToolLang.Get("Wipes save of the chosen story and launches it from the start.", "Стирает сохранение выбранной истории и запускает её с начала.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.LoadLastSave:   return ToolLang.Get("Reopens the most recently played story from its save.", "Открывает последнюю запущенную историю с её сохранения.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.QuitGame:       return ToolLang.Get("Closes the game (or stops Play Mode in editor).", "Закрывает игру (или останавливает Play Mode в редакторе).");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ShowPanel:      return ToolLang.Get("Activates the chosen UI element.", "Включает (показывает) выбранный UI элемент.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.HidePanel:      return ToolLang.Get("Deactivates the chosen UI element.", "Выключает (скрывает) выбранный UI элемент.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.TogglePanel:    return ToolLang.Get("Toggles visibility of the chosen UI element.", "Переключает видимость выбранного UI элемента.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ChangeLanguage: return ToolLang.Get("Sets the in-game language. All NovellaUIBinding texts and dialogue refresh.", "Меняет язык игры. Все тексты NovellaUIBinding и диалоги обновятся.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.OpenURL:        return ToolLang.Get("Opens the URL in the system browser.", "Открывает URL в системном браузере.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.PauseGame:      return ToolLang.Get("⚠ Sets Time.timeScale = 0 — game freezes. Make sure you wire a «Resume game» button somewhere, otherwise the game looks frozen.", "⚠ Ставит Time.timeScale = 0 — игра «замораживается». Обязательно повесь где-то кнопку «Снять паузу», иначе игра выглядит зависшей.");
-                case NovellaEngine.Runtime.UI.NovellaUIBinding.BindingAction.ResumeGame:     return ToolLang.Get("Sets Time.timeScale = 1 — unfreezes the game. Usually wired to «Continue» or close-pause buttons.", "Ставит Time.timeScale = 1 — снимает паузу. Обычно вешается на «Продолжить» или крестик закрытия паузы.");
-            }
-            return "";
-        }
-
-        private static void DrawStoryPickerRow(NovellaEngine.Data.NovellaStory current, System.Action<NovellaEngine.Data.NovellaStory> onChanged)
-        {
-            GUILayout.BeginHorizontal();
-            string label = current != null ? current.name : ToolLang.Get("— pick a story —", "— выбери историю —");
-            if (GUILayout.Button(label, EditorStyles.popup))
-            {
-                var menu = new GenericMenu();
-                var guids = AssetDatabase.FindAssets("t:NovellaStory");
-                if (guids.Length == 0) menu.AddDisabledItem(new GUIContent(ToolLang.Get("No stories in project", "Нет историй в проекте")));
-                else
-                {
-                    foreach (var g in guids)
-                    {
-                        var p = AssetDatabase.GUIDToAssetPath(g);
-                        var s = AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaStory>(p);
-                        if (s == null) continue;
-                        var sRef = s;
-                        menu.AddItem(new GUIContent(s.name), s == current, () => onChanged(sRef));
-                    }
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(null));
-                }
-                menu.ShowAsContext();
-            }
-            using (new EditorGUI.DisabledScope(current == null))
-            {
-                if (GUILayout.Button("✖", GUILayout.Width(22))) onChanged(null);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        // Дружелюбный picker языка: показывает «Русский (RU)» в кнопке, по клику
-        // открывается popup со всеми сконфигурированными языками + их именами.
-        // Internally хранит код (RU, EN, ...).
-        private static void DrawLanguagePickerRow(string current, System.Action<string> onChanged)
-        {
-            GUILayout.BeginHorizontal();
-
-            string label = string.IsNullOrEmpty(current)
-                ? ToolLang.Get("— pick a language —", "— выбери язык —")
-                : LanguageDisplayName(current);
-
-            if (GUILayout.Button(label, EditorStyles.popup))
-            {
-                var menu = new GenericMenu();
-                var settings = NovellaEngine.Data.NovellaLocalizationSettings.GetOrCreateSettings();
-                if (settings == null || settings.Languages == null || settings.Languages.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No languages configured — open Settings → UI Localization", "Языки не настроены — открой Настройки → Локализация UI")));
-                }
-                else
-                {
-                    foreach (var lang in settings.Languages)
-                    {
-                        if (string.IsNullOrEmpty(lang)) continue;
-                        string code = lang;
-                        menu.AddItem(new GUIContent(LanguageDisplayName(code)), code == current, () => onChanged(code));
-                    }
-                }
-                menu.ShowAsContext();
-            }
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
-            {
-                if (GUILayout.Button("✖", GUILayout.Width(22))) onChanged("");
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        // Имя языка для UI: «Русский (RU)». Код в скобках чтобы пользователь
-        // видел и читаемое имя, и техническую сторону.
-        private static string LanguageDisplayName(string code)
-        {
-            if (string.IsNullOrEmpty(code)) return "";
-            string name = code switch
-            {
-                "EN" => "English",
-                "RU" => "Русский",
-                "ES" => "Español",
-                "FR" => "Français",
-                "DE" => "Deutsch",
-                "ZH" => "中文",
-                "JA" => "日本語",
-                "PT" => "Português",
-                "IT" => "Italiano",
-                "PL" => "Polski",
-                "TR" => "Türkçe",
-                "KO" => "한국어",
-                "AR" => "العربية",
-                _ => null
-            };
-            return name != null ? $"{name} ({code})" : code;
-        }
-
         // «💡»-плашка под лейблом поля — объясняет рядовому пользователю
         // зачем это поле и как им пользоваться. Показывается только когда
         // включены Подсказки. Шрифт fontSize=11 — читаемо, не «мелкий стир».
@@ -6614,89 +6343,6 @@ namespace NovellaEngine.Editor
             EditorGUI.DrawRect(new Rect(r.x, r.y, 3, r.height), NovellaSettingsModule.GetAccentColor());
             GUI.Label(r, "💡 " + text, st);
             GUILayout.Space(2);
-        }
-
-        // Поле «ключ + кнопка пикера» для локализации. Кнопка открывает
-        // визуальное окно NovellaLocKeyPickerWindow с группами по категориям.
-        private static void DrawKeyPickerRow(string current, System.Action<string> onChanged)
-        {
-            GUILayout.BeginHorizontal();
-            string newCurrent = EditorGUILayout.TextField(current);
-            if (newCurrent != current) onChanged(newCurrent);
-
-            if (GUILayout.Button("🔑", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
-            {
-                NovellaEngine.Editor.UIBindings.NovellaLocKeyPickerWindow.Open(current, onChanged);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        // Поле «переменная + кнопка пикера». Текстовое поле остаётся на случай
-        // если пользователь хочет ввести имя руками; кнопка 📊 открывает
-        // визуальный Variable Picker Window вместо плоского popup-меню.
-        private static void DrawVarPickerRow(string current, System.Action<string> onChanged)
-        {
-            GUILayout.BeginHorizontal();
-            string newCurrent = EditorGUILayout.TextField(current);
-            if (newCurrent != current) onChanged(newCurrent);
-
-            if (GUILayout.Button("📊", GUILayout.Width(28), GUILayout.Height(EditorGUIUtility.singleLineHeight)))
-            {
-                NovellaEngine.Editor.UIBindings.NovellaVariablePickerWindow.Open(current, onChanged);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        // Поле «нода + кнопка пикера» — для OnClickGoto.
-        private static void DrawNodePickerRow(string current, System.Action<string> onChanged)
-        {
-            GUILayout.BeginHorizontal();
-
-            // Покажем имя выбранной ноды если найдём.
-            string label = current;
-            string activeStoryGuid = EditorPrefs.GetString("Novella_ActiveStoryGuid", "");
-            NovellaEngine.Data.NovellaTree tree = null;
-            if (!string.IsNullOrEmpty(activeStoryGuid))
-            {
-                var p = AssetDatabase.GUIDToAssetPath(activeStoryGuid);
-                var story = AssetDatabase.LoadAssetAtPath<NovellaEngine.Data.NovellaStory>(p);
-                if (story != null) tree = story.StartingChapter;
-            }
-            if (tree != null && !string.IsNullOrEmpty(current))
-            {
-                var node = tree.Nodes.Find(n => n != null && n.NodeID == current);
-                if (node != null) label = string.IsNullOrEmpty(node.NodeTitle) ? node.NodeType.ToString() : node.NodeTitle;
-            }
-            if (string.IsNullOrEmpty(label)) label = ToolLang.Get("— pick a node —", "— выбери ноду —");
-
-            if (GUILayout.Button(label, EditorStyles.popup, GUILayout.ExpandWidth(true)))
-            {
-                var menu = new GenericMenu();
-                if (tree == null || tree.Nodes == null || tree.Nodes.Count == 0)
-                {
-                    menu.AddDisabledItem(new GUIContent(ToolLang.Get("No active story / nodes", "Активная история не выбрана / нет нод")));
-                }
-                else
-                {
-                    foreach (var n in tree.Nodes)
-                    {
-                        if (n == null || string.IsNullOrEmpty(n.NodeID)) continue;
-                        string title = string.IsNullOrEmpty(n.NodeTitle) ? n.NodeType.ToString() : n.NodeTitle;
-                        string item = $"{n.NodeType}/{title}";
-                        string nid = n.NodeID;
-                        menu.AddItem(new GUIContent(item), nid == current, () => onChanged(nid));
-                    }
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent(ToolLang.Get("(clear)", "(очистить)")), false, () => onChanged(""));
-                }
-                menu.ShowAsContext();
-            }
-
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(current)))
-            {
-                if (GUILayout.Button("✖", GUILayout.Width(22))) onChanged("");
-            }
-            GUILayout.EndHorizontal();
         }
 
         private void DrawLegacyTextConvertSection(UnityEngine.UI.Text legacy)
